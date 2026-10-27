@@ -1,0 +1,28 @@
+{
+  "id": "cyber",
+  "name": "Cyber",
+  "colors": {
+    "bg": 4278190080,
+    "lineBase": 4279382586,
+    "lineActive": 4280250240,
+    "accent": 4278248959,
+    "glow": 1459676671,
+    "textPrimary": 4292409087,
+    "textSecondary": 4285506483,
+    "pulse": 4281204872,
+    "danger": 4293227371,
+    "scrim": 3087007744,
+    "surface": 4278651149
+  },
+  "iconStyle": "plain",
+  "glowRadiusDp": 48.0,
+  "lineWidths": {
+    "baseDp": 1.0,
+    "activeDp": 1.5
+  },
+  "motionScale": 1.0,
+  "breatheAmount": 0.04,
+  "style": {
+    "terminalStats": true
+  }
+}

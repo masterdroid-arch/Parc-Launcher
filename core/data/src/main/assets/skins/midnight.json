@@ -1,0 +1,25 @@
+{
+  "id": "midnight",
+  "name": "Midnight",
+  "colors": {
+    "bg": 4278190080,
+    "lineBase": 4280956228,
+    "lineActive": 4282010206,
+    "accent": 4286559432,
+    "glow": 1199551688,
+    "textPrimary": 4293323504,
+    "textSecondary": 4287403942,
+    "pulse": 4289251322,
+    "danger": 4293227371,
+    "scrim": 3087007744,
+    "surface": 4278519560
+  },
+  "iconStyle": "plain",
+  "glowRadiusDp": 48.0,
+  "lineWidths": {
+    "baseDp": 1.0,
+    "activeDp": 1.5
+  },
+  "motionScale": 1.0,
+  "breatheAmount": 0.04
+}

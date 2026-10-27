@@ -1,0 +1,61 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      T20: DUMP is signature|privileged, so the user cannot grant it from settings; it is only
+      reachable with `adb shell pm grant com.brightblu.parc android.permission.DUMP`. The stats
+      layer checks it with checkSelfPermission and reads nothing through dumpsys without it.
+      Lint's ProtectedPermissions is ignored deliberately: a normal app can never hold it, and the
+      stats layer treats the denied case as "unavailable" rather than relying on the grant.
+    -->
+    <uses-permission
+        android:name="android.permission.DUMP"
+        tools:ignore="ProtectedPermissions" />
+    <!--
+      T34: PACKAGE_USAGE_STATS is the optional enrichment of the usage layer (PROJECT.md §6.3,
+      decision 15). Declaring it is what makes `adb shell appops set com.brightblu.parc
+      GET_USAGE_STATS allow` reachable for a sideloaded build; Parc still works fully without it and
+      falls back to its own launch log. It is a protected permission, so the appop grant (or the
+      Usage access settings page) is the only way it is ever held; lint's ProtectedPermissions is
+      ignored deliberately. No INTERNET, no QUERY_ALL_PACKAGES.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <!--
+      T32: ACCESS_WIFI_STATE is a normal permission, granted at install with no user prompt, and is
+      the only permission the Wi-Fi RSSI / link-speed reading needs. Everything else in the stats
+      layer reads public APIs with no permission at all.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!--
+      T70: icon packs are only visible through the three public theme actions. Each <intent> is a
+      package-visibility entry, not a permission; no QUERY_ALL_PACKAGES is declared. The actions are
+      the ones ADW, Nova and the legacy Apex/AndDoes packs advertise.
+    -->
+    <queries>
+        <intent>
+            <action android:name="org.adw.launcher.THEMES" />
+        </intent>
+        <intent>
+            <action android:name="com.novalauncher.THEME" />
+        </intent>
+        <intent>
+            <action android:name="com.anddoes.launcher.THEME" />
+        </intent>
+    </queries>
+    <application>
+        <!--
+          T15: the notification listener. It needs no permission of its own; the user grants
+          Notification access under Special access, and BIND_NOTIFICATION_LISTENER_SERVICE is what
+          only the system may hold to bind this service. Not exported, so no other app can bind it.
+        -->
+        <service
+            android:name="com.brightblu.parc.core.data.notifications.ParcNotificationListenerService"
+            android:exported="false"
+            android:label="Parc notifications"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

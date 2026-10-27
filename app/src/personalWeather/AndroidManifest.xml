@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      T137: the weather variant only. The Weather hub page asks Open-Meteo (https) for a forecast
+      at the coordinates of the city the user typed. The personal and play builds never get this
+      permission; the build's manifest check fails if either one does.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

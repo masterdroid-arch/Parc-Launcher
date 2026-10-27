@@ -1,0 +1,2 @@
+# Shared, public Android debug key; release keys remain ignored.
+!debug.keystore

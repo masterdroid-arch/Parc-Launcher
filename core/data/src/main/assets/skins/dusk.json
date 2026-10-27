@@ -1,0 +1,25 @@
+{
+  "id": "dusk",
+  "name": "Dusk",
+  "colors": {
+    "bg": 4278190080,
+    "lineBase": 4280951350,
+    "lineActive": 4283054947,
+    "accent": 4290223323,
+    "glow": 1203215579,
+    "textPrimary": 4293715954,
+    "textSecondary": 4288122788,
+    "pulse": 4292001776,
+    "danger": 4293227371,
+    "scrim": 3087007744,
+    "surface": 4278650377
+  },
+  "iconStyle": "plain",
+  "glowRadiusDp": 48.0,
+  "lineWidths": {
+    "baseDp": 1.0,
+    "activeDp": 1.5
+  },
+  "motionScale": 1.0,
+  "breatheAmount": 0.04
+}

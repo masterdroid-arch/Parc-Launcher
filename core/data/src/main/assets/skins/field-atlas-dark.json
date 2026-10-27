@@ -1,0 +1,43 @@
+{
+  "id": "field-atlas-dark",
+  "name": "Field Atlas Dark",
+  "colors": {
+    "bg": 4279246627,
+    "surface": 4279839533,
+    "textPrimary": 4294175709,
+    "textSecondary": 4290956221,
+    "lineBase": 4285697927,
+    "lineActive": 4294220415,
+    "accent": 4294220415,
+    "pulse": 4294220415,
+    "danger": 4294945440,
+    "warn": 4294230905,
+    "glow": 16030335,
+    "scrim": 3088064291
+  },
+  "style": {
+    "arc": "contour",
+    "ticks": true,
+    "bearings": true,
+    "iconFrame": "registration",
+    "iconScale": 0.88,
+    "iconOutlineDp": 1,
+    "hub": "compass",
+    "aim": "distance",
+    "label": "mapLabel",
+    "background": "contour",
+    "statsFrame": "legend",
+    "header": "ruled",
+    "clockFamily": "serif",
+    "clockWeight": 400,
+    "annotationFamily": "monospace"
+  },
+  "breatheAmount": 0,
+  "parallaxDp": 0,
+  "shape": {
+    "surfaceAlpha": 1
+  },
+  "icons": {
+    "saturation": 0.65
+  }
+}

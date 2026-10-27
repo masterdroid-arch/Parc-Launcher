@@ -1,0 +1,53 @@
+{
+  "id": "phosphor",
+  "name": "Phosphor",
+  "colors": {
+    "bg": 4278717963,
+    "surface": 4279245844,
+    "textPrimary": 4290049711,
+    "textSecondary": 4287870104,
+    "lineBase": 4283725402,
+    "lineActive": 4290049711,
+    "accent": 4290049711,
+    "glow": 11859631,
+    "pulse": 4294950761,
+    "danger": 4294939783,
+    "scrim": 3087535627,
+    "warn": 4294950761
+  },
+  "style": {
+    "arc": "dotted",
+    "ticks": true,
+    "iconFrame": "brackets",
+    "iconScale": 0.8,
+    "iconOutlineDp": 1,
+    "hub": "crosshair",
+    "aim": "coordinates",
+    "label": "brackets",
+    "statsFrame": "terminal",
+    "header": "ruled",
+    "clockFamily": "monospace",
+    "clockWeight": 400,
+    "annotationFamily": "monospace",
+    "terminalStats": true
+  },
+  "breatheAmount": 0,
+  "parallaxDp": 0,
+  "shape": {
+    "surfaceAlpha": 1,
+    "surfaceCornerDp": 0
+  },
+  "icons": {
+    "saturation": 0
+  },
+  "typography": {
+    "family": "monospace",
+    "fallbackFamily": "monospace"
+  },
+  "depthAlpha": [
+    1,
+    1,
+    1,
+    1
+  ]
+}

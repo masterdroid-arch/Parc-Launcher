@@ -1,0 +1,11 @@
+allprojects { afterEvaluate { p ->
+  if (p.plugins.hasPlugin("com.android.application")) {
+    def a = p.extensions.getByName("android")
+    // Gradle never loads a private key. Sign the unsigned APK manually afterwards.
+    assert a.productFlavors.names.containsAll(["personal", "play"])
+    def r = a.buildTypes.getByName("release")
+    r.minifyEnabled = true
+    r.shrinkResources = true
+    r.signingConfig = null
+    r.proguardFiles(a.getDefaultProguardFile("proguard-android-optimize.txt"))
+  } } }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only review host for the T67 search extras. Not present in release builds. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name="com.brightblu.parc.feature.search.debug.SearchReviewActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Black.NoTitleBar" />
+    </application>
+</manifest>

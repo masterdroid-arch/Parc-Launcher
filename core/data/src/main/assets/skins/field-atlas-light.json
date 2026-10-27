@@ -1,0 +1,43 @@
+{
+  "id": "field-atlas-light",
+  "name": "Field Atlas Light",
+  "colors": {
+    "bg": 4294175709,
+    "surface": 4294702568,
+    "textPrimary": 4279706923,
+    "textSecondary": 4283192658,
+    "lineBase": 4285758320,
+    "lineActive": 4290721830,
+    "accent": 4290721830,
+    "pulse": 4290721830,
+    "danger": 4288684064,
+    "warn": 4286924288,
+    "glow": 12531750,
+    "scrim": 2568430891
+  },
+  "style": {
+    "arc": "contour",
+    "ticks": true,
+    "bearings": true,
+    "iconFrame": "registration",
+    "iconScale": 0.88,
+    "iconOutlineDp": 1,
+    "hub": "compass",
+    "aim": "distance",
+    "label": "mapLabel",
+    "background": "contour",
+    "statsFrame": "legend",
+    "header": "ruled",
+    "clockFamily": "serif",
+    "clockWeight": 400,
+    "annotationFamily": "monospace"
+  },
+  "breatheAmount": 0,
+  "parallaxDp": 0,
+  "shape": {
+    "surfaceAlpha": 1
+  },
+  "icons": {
+    "saturation": 0.65
+  }
+}

@@ -1,0 +1,68 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- T98: locked folders ask for the screen lock or a biometric through the framework BiometricPrompt. Normal permission. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- T100: the Agenda page reads upcoming events. Dangerous (runtime) permission, requested from a button, read only. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!--
+      T101: the Timers page rings a countdown with AlarmManager.setAlarmClock. USE_EXACT_ALARM is granted
+      automatically at install to timer and alarm apps targeting API 33+, so there is no user flow and no
+      SCHEDULE_EXACT_ALARM. POST_NOTIFICATIONS is the Android 13 runtime permission, requested the first
+      time a timer starts; timers still work in the app without it.
+    -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+    <!--
+      Back handling stays on androidx OnBackPressedCallback, the backward-compatible path.
+      Left unset, Android 16 with targetSdk 36 enables predictive back by default and stops
+      calling onBackPressed; this opt-out keeps the same handler from Android 13 up, and
+      OnBackPressedCallback still runs when the flag is false (platform documentation).
+    -->
+    <application android:name=".ParcApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:theme="@style/Theme.Parc" android:allowBackup="false" android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="false">
+        <meta-data android:name="com.brightblu.parc.fileSearchEnabled" android:value="${fileSearchEnabled}" />
+        <meta-data android:name="com.brightblu.parc.contactSearchEnabled" android:value="${contactSearchEnabled}" />
+        <meta-data android:name="com.brightblu.parc.personalBuild" android:value="${personalBuild}" />
+        <!-- T101: delivers a finished timer (and the notification's Dismiss action); not callable by other apps. -->
+        <receiver android:name=".TimerReceiver" android:exported="false" />
+        <!-- OPUS6 (audit F8): re-checks the Focus Do Not Disturb rule at the scheduled change and after a
+             clock or time-zone change. These two system broadcasts need no permission. -->
+        <receiver android:name=".FocusDndReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+        <activity android:name=".PinItemActivity" android:exported="true" android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.content.pm.action.CONFIRM_PIN_SHORTCUT" />
+                <action android:name="android.content.pm.action.CONFIRM_PIN_APPWIDGET" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".RecoveryActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".SafeModeActivity" android:exported="false"
+            android:process=":safe" android:taskAffinity="${applicationId}.safe" android:launchMode="singleTask" android:screenOrientation="portrait" />
+        <activity android:name=".MainActivity" android:exported="true"
+            android:launchMode="singleTask" android:screenOrientation="portrait" android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

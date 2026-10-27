@@ -1,0 +1,28 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- API 34+ uses platform receiver flags; this legacy AndroidX permission is unnecessary. -->
+    <permission android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+        tools:node="remove" />
+    <uses-permission android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+        tools:node="remove" />
+    <application>
+        <activity android:name=".DistributionReviewActivity" android:exported="true" />
+        <service android:name=".MediaFixtureService" android:exported="true" />
+        <activity android:name=".ParcSettingsReviewActivity" android:exported="true" android:screenOrientation="portrait" />
+        <activity android:name=".CommsReviewActivity" android:exported="true" android:screenOrientation="portrait" />
+        <activity android:name=".NotificationBadgesPreviewActivity" android:exported="true"
+            android:screenOrientation="portrait" />
+        <activity android:name=".StatsHudPreviewActivity" android:exported="true"
+            android:screenOrientation="portrait" />
+        <activity android:name=".PreviewRegressionActivity" android:exported="true" />
+        <activity android:name=".AccessibilityProbeActivity" android:exported="true" android:screenOrientation="portrait" />
+        <activity android:name=".CrashProbeActivity" android:exported="true" android:screenOrientation="portrait" />
+        <activity android:name=".RingReviewActivity" android:exported="true"
+            android:screenOrientation="portrait" />
+        <activity android:name=".LayoutPreviewActivity" android:exported="true"
+            android:hardwareAccelerated="false"
+            android:screenOrientation="portrait" />
+        <activity android:name=".RingSpikeActivity" android:exported="true"
+            android:screenOrientation="portrait" />
+    </application>
+</manifest>

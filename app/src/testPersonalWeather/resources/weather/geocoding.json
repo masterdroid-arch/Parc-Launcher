@@ -1,0 +1,5 @@
+{"results":[{"id":2267057,"name":"Lisbon","latitude":38.71667,"longitude":-9.13333,"elevation":45.0,"feature_code":"PPLC","country_code":"PT","timezone":"Europe/Lisbon","population":517802,"country":"Portugal","admin1":"Lisbon"},
+{"id":4334971,"name":"Lisbon","latitude":44.0,"longitude":-70.1,"country":"United States","admin1":"Maine"},
+{"id":1,"name":"","latitude":1.0,"longitude":1.0},
+{"id":2,"name":"Nowhere","latitude":123.0,"longitude":1.0},
+{"id":3,"name":"No coordinates","country":"Atlantis"}],"generationtime_ms":0.5}

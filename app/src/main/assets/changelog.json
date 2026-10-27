@@ -1,0 +1,33 @@
+[
+  {
+    "versionName": "1.0.0",
+    "versionCode": 10000,
+    "date": "2026-10-20",
+    "items": [
+      {
+        "headline": "New skins",
+        "text": "Try Field Atlas day and night, Phosphor, wallpaper colours, or the editor to make your own."
+      },
+      {
+        "headline": "Stats pages",
+        "text": "Swipe the top panel for Clock, battery, network, apps, sound, media, calendar, timers, messages and Notes."
+      },
+      {
+        "headline": "Messages page",
+        "text": "Read and reply to chats right from your home screen."
+      },
+      {
+        "headline": "Focus modes",
+        "text": "Hide distracting apps with Work or Sleep, with an emergency pass when you need them."
+      },
+      {
+        "headline": "Lock a folder",
+        "text": "Hide private apps behind your fingerprint or PIN."
+      },
+      {
+        "headline": "Your own wallpaper",
+        "text": "Pick any picture for the background."
+      }
+    ]
+  }
+]

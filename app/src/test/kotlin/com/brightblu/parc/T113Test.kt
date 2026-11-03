@@ -81,7 +81,8 @@ class T113Test {
         assertTrue("notes" in config.orderedPages); assertFalse("notes" in config.pages)
         assertTrue(config.orderedPages.indexOf("notes") < config.orderedPages.indexOf("comms"))
         assertEquals(listOf("clock", "comms", "system", "focus"), config.orderedPages.filter { it in setOf("clock", "comms", "system", "focus") })
-        assertFalse("notes" in HubConfig().pages)
+        assertTrue("notes" in HubConfig().pages) // T158: Notes is one of the four default tabs for a new user
+        assertFalse("notes" in legacyHubConfig().pages)
         val shown = config.showPage("notes", true).movePage("notes", -1)
         assertEquals(shown.encode(), HubConfig.decode(shown.encode()).encode())
         assertEquals("notes", restoredHubPage("notes", shown))

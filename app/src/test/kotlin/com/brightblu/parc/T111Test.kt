@@ -44,14 +44,6 @@ class T111Test {
             }
         }
     }
-    @Test fun controlsHaveRealKindsAndState() {
-        val look = LookSettings(wallpaper = WallpaperStyle.System, panelOpacityPercent = 40, wallpaperReadability = false)
-        val rows = settingsRootRows("Midnight", false, true, false, true, look = look)
-        assertEquals("40 %", rows.single { it.id == SettingsRowId.PanelOpacity }.detail)
-        assertEquals(false, rows.single { it.id == SettingsRowId.WallpaperReadability }.checked)
-        assertEquals(com.brightblu.parc.feature.settings.ui.SettingKind.Choice, settingsRowSpec(SettingsRowId.PanelOpacity).kind)
-        assertEquals(com.brightblu.parc.feature.settings.ui.SettingKind.Toggle, settingsRowSpec(SettingsRowId.WallpaperReadability).kind)
-    }
     @Test fun backupRoundTripIncludesBothSettings() = runTest {
         class Store : DataStore<Preferences> {
             val state = MutableStateFlow<Preferences>(emptyPreferences())

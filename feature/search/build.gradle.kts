@@ -23,6 +23,8 @@ dependencies {
     implementation(project(":core:model"))
     // T67: SearchPrefs (recents, recents switch, web engine) and WebSearchEngine.
     implementation(project(":core:data"))
+    // T154: the Glass skin frosts the search sheet with feature:ring's frostedBackground.
+    implementation(project(":feature:ring"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.foundation)
     implementation(libs.compose.ui)

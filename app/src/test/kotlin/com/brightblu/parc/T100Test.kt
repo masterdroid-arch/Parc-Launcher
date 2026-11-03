@@ -9,22 +9,6 @@ import org.junit.Test
 
 /** T100: Agenda settings row, summary text and backup. */
 class T100Test {
-    @Test fun agendaRowIsAPageInTheStatsSectionWithPlainDescription() {
-        val spec = settingsRowSpec(SettingsRowId.Agenda)
-        assertEquals(SettingsSectionId.Stats, spec.section)
-        assertEquals(SettingKind.Page, spec.kind)
-        assertEquals("Agenda", spec.title)
-        assertTrue(spec.description.contains("calendars"))
-        val rows = settingsRootRows("Midnight", false, true, false, true)
-        val row = rows.single { it.id == SettingsRowId.Agenda }
-        assertEquals("2 days", row.detail)
-        assertEquals(SettingsSectionId.Stats, row.section)
-        assertEquals(rows.indexOfFirst { it.id == SettingsRowId.HubPages } + 2, rows.indexOf(row))
-        val custom = settingsRootRows("Midnight", false, true, false, true,
-            agendaSummary = AgendaSettingsText.summary(AgendaSettings(1, setOf("Work"))))
-        assertEquals("1 day · 1 left out", custom.single { it.id == SettingsRowId.Agenda }.detail)
-        assertEquals(listOf(SettingsRowId.Agenda), filterSettingsRows(rows, "calendars").map { it.id })
-    }
 
     @Test fun summaryText() {
         assertEquals("2 days", AgendaSettingsText.summary(AgendaSettings()))

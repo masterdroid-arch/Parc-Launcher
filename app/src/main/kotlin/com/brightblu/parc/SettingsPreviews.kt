@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import android.app.WallpaperManager
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
@@ -50,17 +51,16 @@ import kotlinx.coroutines.withContext
 internal fun PreviewSettingsPage(skin: Skin, title: String, onBack: () -> Unit,
     preview: @Composable () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     SettingsPageFrame(skin, onBack) {
-        Column(Modifier.fillMaxSize().padding(horizontal = Metrics.textGutterDp.dp)) {
+        ParcPage(safeTop = false, scroll = false, padBottom = false) {
             BasicText(title, style = settingsTitle(skin))
             preview()
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())
-                .padding(bottom = Metrics.keepOutBottomDp.dp), content = content)
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).parcBottomInset(), content = content)
         }
     }
 }
 
 internal fun settingsTitle(skin: Skin): TextStyle = TextStyle(
-    fontFamily = if (skin.typography.fallbackFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+    fontFamily = skin.textFamily,
     color = Color(skin.colors.textPrimary.toInt()), fontSize = skin.typography.title.sizeSp.sp,
     fontWeight = FontWeight(skin.typography.title.weight), letterSpacing = skin.typography.title.trackingSp.sp)
 
@@ -70,7 +70,8 @@ internal fun settingsTitle(skin: Skin): TextStyle = TextStyle(
  */
 @Composable
 internal fun HomePreview(services: LauncherServices, skin: Skin, look: LookSettings,
-    counts: LayoutCounts? = null, aligned: Boolean? = null, caption: String = "Preview of your home") {
+    counts: LayoutCounts? = null, aligned: Boolean? = null, caption: String = "Preview of your home",
+    appearance: HubAppearance? = null) {
     val context = LocalContext.current
     val layout by services.layout.layout.collectAsState()
     val liveApps by services.unlockedApps.collectAsState()
@@ -83,48 +84,27 @@ internal fun HomePreview(services: LauncherServices, skin: Skin, look: LookSetti
     val phoneColour = rememberPhoneWallpaperColour()
     val wallpaperFile = remember(context) { WallpaperImageStore(context).file }
     var ring by remember { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(skin, scene, look, phoneColour) {
+    val saved = rememberHubAppearance()
+    val hubSize = rememberHubSize()
+    val statusInset = rememberStatusInsetDp()
+    @Suppress("NAME_SHADOWING") val appearance = appearance ?: saved
+    LaunchedEffect(skin, scene, look, phoneColour, appearance, hubSize) {
         delay(Metrics.settingsPreviewDebounceMs)
-        ring = withContext(Dispatchers.Default) {
-            // The phone wallpaper itself is not readable without a photo permission, so the system
-            // choice is shown as its reported main colour (dimmed like Home), as the Wallpaper page does.
-            val fallback = if (look.wallpaper == WallpaperStyle.System && phoneColour != null) {
-                android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888).apply {
-                    eraseColor(SettingsSampleRules.dimmed(phoneColour, look.wallpaperDimPercent))
-                }
-            } else null
-            rasterSkinHome(scene, services, skin, look, wallpaperFile, fallback)
-        }
+        // T178: Home's own stage, cards and arcs (rasterHome); the phone wallpaper, which Parc cannot read, is its main colour.
+        ring = withContext(Dispatchers.Default) { rasterSkinHome(scene, services, skin, look, wallpaperFile, phoneColour, appearance, hubSize, statusInset, context.resources) }
     }
     SettingsPreviewFrame(skin, caption) {
         val current = ring
         if (current == null) BasicText("Preparing preview…", style = settingsText(skin, skin.colors.textSecondary, true))
-        else CompositionLocalProvider(LocalHubLook provides look) { SkinHome(skin, services, scene, current, look) }
+        else CompositionLocalProvider(LocalHubLook provides look) { SkinHome(skin, services, scene, current, look, appearance) }
         Box(Modifier.matchParentSize().pointerInput(Unit) {
             awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } }
         })
     }
 }
 
-/** The clock exactly as the Clock hub page draws it, with the date and alarm lines chosen. */
 @Composable
-internal fun ClockPreview(skin: Skin, look: LookSettings, clockVisible: Boolean) {
-    val context = LocalContext.current
-    val time = rememberHubTime()
-    val detail = remember(look.showDate, look.showAlarm, time) {
-        val zone = java.time.ZoneId.systemDefault()
-        LookClock.detail(look.showDate, look.showAlarm, java.time.LocalDate.now(zone),
-            nextAlarmMillis(context), System.currentTimeMillis(), zone)
-    }
-    SettingsPreviewFrame(skin, "Clock preview", Metrics.settingsClockPreviewHeightDp) {
-        if (!clockVisible || look.clockStyle == ClockStyle.Hidden) {
-            BasicText("The clock is hidden", style = settingsText(skin, skin.colors.textSecondary))
-        } else ClockHubPage(skin, look, time, detail, true)
-    }
-}
-
-@Composable
-private fun rememberPhoneWallpaperColour(): Int? {
+internal fun rememberPhoneWallpaperColour(): Int? {
     val context = LocalContext.current
     return remember(context) {
         runCatching { WallpaperManager.getInstance(context).getWallpaperColors(WallpaperManager.FLAG_SYSTEM)?.primaryColor?.toArgb() }.getOrNull()
@@ -147,108 +127,3 @@ internal object SettingsSampleRules {
     }
 }
 
-/** Compose shape that matches the ring's icon mask for a sample chip. */
-internal fun iconShapeSample(shape: IconShape): Shape = when (shape) {
-    IconShape.Circle -> CircleShape
-    IconShape.Squircle -> RoundedCornerShape(percent = 35)
-    IconShape.RoundedSquare -> RoundedCornerShape(percent = 22)
-    IconShape.None -> RectangleShape
-}
-
-/** A filled icon placeholder in [shape]; [fraction] of the sample box, for size choices. */
-@Composable
-internal fun IconSample(skin: Skin, shape: IconShape, fraction: Float = 0.8f, on: Boolean = true) {
-    Box(Modifier.fillMaxSize(fraction).clip(iconShapeSample(shape))
-        .background(Color((if (on) skin.colors.accent else skin.colors.lineActive).toInt())))
-}
-
-/** Three colour dots of a skin on its own background: a quick visual of the chosen skin. */
-@Composable
-internal fun SkinSwatch(skin: Skin) {
-    Box(Modifier.fillMaxSize().clip(RoundedCornerShape(skin.shape.surfaceCornerDp.coerceAtMost(Metrics.gridDp * 3).dp))
-        .background(Color(skin.colors.bg.toInt())).border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineActive.toInt()),
-            RoundedCornerShape(skin.shape.surfaceCornerDp.coerceAtMost(Metrics.gridDp * 3).dp)),
-        contentAlignment = Alignment.Center) {
-        Row(horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp / 2)) {
-            listOf(skin.colors.accent, skin.colors.textPrimary, skin.colors.lineActive).forEach { tint ->
-                Box(Modifier.size(Metrics.gridDp.dp * 2).clip(CircleShape).background(Color(tint.toInt())))
-            }
-        }
-    }
-}
-
-/** What sits behind Parc, in a thumbnail: phone colour, the saved picture, or the skin colour. */
-@Composable
-internal fun WallpaperSwatch(skin: Skin, look: LookSettings) {
-    val context = LocalContext.current
-    val phone = rememberPhoneWallpaperColour()
-    val picture by produceState<ImageBitmap?>(null, look.wallpaper, look.wallpaperImageRevision) {
-        value = if (look.wallpaper != WallpaperStyle.Image) null else withContext(Dispatchers.IO) {
-            runCatching {
-                BitmapFactory.decodeFile(WallpaperImageStore(context).file.path,
-                    BitmapFactory.Options().apply { inSampleSize = 16 })?.asImageBitmap()
-            }.getOrNull()
-        }
-    }
-    val shape = RoundedCornerShape(Metrics.gridDp.dp * 2)
-    val base = when (look.wallpaper) {
-        WallpaperStyle.System -> phone ?: skin.colors.bg.toInt()
-        WallpaperStyle.Solid -> skin.colors.surface.toInt()
-        else -> skin.colors.bg.toInt()
-    }
-    Box(Modifier.fillMaxSize().clip(shape).background(Color(base))
-        .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineActive.toInt()), shape)) {
-        picture?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
-        if (look.wallpaper == WallpaperStyle.System || look.wallpaper == WallpaperStyle.Image) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = look.wallpaperDimPercent / 100f)))
-        }
-    }
-}
-
-/** The hub panel at its opacity over a striped accent background, so see-through is visible. */
-@Composable
-internal fun PanelSample(skin: Skin, opacityPercent: Int) {
-    val accent = Color(skin.colors.accent.toInt())
-    val panel = Color(skin.colors.bg.toInt()).copy(alpha = opacityPercent / 100f)
-    val line = Color(skin.colors.lineActive.toInt())
-    Box(Modifier.fillMaxSize().drawWithCache {
-        val stroke = Stroke(1.dp.toPx())
-        val stripe = size.width / 5f
-        val inset = size.width * 0.18f
-        val inner = Size(size.width - inset * 2, size.height - inset * 2)
-        val stripeSize = Size(stripe, size.height)
-        onDrawBehind {
-            for (i in 0 until 5) if (i % 2 == 0) drawRect(accent, Offset(i * stripe, 0f), stripeSize)
-            drawRect(panel, Offset(inset, inset), inner)
-            drawRect(line, Offset(inset, inset), inner, style = stroke)
-        }
-    })
-}
-
-/** Concentric quarter arcs from the bottom-right corner with a dot per visible icon. */
-@Composable
-internal fun ArcsSample(skin: Skin, arcs: Int, iconsPerArc: Int) {
-    val lineTint = Color(skin.colors.lineActive.toInt())
-    val dotTint = Color(skin.colors.accent.toInt())
-    val dots = if (iconsPerArc == 0) 4 else iconsPerArc.coerceIn(2, 7)
-    // Geometry is computed once per size in the cache block; drawing only reads the arrays.
-    Box(Modifier.fillMaxSize().drawWithCache {
-        val stroke = Stroke(1.dp.toPx())
-        val dot = size.minDimension / 22f
-        val radii = FloatArray(arcs) { a -> size.minDimension * (0.32f + a * 0.6f / arcs) }
-        val xs = FloatArray(arcs * dots)
-        val ys = FloatArray(arcs * dots)
-        for (a in 0 until arcs) for (i in 0 until dots) {
-            val angle = Math.toRadians(180.0 + 90.0 * (i + 0.5) / dots)
-            xs[a * dots + i] = size.width + (radii[a] * kotlin.math.cos(angle)).toFloat()
-            ys[a * dots + i] = size.height + (radii[a] * kotlin.math.sin(angle)).toFloat()
-        }
-        onDrawBehind {
-            for (a in 0 until arcs) {
-                val r = radii[a]
-                drawArc(lineTint, 180f, 90f, false, Offset(size.width - r, size.height - r), Size(r * 2, r * 2), style = stroke)
-            }
-            for (k in xs.indices) drawCircle(dotTint, dot, Offset(xs[k], ys[k]))
-        }
-    })
-}

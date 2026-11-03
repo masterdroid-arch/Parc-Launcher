@@ -1,5 +1,6 @@
 package com.brightblu.parc.feature.settings.skins
 
+import com.brightblu.parc.model.textFamily
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -18,5 +19,4 @@ internal fun tokenStyle(tint: Long, token: TypeToken): TextStyle = TextStyle(
 )
 
 internal fun skinTokenStyle(skin: com.brightblu.parc.model.Skin, tint: Long, token: TypeToken): TextStyle =
-    tokenStyle(tint, token).copy(fontFamily = if (skin.typography.fallbackFamily == "monospace")
-        androidx.compose.ui.text.font.FontFamily.Monospace else null)
+    tokenStyle(tint, token).copy(fontFamily = skin.textFamily)

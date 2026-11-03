@@ -1,0 +1,31 @@
+{
+  "id": "custom_glass_test",
+  "name": "Glass test",
+  "colors": {
+    "bg": 4278519564,
+    "lineBase": 4282009178,
+    "lineActive": 4287604425,
+    "accent": 4293810731,
+    "glow": 1199551688,
+    "textPrimary": 4294112763,
+    "textSecondary": 4289312978,
+    "pulse": 4289251322,
+    "danger": 4293227371,
+    "scrim": 3087007744,
+    "surface": 4279375906,
+    "moduleSurface": 1200596681,
+    "moduleGuide": 2580141802,
+    "moduleInk": 4294112763
+  },
+  "iconStyle": "plain",
+  "glowRadiusDp": 48.0,
+  "lineWidths": {
+    "baseDp": 1.0,
+    "activeDp": 1.5
+  },
+  "motionScale": 1.0,
+  "breatheAmount": 0.04,
+  "shape": {
+    "moduleStyle": "frosted"
+  }
+}

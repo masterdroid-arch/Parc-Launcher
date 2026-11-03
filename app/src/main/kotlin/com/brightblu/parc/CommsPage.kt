@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import com.brightblu.parc.feature.settings.ui.*
 
 import android.content.ComponentName
@@ -54,20 +55,23 @@ import com.brightblu.parc.core.data.notifications.ParcNotificationListenerServic
 import com.brightblu.parc.feature.settings.notifications.NotificationAccessLink
 import com.brightblu.parc.feature.settings.notifications.NotificationAccessStatus
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.ParcBlocks
+import com.brightblu.parc.model.parcBottomInset
+import com.brightblu.parc.model.parcCardPadding
 import com.brightblu.parc.model.Skin
 import kotlinx.coroutines.launch
 
 @Composable
 private fun consoleStyle(skin: Skin) = TextStyle(
     color = Color(skin.colors.textPrimary.toInt()), fontSize = Metrics.commsMessageSp.sp,
-    fontFamily = if (skin.style.terminalStats) FontFamily.Monospace else FontFamily.SansSerif,
+    fontFamily = if (skin.style.terminalStats) FontFamily.Monospace else skin.textFamily ?: FontFamily.SansSerif,
 )
 
 @Composable
 internal fun ConsoleAction(text: String, skin: Skin, modifier: Modifier = Modifier,
     enabled: Boolean = true, action: () -> Unit) {
     Box(modifier.heightIn(min = Metrics.commsActionDp.dp).widthIn(min = Metrics.commsActionDp.dp)
-        .clickable(enabled = enabled, onClick = action).padding(Metrics.gridDp.dp), contentAlignment = Alignment.CenterStart) {
+        .clickable(enabled = enabled, onClick = action).padding(Metrics.lineGapDp.dp), contentAlignment = Alignment.CenterStart) {
         BasicText(text, style = consoleStyle(skin).copy(
             color = Color((if (enabled) skin.colors.accent else skin.colors.lineActive).toInt())))
     }
@@ -155,8 +159,10 @@ internal fun CommsPage(repository: CommsExtrasRepository, skin: Skin, modifier: 
     val compactLimit = if (LocalHubSize.current == HubSize.Compact) 1 else if (LocalHubSize.current == HubSize.Standard) 3 else Int.MAX_VALUE
     val noticeApp = notice?.second
     val noticePlacement = CommsExtrasPresentation.noticePlacement(noticeApp, liveApps)
-    Column(modifier.fillMaxSize().background(Color(skin.colors.bg.toInt()))
-        .pointerInput(Unit) { detectTapGestures(onTap = { focus.clearFocus(); keyboard?.hide() }) }) {
+    // T158: no page background (the hub card is the surface); 12 dp between the rows.
+    Column(modifier.fillMaxSize()
+        .pointerInput(Unit) { detectTapGestures(onTap = { focus.clearFocus(); keyboard?.hide() }) },
+        verticalArrangement = Arrangement.spacedBy(com.brightblu.parc.model.ParcSpacing.hubRowGapDp().dp)) {
         if (reviewAccess ?: granted) HubHero(ordered.size.toString(), "Conversations", skin)
         if (!(reviewAccess ?: granted)) {
             HubPermissionCard("Comms needs notification access", "Allow", skin) { context.startActivity(access.settingsIntent()) }
@@ -183,12 +189,13 @@ internal fun CommsPage(repository: CommsExtrasRepository, skin: Skin, modifier: 
         when (mode) {
             CommsMode.History -> CommsHistoryList(dismissed, historyList, skin)
             CommsMode.Live -> LazyColumn(Modifier.fillMaxSize(), state = list,
-                verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
+                contentPadding = PaddingValues(bottom = HubPageScroll.endPaddingDp.dp),
+                verticalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
                 items(minOf(ordered.size, compactLimit), key = { ordered[it].id.toString() }) { index ->
                     val conversation = ordered[index]
                     val chosen = selection == conversation.id
                     val card = CommsExtrasPresentation.cardState(chosen, cannedReplies)
-                    Column(Modifier.fillMaxWidth().commsFrame(skin, chosen).padding(Metrics.gridDp.dp)) {
+                    Column(Modifier.fillMaxWidth().commsFrame(skin, chosen).parcCardPadding()) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.weight(1f).heightIn(min = Metrics.commsActionDp.dp)
                                 .clickable {
@@ -274,7 +281,7 @@ private fun ReplyChips(replies: List<String>, skin: Skin, enabled: Boolean, send
                 .background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha), shape)
                 .border(skin.shape.surfaceBorderDp.dp, Color((if (enabled) skin.colors.lineActive else skin.colors.lineBase).toInt()), shape)
                 .clickable(enabled = enabled) { send(reply) }
-                .padding(horizontal = Metrics.gridDp.dp * 2, vertical = Metrics.gridDp.dp),
+                .padding(horizontal = Metrics.itemGapDp.dp, vertical = Metrics.lineGapDp.dp),
                 contentAlignment = Alignment.Center) {
                 BasicText(reply, style = consoleStyle(skin).copy(
                     color = Color((if (enabled) skin.colors.accent else skin.colors.lineActive).toInt())),
@@ -294,10 +301,11 @@ private fun CommsHistoryList(entries: List<CommsHistoryEntry>, state: androidx.c
     val cards = remember(entries) { CommsExtrasPresentation.historyCards(entries) }
     val dim = Color(skin.colors.textSecondary.toInt()).copy(alpha = Metrics.commsHistoryTextAlpha)
     LazyColumn(Modifier.fillMaxSize(), state = state,
-        verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
+        contentPadding = PaddingValues(bottom = HubPageScroll.endPaddingDp.dp),
+        verticalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
         items(cards.size, key = { cards[it].lines.last().conversation.toString() }) { index ->
             val card = cards[index]
-            Column(Modifier.fillMaxWidth().commsFrame(skin, false).padding(Metrics.gridDp.dp)) {
+            Column(Modifier.fillMaxWidth().commsFrame(skin, false).parcCardPadding()) {
                 BasicText(card.header, style = consoleStyle(skin).copy(
                     fontSize = Metrics.commsHeaderSp.sp, color = dim),
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -445,7 +453,7 @@ internal fun CommsSettings(repository: CommsExtrasRepository, skin: Skin, apps: 
     val undo = rememberEditorUndo()
     val spec = if (section == CommsSettingsSection.Apps) EditorSpec.CommsApps else EditorSpec.QuickReplies
     val body: @Composable () -> Unit = {
-    Column(Modifier.fillMaxWidth().imePadding()) {
+    ParcBlocks(Metrics.rowGapDp, Modifier.fillMaxWidth().imePadding()) {
         if (section == CommsSettingsSection.Summary) {
         BasicText("Messages and quick replies", style = settingsText(skin).copy(
             fontSize = skin.typography.title.sizeSp.sp, fontWeight = androidx.compose.ui.text.font.FontWeight(skin.typography.title.weight)))
@@ -474,7 +482,7 @@ internal fun CommsSettings(repository: CommsExtrasRepository, skin: Skin, apps: 
         SettingsSection("Quick replies", skin)
         canned.forEachIndexed { index, reply ->
             SettingsCard(skin) {
-                SettingRow("Remove reply", skin, SettingKind.Action, description = reply, icon = "×") {
+                SettingRow("Remove reply", skin, SettingKind.Action, description = reply, icon = "×", divider = false) {
                     scope.launch { repository.setCannedReplies(CannedReplyEditor.remove(repository.cannedReplies.value, index)) }
                     undo.offer { scope.launch {
                         val current = repository.cannedReplies.value
@@ -519,7 +527,7 @@ internal fun CommsSettings(repository: CommsExtrasRepository, skin: Skin, apps: 
     }
     }
     if (section == CommsSettingsSection.Summary) {
-        Column(Modifier.verticalScroll(rememberHubScrollState())) { body() }
+        Column(Modifier.verticalScroll(rememberHubScrollState()).parcBottomInset()) { body() }
     } else EditorScaffold(spec, skin,
         empty = if (section == CommsSettingsSection.Apps) allowed.isEmpty() else canned.isEmpty(),
         undo = if (undo.action != null) ({ undo.run() }) else null) { body() }
@@ -529,6 +537,6 @@ internal fun CommsSettings(repository: CommsExtrasRepository, skin: Skin, apps: 
 @Composable
 private fun CommsSwitch(label: String, on: Boolean, skin: Skin, change: (Boolean) -> Unit) {
     SettingsCard(skin) {
-        SettingRow(label, skin, SettingKind.Toggle, checked = on) { change(!on) }
+        SettingRow(label, skin, SettingKind.Toggle, checked = on, divider = false) { change(!on) }
     }
 }

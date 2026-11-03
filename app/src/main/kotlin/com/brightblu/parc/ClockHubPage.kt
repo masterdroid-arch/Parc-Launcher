@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.combinedClickable
@@ -69,19 +70,24 @@ internal fun ClockHubPage(skin: Skin, look: LookSettings, time: String, detail: 
     Box(Modifier.fillMaxSize().combinedClickable(onLongClick = { optionsOpen = true }, onClick = {
         runCatching { context.startActivity(android.content.Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS)) }
     }), contentAlignment = Alignment.Center) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberHubScrollState()),
+        Column(Modifier.fillMaxWidth().hubPageScroll(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
-            if (visible && look.clockStyle != ClockStyle.Hidden) {
-                if (look.clockStyle == ClockStyle.Digital && SevenSegment.supports(shownTime) && !config.clock.seconds) DigitalHubClock(shownTime, skin)
-                else BasicText(shownTime, style = TextStyle(color = Color((if (skin.style.header == HeaderStyle.ruled) skin.colors.accent else skin.colors.textPrimary).toInt()),
+            verticalArrangement = Arrangement.spacedBy(ParcSpacing.hubRowGapDp().dp)) { // T158: 12 dp between rows
+            val face = ClockFaces.of(skin.typography, look.clockStyle)
+            if (visible && face != ClockFace.Hidden) {
+                val sizeSp = if (LocalHubSize.current == HubSize.Compact) Metrics.hubValueSp else if (config.clock.seconds || !config.clock.hour24) Metrics.hubValueSp else Metrics.hubClockSp
+                val ink = Color((if (skin.style.header == HeaderStyle.ruled) skin.colors.accent else skin.colors.textPrimary).toInt())
+                if (face == ClockFace.Digital && SevenSegment.supports(shownTime) && !config.clock.seconds) DigitalHubClock(shownTime, skin)
+                else if (face == ClockFace.Dot) {
+                    // T155: a Doto skin draws the panel's time as dot-matrix at the panel's own size.
+                    val dot = skin.typography.clockDot
+                    DotNumerals(shownTime, DotRole.clockDot, skin.typography.copy(clockDot = dot.copy(sizeSp = sizeSp)), ink)
+                }
+                else BasicText(shownTime, style = TextStyle(color = ink,
                     letterSpacing = skin.typography.clock.trackingSp.sp,
-                    fontSize = (if (LocalHubSize.current == HubSize.Compact) Metrics.hubValueSp else if (config.clock.seconds || !config.clock.hour24) Metrics.hubValueSp else Metrics.hubClockSp).sp,
+                    fontSize = sizeSp.sp,
                     fontWeight = FontWeight(hubClockWeight(look.clockStyle, skin)),
-                    fontFamily = if (look.clockStyle == ClockStyle.Mono) FontFamily.Monospace
-                        else FontFamily(androidx.compose.ui.text.font.Typeface(android.graphics.Typeface.create(
-                            android.graphics.Typeface.create(skin.style.clockFamily.ifEmpty { skin.typography.fallbackFamily }, android.graphics.Typeface.NORMAL),
-                            hubClockWeight(look.clockStyle, skin), false)))))
+                    fontFamily = remember(look.clockStyle, skin) { hubClockFamily(look.clockStyle, skin) }))
             }
             if (LocalHubSize.current != HubSize.Compact) {
                 BasicText(ClockDisplay.date(now, zone), style = hudValueStyle(skin))
@@ -108,7 +114,7 @@ internal fun ClockHubPage(skin: Skin, look: LookSettings, time: String, detail: 
 
 /** Segment paths are built when size/time changes, never inside a draw callback. */
 @Composable
-private fun DigitalHubClock(time: String, skin: Skin) {
+internal fun DigitalHubClock(time: String, skin: Skin) {
     val h = skin.typography.clock.sizeSp * Metrics.digitalClockHeightRatio * androidx.compose.ui.platform.LocalDensity.current.fontScale
     val width = time.sumOf { (if (it == ':') Metrics.digitalClockColonWidthRatio else Metrics.digitalClockDigitWidthRatio).toDouble() }.toFloat() * h + (time.length - 1) * h * Metrics.digitalClockGapRatio
     Box(Modifier.size(width.dp, h.dp).semantics { contentDescription = time }.drawWithCache {

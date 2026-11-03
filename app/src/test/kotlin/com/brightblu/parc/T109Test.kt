@@ -31,7 +31,7 @@ class T109Test {
         assertEquals(config.encode(), HubConfig.decode(config.encode()).encode())
     }
     @Test fun clockCanBeHiddenAndPagesReorderedAcrossSaveAndRestore() {
-        val config = HubConfig().movePage("clock", 99).movePage("media", -99).showPage("clock", false)
+        val config = legacyHubConfig().movePage("clock", 99).movePage("media", -99).showPage("clock", false)
         val restored = HubConfig.decode(config.encode())
         assertEquals("media", restored.pages.first())
         assertEquals("clock", restored.orderedPages.last())
@@ -58,7 +58,7 @@ class T109Test {
         assertEquals(0f, RingHudBounds.heightDp(60f, 40f), 0f)
     }
     @Test fun flexibleTilesGrowWithinLimitsAndOverflowScrolls() {
-        assertEquals(94f, HubPanelLayout.tileHeightDp(400f, 4), 0f)
+        assertEquals(91f, HubPanelLayout.tileHeightDp(400f, 4), 0f) // (400 - 3 x 12) / 4
         assertEquals(Metrics.hudCellHeightDp, HubPanelLayout.tileHeightDp(100f, 4), 0f)
         assertEquals(Metrics.hubTileMaxHeightDp, HubPanelLayout.tileHeightDp(600f, 1), 0f)
         assertEquals(Metrics.hudCellHeightDp, HubPanelLayout.tileHeightDp(0f, 0), 0f)
@@ -68,15 +68,8 @@ class T109Test {
             if (height > Metrics.hudCellHeightDp) assertTrue(height * rows + Metrics.hudCellGapDp * (rows - 1) <= available + .001f)
         }
     }
-    @Test fun headerTimeIsAnOffByDefaultStatsToggle() {
-        val row = settingsRootRows("Midnight", false, true, true, true).single { it.id == SettingsRowId.HeaderTime }
-        assertEquals(SettingKind.Toggle, row.kind)
-        assertEquals(SettingsSectionId.Stats, row.section)
-        assertEquals(false, row.checked)
-        assertEquals("Time in the page header", row.label)
-    }
     @Test fun newHeaderSettingAndPageOrderTravelThroughAppBackup() = runTest {
-        assertEquals(BackupSpecs.hub, AppBackup.HubSpec)
+        assertEquals(BackupSpecs.hub.keys, AppBackup.HubSpec.keys.filterNot { it.name in HubAppearanceCodec.keys })
         val key = AppBackup.HubSpec.key("header_time")!!
         assertEquals(BackupValueType.Bool, key.type)
         assertTrue(BackupValues.matches(key, false))

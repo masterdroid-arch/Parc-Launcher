@@ -41,8 +41,8 @@ class CommsPresentationTest {
         assertEquals(listOf(3L, 4L, 5L), CommsPresentation.recent(a).map { it.timeMs })
     }
     @Test fun pageMemoryRestoresAndHiddenOrUnknownFallsBackToSystem() {
-        assertEquals("comms", restoredHubPage("comms", HubConfig()))
-        assertEquals("system", restoredHubPage("comms", HubConfig().showPage("comms", false)))
+        assertEquals("comms", restoredHubPage("comms", legacyHubConfig()))
+        assertEquals("system", restoredHubPage("comms", legacyHubConfig().showPage("comms", false)))
         assertEquals("system", restoredHubPage("future", HubConfig()))
         assertEquals("system", restoredHubPage("comms", HubConfig(hiddenPages = HubCatalog.pages.toSet())))
     }
@@ -60,6 +60,6 @@ class CommsPresentationTest {
         assertEquals("no reply button, opens app", CommsPresentation.notice(ReplyResult.NoReplyAction))
         assertEquals("reply failed, opens app", CommsPresentation.notice(ReplyResult.Failed))
         assertEquals("comms", HubConfig.decode("system:true:battery:").pages.last())
-        assertEquals(11, HubConfig().pages.size)
+        assertEquals(11, legacyHubConfig().pages.size)
     }
 }

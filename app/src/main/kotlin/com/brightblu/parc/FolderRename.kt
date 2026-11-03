@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.ParcCardContent
 import com.brightblu.parc.model.Skin
 
 /**
@@ -57,12 +59,12 @@ internal fun FolderNameSheet(
         Column(
             Modifier
                 .width(Metrics.menuMinWidthDp.dp)
-                .sheetSurface(skin)
-                .padding(Metrics.hintCardPaddingDp.dp),
+                .sheetSurface(skin),
         ) {
+            ParcCardContent {
             BasicText(
                 title,
-                style = TextStyle(
+                style = TextStyle(fontFamily = skin.textFamily, 
                     color = Color(skin.colors.textSecondary.toInt()),
                     fontSize = skin.typography.caption.sizeSp.sp,
                     fontWeight = FontWeight(skin.typography.caption.weight),
@@ -73,7 +75,7 @@ internal fun FolderNameSheet(
                 value = draftName,
                 onValueChange = onNameChange,
                 singleLine = true,
-                textStyle = TextStyle(
+                textStyle = TextStyle(fontFamily = skin.textFamily, 
                     color = Color(skin.colors.textPrimary.toInt()),
                     fontSize = skin.typography.menu.sizeSp.sp,
                     fontWeight = FontWeight(skin.typography.menu.weight),
@@ -90,7 +92,7 @@ internal fun FolderNameSheet(
             if (nameIssue.isNotEmpty()) {
                 BasicText(
                     nameIssue,
-                    style = TextStyle(
+                    style = TextStyle(fontFamily = skin.textFamily, 
                         color = Color(skin.colors.danger.toInt()),
                         fontSize = skin.typography.caption.sizeSp.sp,
                         fontWeight = FontWeight(skin.typography.caption.weight),
@@ -100,11 +102,12 @@ internal fun FolderNameSheet(
                 )
             }
             Row(
-                Modifier.fillMaxWidth().padding(top = Metrics.gridDp.dp * 2),
+                Modifier.fillMaxWidth().padding(top = Metrics.sectionHeaderGapDp.dp),
                 horizontalArrangement = Arrangement.End,
             ) {
                 SheetButton("Cancel", skin.colors.textSecondary, skin, onCancel)
                 SheetButton("Save", skin.colors.accent, skin, onSave)
+            }
             }
         }
     }
@@ -116,12 +119,12 @@ private fun SheetButton(label: String, tint: Long, skin: Skin, onClick: () -> Un
         Modifier
             .height(Metrics.menuRowHeightDp.dp)
             .clickable(onClick = onClick)
-            .padding(horizontal = Metrics.gridDp.dp * 3),
+            .padding(horizontal = Metrics.rowGapDp.dp),
         contentAlignment = Alignment.Center,
     ) {
         BasicText(
             label,
-            style = TextStyle(
+            style = TextStyle(fontFamily = skin.textFamily, 
                 color = Color(tint.toInt()),
                 fontSize = skin.typography.menu.sizeSp.sp,
                 fontWeight = FontWeight(skin.typography.menu.weight),

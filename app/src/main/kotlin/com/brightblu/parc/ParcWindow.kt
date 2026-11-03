@@ -10,7 +10,9 @@ internal fun Activity.configureParcWindow() {
     window.setDecorFitsSystemWindows(false)
     window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
     window.statusBarColor = Skin.Midnight.colors.bg.toInt()
-    window.navigationBarColor = Skin.Midnight.colors.bg.toInt()
+    // T155: the module card runs to 12 dp above the screen edge, under the gesture bar. Android 15+ always draws the
+    // bar transparent; this makes older versions match, so the card is not cut by a coloured bar.
+    window.navigationBarColor = android.graphics.Color.TRANSPARENT
     window.isStatusBarContrastEnforced = false
     window.isNavigationBarContrastEnforced = false
     window.insetsController?.setSystemBarsAppearance(0,

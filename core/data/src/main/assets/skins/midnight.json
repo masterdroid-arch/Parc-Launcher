@@ -12,7 +12,8 @@
     "pulse": 4289251322,
     "danger": 4293227371,
     "scrim": 3087007744,
-    "surface": 4278519560
+    "surface": 4278519560,
+    "moduleSurface": 4279507748
   },
   "iconStyle": "plain",
   "glowRadiusDp": 48.0,

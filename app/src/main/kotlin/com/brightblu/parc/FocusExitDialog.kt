@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import android.content.Context
 import android.text.InputType
 import android.view.ActionMode
@@ -99,7 +100,7 @@ internal fun FocusExitDialog(repository: FocusRepository, exit: FocusExit, skin:
                 SettingsContent(skin, if (exit == FocusExit.Pass) "Emergency pass" else "End focus early") {
                     SettingsSection("Leaving this screen cancels the countdown and challenge.", skin)
                     SettingsCard(skin) {
-                      Column(Modifier.padding(Metrics.gridDp.dp * 2)) {
+                      Column(Modifier.parcCardPadding()) {
                         val ticket = request
                         if (ticket != null) {
                             SettingsSection(if (remaining > 0) "Wait ${(remaining + 999) / 1000} s" else "Delay complete", skin)
@@ -109,9 +110,9 @@ internal fun FocusExitDialog(repository: FocusRepository, exit: FocusExit, skin:
                                     FocusChallenge.Sentence -> {
                                         SettingsSection("Retype this sentence. Paste is disabled.", skin)
                                         androidx.compose.foundation.text.BasicText(ticket.sentence,
-                                            style = androidx.compose.ui.text.TextStyle(color = Color(skin.colors.textPrimary.toInt()),
+                                            style = androidx.compose.ui.text.TextStyle(fontFamily = skin.textFamily, color = Color(skin.colors.textPrimary.toInt()),
                                                 fontSize = skin.typography.menu.sizeSp.sp),
-                                            modifier = Modifier.padding(Metrics.gridDp.dp * 2))
+                                            modifier = Modifier.padding(Metrics.sectionHeaderGapDp.dp))
                                         AndroidView(factory = { context -> FocusTypingField(context).apply {
                                             contentDescription = "Retype the random sentence"
                                             background = null
@@ -154,7 +155,7 @@ internal fun FocusExitDialog(repository: FocusRepository, exit: FocusExit, skin:
                                                 try { tryAwaitRelease() } finally { repository.hold(ticket, false) }
                                             }) }, contentAlignment = Alignment.Center) {
                                             androidx.compose.foundation.text.BasicText("Hold · ${(holdRemaining + 999) / 1000} s",
-                                                style = androidx.compose.ui.text.TextStyle(color = Color(skin.colors.bg.toInt()), fontSize = skin.typography.menu.sizeSp.sp))
+                                                style = androidx.compose.ui.text.TextStyle(fontFamily = skin.textFamily, color = Color(skin.colors.bg.toInt()), fontSize = skin.typography.menu.sizeSp.sp))
                                         }
                                         // Grant while the finger is still held: releasing resets the challenge.
                                         LaunchedEffect(holdRemaining) { if (holdRemaining == 0L && !busy) {

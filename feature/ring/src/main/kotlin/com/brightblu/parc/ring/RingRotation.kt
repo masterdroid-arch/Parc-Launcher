@@ -43,10 +43,6 @@ object RingRotation {
     /** The nearest integer slot offset. */
     fun snap(offset: Float): Float = round(offset)
 
-    /** Flung target: release velocity (slots/s) carries the ring `gain` slots before snapping. */
-    fun flingTarget(offset: Float, velocity: Float): Float =
-        snap(offset + velocity * Metrics.rotateFlingGain)
-
     /**
      * Continuous window position of an item under the current offset. A non-rotating arc (count ≤
      * capacity) is the identity: the stored index is the window slot. A rotating arc folds
@@ -116,16 +112,6 @@ object RingRotation {
         if (count <= capacity) return (0 until count).toList()
         val o = Math.floorMod(offset, count)
         return (0 until capacity).map { Math.floorMod(o + it, count) }
-    }
-
-    /** Exact critically damped spring toward `target`; returns (offset, velocity) at time `t` seconds. */
-    fun spring(offset0: Float, velocity0: Float, target: Float, omega: Float, t: Float): Pair<Float, Float> {
-        val d0 = offset0 - target
-        val a = velocity0 + omega * d0
-        val e = exp(-omega * t)
-        val offset = target + (d0 + a * t) * e
-        val velocity = (velocity0 - omega * a * t) * e
-        return offset to velocity
     }
 
     /** A spring has landed when both the offset error and velocity are inside their tolerances. */

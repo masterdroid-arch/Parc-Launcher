@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import android.view.View
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -244,7 +245,7 @@ internal fun AllAppsLetterArc(
     val shown = if (held >= 0) held else front
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    val textStyle = TextStyle(fontSize = Metrics.letterStripTextSp.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+    val textStyle = TextStyle(fontFamily = skin.textFamily, fontSize = Metrics.letterStripTextSp.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
     fun jump(x: Float, y: Float, animate: Boolean) {
         fingerAngle = LetterArc.angleOf(arc, x, y)
         val target = LetterStrip.nearestEnabled(LetterArc.letterAt(arc, fingerAngle), latestFirst)
@@ -309,7 +310,7 @@ internal fun AllAppsLetterArc(
             .background(Color(skin.colors.surface.toInt()), CircleShape)
             .border(skin.lineWidths.activeDp.dp, accent, CircleShape)
             .clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
-            BasicText(LetterStrip.Letters[held], style = TextStyle(color = accent,
+            BasicText(LetterStrip.Letters[held], style = TextStyle(fontFamily = skin.textFamily, color = accent,
                 fontSize = Metrics.letterBubbleTextSp.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center))
         }
     }

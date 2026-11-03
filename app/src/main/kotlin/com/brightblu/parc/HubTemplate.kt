@@ -47,14 +47,14 @@ internal fun HubHero(value: String, label: String, skin: Skin) {
 
 @Composable
 internal fun HubPermissionCard(message: String, action: String, skin: Skin, scroll: Boolean = true, allow: () -> Unit) {
-    val viewport = if (scroll) Modifier.heightIn(max = LocalHubContentHeight.current.dp).verticalScroll(rememberHubScrollState()) else Modifier
+    val viewport = if (scroll) Modifier.heightIn(max = LocalHubContentHeight.current.dp).hubPageScroll() else Modifier
     Column(viewport) {
     HudCell(skin, Modifier.fillMaxWidth()) {
         Column {
             BasicText(message, style = hudValueStyle(skin))
             Box(Modifier.heightIn(min = Metrics.menuRowHeightDp.dp)
                 .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.accent.toInt()), RoundedCornerShape(skin.shape.surfaceCornerDp.dp))
-                .clickable(onClick = allow).padding(horizontal = Metrics.hudCellGapDp.dp), contentAlignment = Alignment.Center) {
+                .clickable(onClick = allow).padding(horizontal = Metrics.rowGapDp.dp), contentAlignment = Alignment.Center) {
                 BasicText(action, style = hudValueStyle(skin, skin.colors.accent))
             }
         }

@@ -44,11 +44,11 @@ class RingAccessibilityTest {
         val ranked = List(40) { slot(0, 0).copy(label = "App $it", slot = Slot.App(AppId("app/$it"))) }
         val state = RingScenes.folder(geometry, Folder(FolderId("social"), "Social"), ranked)
         val nodes = accessibleRingSlots(state)
-        val a4 = state.arcs.last()
-        // A1 4 + A2 6 + A3 8 + the A4 window; the remaining A4 items are off-window and hidden.
-        assertEquals(4 + 6 + 8 + a4.slotCapacity, nodes.size)
+        val outer = state.arcs.last()
+        // Three inner slots plus five outer slots; remaining outer items stay off-window.
+        assertEquals(3 + outer.slotCapacity, nodes.size)
         assertTrue(nodes.all { it.hit.slot == it.slot.slot && it.hit.position == it.slot.position })
-        assertEquals(state.slots.filter { it.position.arcId != a4.id }.map { it.position } +
-            (0 until a4.slotCapacity).map { SlotPosition(a4.id, it) }, nodes.map { it.slot.position })
+        assertEquals(state.slots.filter { it.position.arcId != outer.id }.map { it.position } +
+            (0 until outer.slotCapacity).map { SlotPosition(outer.id, it) }, nodes.map { it.slot.position })
     }
 }

@@ -114,9 +114,4 @@ class T83Test {
         assertTrue(SceneDiagnostic.decode("1|" + "L".repeat(100) + "|1|1|0|").layer.length <= 16)
     }
 
-    @Test fun diagnosticsSettingsRowIsPresent() {
-        val rows = settingsRootRows("Midnight", false, true, false, true)
-        assertTrue(rows.any { it.id == SettingsRowId.Diagnostics })
-        assertEquals("Scene, capacities, error", rows.first { it.id == SettingsRowId.Diagnostics }.detail)
-    }
 }

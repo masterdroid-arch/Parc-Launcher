@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -20,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brightblu.parc.core.data.LauncherAppIndex
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.ParcPage
 import com.brightblu.parc.model.Skin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,11 +43,10 @@ class SafeModeActivity : ComponentActivity() {
         setContent {
             val skin = Skin.Midnight
             val apps by appsIndex.apps.collectAsState()
-            val text = TextStyle(color = Color(skin.colors.textPrimary.toInt()), fontSize = skin.typography.menu.sizeSp.sp)
+            val text = TextStyle(fontFamily = skin.textFamily, color = Color(skin.colors.textPrimary.toInt()), fontSize = skin.typography.menu.sizeSp.sp)
             val error = intent.getBooleanExtra("recovery_failed", false)
-            Column(Modifier.fillMaxSize().background(Color(skin.colors.bg.toInt())).systemBarsPadding()
-                .padding(horizontal = Metrics.textGutterDp.dp)) {
-                BasicText("Safe mode", Modifier.padding(vertical = Metrics.gridDp.dp * 2),
+            ParcPage(Modifier.background(Color(skin.colors.bg.toInt())), scroll = false) {
+                BasicText("Safe mode", Modifier.padding(vertical = Metrics.sectionHeaderGapDp.dp),
                     style = text.copy(fontSize = skin.typography.title.sizeSp.sp))
                 BasicText("Parc stopped repeatedly. You can still open your apps.", style = text)
                 BasicText("Exit safe mode", Modifier.fillMaxWidth()
@@ -53,7 +54,7 @@ class SafeModeActivity : ComponentActivity() {
                         startActivity(Intent(this@SafeModeActivity, RecoveryActivity::class.java)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                         finishAndRemoveTask()
-                    }.heightIn(min = Metrics.touchTargetDp.dp).padding(vertical = Metrics.gridDp.dp * 3), style = text)
+                    }.heightIn(min = Metrics.touchTargetDp.dp).padding(vertical = Metrics.rowGapDp.dp), style = text)
                 if (error) BasicText("Could not reset recovery state. Try again.", style = text)
                 // OPUS6 (audit F5, F6): ways out without clearing Parc's data. Each asks once more
                 // before acting, and moves the files aside instead of deleting them.
@@ -76,7 +77,7 @@ class SafeModeActivity : ComponentActivity() {
                             } catch (e: Exception) {
                                 "Could not reset. Nothing was changed."
                             }
-                        }.heightIn(min = Metrics.touchTargetDp.dp).padding(vertical = Metrics.gridDp.dp * 3), style = text)
+                        }.heightIn(min = Metrics.touchTargetDp.dp).padding(vertical = Metrics.rowGapDp.dp), style = text)
                 }
                 if (result.isNotEmpty()) BasicText(result, style = text)
                 LazyColumn(Modifier.weight(1f)) {
@@ -84,7 +85,7 @@ class SafeModeActivity : ComponentActivity() {
                     items(apps, key = { it.id.value }) { app ->
                         BasicText(app.label, Modifier.fillMaxWidth().clickable(enabled = !app.suspended, role = Role.Button) {
                             appsIndex.launch(app.id)
-                        }.heightIn(min = Metrics.touchTargetDp.dp).padding(vertical = Metrics.gridDp.dp * 3), style = text)
+                        }.heightIn(min = Metrics.touchTargetDp.dp).padding(vertical = Metrics.rowGapDp.dp), style = text)
                     }
                 }
             }

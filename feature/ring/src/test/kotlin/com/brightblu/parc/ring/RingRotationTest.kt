@@ -136,48 +136,6 @@ class RingRotationTest {
         assertEquals(listOf(1, 2, 3), RingRotation.visibleRange(1, 4, 3)) // cyclic wrap of capacity 3
     }
 
-    @Test fun flingTargetAddsVelocityTimesGainThenSnaps() {
-        assertEquals(0f, RingRotation.flingTarget(0f, 0f), 0f)
-        assertEquals(1f, RingRotation.flingTarget(0.4f, 2f), 0f) // 0.4 + 2*0.45 = 1.3 -> 1
-        assertEquals(4f, RingRotation.flingTarget(0.4f, 7f), 0f) // 0.4 + 3.15 = 3.55 -> 4
-    }
-
-    @Test fun criticallyDampedSpringLandsExactlyOnTarget() {
-        val omega = sqrt(Metrics.rotateSpringStiffness.toDouble()).toFloat()
-        // From rest: a pure exponential glide to the target.
-        var offset = 0f
-        var velocity = 0f
-        val target = 5f
-        var t = 0f
-        while (t < 2f) {
-            t += 1f / 60f
-            val (o, v) = RingRotation.spring(0f, 0f, target, omega, t)
-            offset = o; velocity = v
-        }
-        assertEquals(target, offset, 0.001f)
-        assertTrue(RingRotation.isSettled(offset, velocity, target))
-    }
-
-    @Test fun flingStopConvergesWithinABoundedFrameCount() {
-        val omega = sqrt(Metrics.rotateSpringStiffness.toDouble()).toFloat()
-        val target = RingRotation.flingTarget(0.2f, 20f)
-        var offset = 0.2f
-        var velocity = 20f
-        val dt = 1f / 60f
-        val startOffset = offset
-        val startVelocity = velocity
-        var frames = 0
-        while (!RingRotation.isSettled(offset, velocity, target) && frames < 120) {
-            val t = (frames + 1) * dt
-            val (o, v) = RingRotation.spring(startOffset, startVelocity, target, omega, t)
-            offset = o; velocity = v
-            frames++
-        }
-        assertTrue("fling must settle within 120 frames, got frames=$frames", frames < 120)
-        assertEquals(target, offset, 0.001f)
-        assertTrue(RingRotation.isSettled(offset, velocity, target))
-    }
-
     @Test fun hitTestFindsTheRotatedItemNotTheOriginalSlot() {
         // A1 with 4 slots (no rotation) is the baseline: tapping slot 1 hits item 1.
         val a = arc(capacity = 4)

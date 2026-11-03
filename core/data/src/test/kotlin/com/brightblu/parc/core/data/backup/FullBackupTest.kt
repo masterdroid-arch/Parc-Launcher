@@ -145,6 +145,31 @@ class FullBackupTest {
     }
 
     @Test
+    fun `arc feel keys travel in the backup and restore`() = runTest {
+        val source = Rig(layout())
+        val feel = source.stores.single { it.spec.id == BackupSpecs.Feel }
+        feel.access.write(feel.spec, mapOf("arc_spin_limit" to "free", "arc_bounce" to "playful", "arc_magnify" to "dock", "arc_home_arcs" to "two"))
+        val text = source.backup.export()
+        val target = Rig(layout())
+        target.backup.apply(target.backup.parse(text))
+        val restored = target.values().getValue("feel")
+        assertEquals("free", restored["arc_spin_limit"])
+        assertEquals("playful", restored["arc_bounce"])
+        assertEquals("dock", restored["arc_magnify"])
+        assertEquals("two", restored["arc_home_arcs"])
+    }
+
+    @Test
+    fun `a backup made before the arc keys restores without them so defaults apply`() = runTest {
+        val rig = Rig(layout())
+        val text = """{"schema":"parc-backup","backupVersion":2,"settings":{"feel":{"haptic_preset":"sharp","sound_theme":"synth","sound_volume":30}}}"""
+        rig.backup.apply(rig.backup.parse(text))
+        val feel = rig.values().getValue("feel")
+        assertEquals("sharp", feel["haptic_preset"])
+        assertEquals(setOf("haptic_preset", "sound_theme", "sound_volume"), feel.keys)
+    }
+
+    @Test
     fun `a partial file restores only what it contains`() = runTest {
         val rig = Rig(layout())
         fill(rig)

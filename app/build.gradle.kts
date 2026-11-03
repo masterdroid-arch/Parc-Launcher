@@ -1,6 +1,8 @@
 import com.android.build.api.artifact.SingleArtifact
 import javax.xml.parsers.DocumentBuilderFactory
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.time.ZoneOffset
 import java.util.zip.ZipFile
 
@@ -14,6 +16,18 @@ val parcVersionCode = providers.gradleProperty("PARC_VERSION_CODE").get().toInt(
 val versionParts = parcVersionName.split('.').map(String::toInt)
 require(versionParts.size == 3 && versionParts[1] in 0..99 && versionParts[2] in 0..99 &&
     parcVersionCode == versionParts[0] * 10000 + versionParts[1] * 100 + versionParts[2])
+// T179: build stamp values, computed once per configuration. Every release build also bumps the patch number.
+val buildMoment: LocalDateTime = LocalDateTime.now().withSecond(0).withNano(0)
+val buildTime: String = buildMoment.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+val buildStamp: String = buildMoment.format(DateTimeFormatter.ofPattern("yyMMddHHmm"))
+val gitCommit: String = runCatching {
+    providers.exec { commandLine("git", "rev-parse", "--short=7", "HEAD"); isIgnoreExitValue = true }
+        .standardOutput.asText.get().trim()
+}.getOrDefault("").ifEmpty { "unknown" } + runCatching {
+    // Uncommitted tracked changes make the stamp say so, so a stamp never claims a commit it does not match.
+    providers.exec { commandLine("git", "status", "--porcelain", "--untracked-files=no"); isIgnoreExitValue = true }
+        .standardOutput.asText.get().trim()
+}.getOrDefault("").let { if (it.isEmpty()) "" else "+changes" }
 // Change either line to false to remove that feature and its permissions from Play only.
 val FILE_SEARCH_ENABLED = true
 val CONTACT_SEARCH_ENABLED = true
@@ -44,6 +58,11 @@ android {
         versionCode = parcVersionCode
         versionName = parcVersionName
         buildConfigField("String", "BUILD_DATE", "\"${LocalDate.now(ZoneOffset.UTC)}\"")
+        // T179: the build stamp shown in Settings > Backup and about. Local time of the build machine, minute precision,
+        // plus the short commit of the checkout (no network). The stamp is yyMMddHHmm and never touches versionCode.
+        buildConfigField("String", "BUILD_TIME", "\"${buildTime}\"")
+        buildConfigField("String", "BUILD_STAMP", "\"${buildStamp}\"")
+        buildConfigField("String", "GIT_COMMIT", "\"${gitCommit}\"")
     }
     flavorDimensions += "distribution"
     productFlavors {
@@ -132,7 +151,7 @@ val copyDebugApk by tasks.registering {
 }
 tasks.matching { it.name == "assembleDebug" || it.name == "assemblePersonalDebug" }.configureEach { finalizedBy(copyDebugApk) }
 
-listOf("personal" to "personal", "play" to "play", "personalWeather" to "personal-weather").forEach { (flavour, fileName) ->
+listOf("personal" to "personal", "play" to "play", "personalWeather" to "weather").forEach { (flavour, fileName) ->
     tasks.register(when (flavour) { "personal" -> "copyReleaseApk"; "play" -> "copyPlayReleaseApk"; else -> "copyWeatherReleaseApk" }) {
         dependsOn("assemble${flavour.replaceFirstChar(Char::uppercase)}Release")
         doLast {

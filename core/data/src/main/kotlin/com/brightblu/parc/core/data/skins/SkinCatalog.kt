@@ -44,6 +44,9 @@ object SkinCatalogLoader {
     /** The skin the launcher falls back to when no valid asset provides it. */
     val BuiltInDefault: Skin = Skin.Midnight
 
+    /** Gallery order of the designed skins (DESIGN 2.1); every other skin follows, sorted by id. */
+    private val DisplayOrder = listOf("midnight", "dusk", "moss", "graphite", "glass")
+
     fun parse(assets: List<SkinAsset>, fallback: Skin = BuiltInDefault): SkinCatalog {
         val accepted = mutableListOf<Skin>()
         val rejections = mutableListOf<SkinRejection>()
@@ -68,7 +71,11 @@ object SkinCatalogLoader {
         val default = accepted.firstOrNull { it.id == fallback.id } ?: fallback
         val ordered = buildList {
             add(default)
-            addAll(accepted.filter { it.id != default.id }.sortedBy { it.id })
+            addAll(
+                accepted.filter { it.id != default.id }.sortedWith(
+                    compareBy<Skin>({ DisplayOrder.indexOf(it.id).let { i -> if (i < 0) DisplayOrder.size else i } }, { it.id }),
+                ),
+            )
         }
         return SkinCatalog(ordered, default, rejections)
     }

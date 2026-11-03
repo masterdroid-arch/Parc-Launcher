@@ -30,6 +30,7 @@ import com.brightblu.parc.core.data.HapticsLevel
 import com.brightblu.parc.feature.settings.mainapps.MainAppsController
 import com.brightblu.parc.feature.settings.mainapps.MainAppsEditor
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.ParcPage
 import com.brightblu.parc.model.Skin
 
 /**
@@ -49,18 +50,7 @@ fun ParcSettingsScreen(
     extra: @Composable () -> Unit = {},
     gallery: (@Composable () -> Unit)? = null,
 ) {
-    Column(
-        modifier
-            .fillMaxSize()
-            .background(color(skin.colors.bg))
-            .verticalScroll(rememberScrollState())
-            .padding(
-                start = Metrics.textGutterDp.dp,
-                end = Metrics.textGutterDp.dp,
-                top = topPaddingDp.dp,
-                bottom = Metrics.keepOutBottomDp.dp,
-            ),
-    ) {
+    ParcPage(modifier.background(color(skin.colors.bg)).padding(top = topPaddingDp.dp), safeTop = false) {
         BasicText("Skin", style = skinTokenStyle(skin, skin.colors.textPrimary, skin.typography.title))
         gallery?.invoke()
 
@@ -114,7 +104,7 @@ fun MainAppsSettingsSection(skin: Skin, lockedPackages: Set<String> = emptySet()
                 } }
             },
             onMove = { from, to -> change { controller.move(from, to) } },
-            modifier = Modifier.padding(vertical = Metrics.gridDp.dp * 2),
+            modifier = Modifier.padding(vertical = Metrics.sectionHeaderGapDp.dp),
         )
     }
 }
@@ -131,7 +121,7 @@ private fun SkinRow(candidate: Skin, selected: Boolean, skin: Skin, onClick: () 
             .fillMaxWidth()
             .heightIn(min = Metrics.atlasPreviewHeightDp.dp)
             .clickable(onClick = onClick)
-            .padding(horizontal = Metrics.gridDp.dp),
+            .padding(horizontal = Metrics.lineGapDp.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         MiniRing(candidate, Modifier.size(Metrics.atlasPreviewWidthDp.dp, Metrics.atlasPreviewHeightDp.dp))
@@ -143,7 +133,7 @@ private fun SkinRow(candidate: Skin, selected: Boolean, skin: Skin, onClick: () 
             ),
             modifier = Modifier
                 .weight(1f)
-                .padding(start = Metrics.gridDp.dp * 3),
+                .padding(start = Metrics.rowGapDp.dp),
         )
         BasicText(
             if (selected) "Selected" else "",
@@ -166,7 +156,7 @@ internal fun OptionRow(
             .fillMaxWidth()
             .height(Metrics.touchTargetDp.dp)
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = Metrics.gridDp.dp),
+            .padding(horizontal = Metrics.lineGapDp.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {

@@ -146,15 +146,6 @@ class FocusModesTest {
         assertTrue(filterFocusApps(apps, "zzz").isEmpty())
     }
 
-    @Test fun theFocusRowShowsTheActiveMode() = runTest {
-        val rows = settingsRootRows("Midnight", false, true, false, true,
-            focusSummary = FocusDisplay.summary(FocusState(), emptyList()))
-        assertEquals(SettingsRowId.Focus, rows.single { it.id == SettingsRowId.Focus }.id)
-        assertEquals("No modes", rows.single { it.id == SettingsRowId.Focus }.detail)
-        val active = settingsRootRows("Midnight", false, true, false, true,
-            focusSummary = FocusDisplay.summary(FocusState(active = mode("Work")), listOf(mode("Work"))))
-        assertEquals("Work", active.single { it.id == SettingsRowId.Focus }.detail)
-    }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test fun theSearchIndexViewFollowsTheActiveModeAndDelegatesTheRest() = runTest {

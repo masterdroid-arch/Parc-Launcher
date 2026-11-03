@@ -34,6 +34,7 @@ import com.brightblu.parc.feature.settings.ui.SettingsCard
 import com.brightblu.parc.feature.settings.ui.SettingsSection
 import com.brightblu.parc.feature.settings.ui.settingsText
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.parcRowPadding
 import com.brightblu.parc.model.Skin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -241,11 +242,11 @@ internal fun AgendaSettingsContent(skin: Skin, settings: AgendaSettings, onChang
         preview = { BasicText("Agenda preview: " + AgendaSettingsText.summary(settings), style = settingsText(skin, skin.colors.accent, true)) }) {
         BasicText("Shows today and the days after it from your phone's calendars. Events are read on the phone and never leave it. " +
             "Times follow the phone's 12 or 24 hour setting.",
-            Modifier.padding(vertical = Metrics.gridDp.dp * 2), style = settingsText(skin, skin.colors.textSecondary, true))
+            Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp), style = settingsText(skin, skin.colors.textSecondary, true))
         SettingsSection("Days", skin)
         SettingsCard(skin) {
             SettingRow("Days ahead", skin, SettingKind.Choice, "From 1 to 7 days, starting today",
-                value = AgendaSettingsText.days(settings.days)) { picking = true }
+                value = AgendaSettingsText.days(settings.days), divider = false) { picking = true }
         }
         SettingsSection("Calendars", skin)
         SettingsCard(skin) {
@@ -253,12 +254,12 @@ internal fun AgendaSettingsContent(skin: Skin, settings: AgendaSettings, onChang
             when {
                 !access.granted -> {
                     BasicText("Calendar access is off, so the Agenda page has nothing to show.",
-                        Modifier.padding(Metrics.gridDp.dp * 4), style = settingsText(skin, skin.colors.textSecondary, true))
-                    SettingRow("Allow calendar", skin, SettingKind.Action, icon = "›") { access.request() }
+                        Modifier.parcRowPadding(), style = settingsText(skin, skin.colors.textSecondary, true))
+                    SettingRow("Allow calendar", skin, SettingKind.Action, icon = "›", divider = false) { access.request() }
                 }
-                list == null -> BasicText("Loading", Modifier.padding(Metrics.gridDp.dp * 4), style = settingsText(skin, skin.colors.textSecondary, true))
+                list == null -> BasicText("Loading", Modifier.parcRowPadding(), style = settingsText(skin, skin.colors.textSecondary, true))
                 list.isEmpty() -> BasicText("No calendars on this phone",
-                    Modifier.padding(Metrics.gridDp.dp * 4), style = settingsText(skin, skin.colors.textSecondary, true))
+                    Modifier.parcRowPadding(), style = settingsText(skin, skin.colors.textSecondary, true))
                 else -> list.forEach { cal ->
                     val included = settings.includes(cal)
                     SettingRow(cal.name, skin, SettingKind.Toggle, checked = included) {

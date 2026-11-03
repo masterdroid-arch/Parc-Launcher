@@ -50,7 +50,10 @@ class AppBackupTest {
     fun `feel and gesture key names match the stores`() {
         val feel = BackupSpecs.feel.keys.map { it.name }.toSet()
         assertEquals(
-            setOf(FeelPrefsCodec.HapticKey, FeelPrefsCodec.SoundKey, FeelPrefsCodec.VolumeKey),
+            setOf(
+                FeelPrefsCodec.HapticKey, FeelPrefsCodec.SoundKey, FeelPrefsCodec.VolumeKey,
+                FeelPrefsCodec.SpinLimitKey, FeelPrefsCodec.BounceKey, FeelPrefsCodec.MagnifyKey, FeelPrefsCodec.HomeArcsKey,
+            ),
             feel,
         )
         assertEquals(

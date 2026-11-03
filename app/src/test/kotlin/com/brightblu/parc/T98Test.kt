@@ -430,21 +430,6 @@ class T98Test {
 
     // ---- settings, text and backup --------------------------------------------------------
 
-    @Test fun lockedFoldersIsOnePageRowInTheLayoutSection() {
-        val spec = settingsRowSpec(SettingsRowId.LockedFolders)
-        assertEquals(SettingKind.Page, spec.kind)
-        assertEquals(SettingsSectionId.Layout, spec.section)
-        val rows = settingsRootRows("Midnight", false, true, false, true)
-        val row = rows.single { it.id == SettingsRowId.LockedFolders }
-        assertEquals("Locked folders", row.label)
-        assertEquals("None locked", row.detail)
-        val two = settingsRootRows("Midnight", false, true, false, true, lockedFoldersSummary = "2 locked")
-        assertEquals("2 locked", two.single { it.id == SettingsRowId.LockedFolders }.detail)
-        assertTrue(filterSettingsRows(rows, "locked").any { it.id == SettingsRowId.LockedFolders })
-        // It sits right after Folders.
-        val ids = rows.map { it.id }
-        assertEquals(ids.indexOf(SettingsRowId.Folders) + 1, ids.indexOf(SettingsRowId.LockedFolders))
-    }
 
     @Test fun theTwoSettingsTravelInTheBackupAndKeepTheirTypes() {
         assertEquals(BackupValueType.Text, BackupSpecs.uiPrefs.key("lock_timeout")?.type)

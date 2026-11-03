@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -30,6 +31,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.brightblu.parc.feature.settings.ui.SettingsTheme
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.ParcPage
+import com.brightblu.parc.model.ParcCardContent
 import com.brightblu.parc.model.Skin
 import java.util.UUID
 
@@ -57,21 +60,22 @@ internal fun NotesHubPage(skin: Skin) {
             NoteAction("Undo", skin, action = store::undoDelete)
         }
         if (loadError || writeError) NoteText("Couldn’t save or read notes. Reopen the Note to retry.", skin)
-        Column(Modifier.weight(1f).verticalScroll(rememberHubScrollState()), verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
+        Column(Modifier.weight(1f).hubPageScroll(), verticalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
             if (notes == null && !loadError) NoteText("Loading notes…", skin)
             else if (notes?.isEmpty() == true) NoteText(hubTemplates.getValue("notes").empty, skin)
             orderedNotes(notes.orEmpty()).take(if (LocalHubSize.current == HubSize.Compact) 1 else if (LocalHubSize.current == HubSize.Standard) 3 else Int.MAX_VALUE).forEach { note ->
                 Column(Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp)
                     .background(Color(skin.colors.surface.toInt()), RoundedCornerShape(skin.shape.surfaceCornerDp.dp))
-                    .clickable { open(note) }
-                    .padding(Metrics.hudCellGapDp.dp)) {
-                    if (note.pinned) NoteText("Pinned", skin, secondary = true)
-                    val lines = noteLines(note.text).take(Metrics.notePreviewLines)
-                    if (note.text.isBlank()) NoteText("Note", skin)
-                    else lines.forEach { line ->
-                        BasicText((when (line.checked) { true -> "☑ "; false -> "☐ "; null -> "" }) + line.text,
-                            style = noteStyle(skin).copy(textDecoration = if (line.checked == true) TextDecoration.LineThrough else null),
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    .clickable { open(note) }) {
+                    ParcCardContent {
+                        if (note.pinned) NoteText("Pinned", skin, secondary = true)
+                        val lines = noteLines(note.text).take(Metrics.notePreviewLines)
+                        if (note.text.isBlank()) NoteText("Note", skin)
+                        else lines.forEach { line ->
+                            BasicText((when (line.checked) { true -> "☑ "; false -> "☐ "; null -> "" }) + line.text,
+                                style = noteStyle(skin).copy(textDecoration = if (line.checked == true) TextDecoration.LineThrough else null),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }
@@ -113,8 +117,7 @@ internal fun NoteEditor(initial: Note, skin: Skin, store: NotesStore, changed: (
     }
     Dialog(onDismissRequest = ::finish, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         SettingsTheme(skin) {
-            Column(Modifier.fillMaxSize().background(Color(skin.colors.bg.toInt())).safeDrawingPadding().imePadding()
-                .padding(horizontal = Metrics.textGutterDp.dp)) {
+            ParcPage(Modifier.background(Color(skin.colors.bg.toInt())).imePadding(), scroll = false) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     NoteText("Note", skin, Modifier.weight(1f))
                     NoteAction("Done", skin, action = ::finish)
@@ -131,7 +134,7 @@ internal fun NoteEditor(initial: Note, skin: Skin, store: NotesStore, changed: (
                 Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
                     BasicTextField(draft.text, { change(draft.copy(text = it)) },
                         modifier = Modifier.fillMaxWidth().heightIn(min = Metrics.atlasPreviewHeightDp.dp)
-                            .padding(vertical = Metrics.hudCellGapDp.dp).semantics { contentDescription = "Note text" },
+                            .padding(vertical = Metrics.itemGapDp.dp).semantics { contentDescription = "Note text" },
                         textStyle = noteStyle(skin), cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
                         decorationBox = { inner ->
                             if (draft.text.isEmpty()) NoteText("Write a Note…", skin, secondary = true)
@@ -157,7 +160,7 @@ internal fun NoteEditor(initial: Note, skin: Skin, store: NotesStore, changed: (
 private fun noteStyle(skin: Skin, secondary: Boolean = false) = TextStyle(
     color = Color((if (secondary) skin.colors.textSecondary else skin.colors.textPrimary).toInt()),
     fontSize = skin.typography.menu.sizeSp.sp,
-    fontFamily = if (skin.typography.fallbackFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null)
+    fontFamily = skin.textFamily)
 @Composable
 private fun NoteText(text: String, skin: Skin, modifier: Modifier = Modifier, secondary: Boolean = false) {
     BasicText(text, modifier, style = noteStyle(skin, secondary))
@@ -166,7 +169,7 @@ private fun NoteText(text: String, skin: Skin, modifier: Modifier = Modifier, se
 private fun NoteAction(text: String, skin: Skin, description: String = text, enabled: Boolean = true, action: () -> Unit) {
     Box(Modifier.heightIn(min = Metrics.menuRowHeightDp.dp).widthIn(min = Metrics.menuRowHeightDp.dp)
         .semantics { contentDescription = description }.clickable(enabled = enabled, onClick = action)
-        .padding(Metrics.gridDp.dp), contentAlignment = Alignment.Center) {
+        .padding(Metrics.lineGapDp.dp), contentAlignment = Alignment.Center) {
         BasicText(text, style = noteStyle(skin).copy(color = Color(skin.colors.accent.toInt())))
     }
 }

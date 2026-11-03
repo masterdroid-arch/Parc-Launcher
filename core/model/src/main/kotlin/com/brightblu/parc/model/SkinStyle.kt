@@ -2,6 +2,9 @@ package com.brightblu.parc.model
 
 import kotlinx.serialization.Serializable
 
+/** Module surface treatment; rendering is adopted by later cards. */
+@Serializable enum class ModuleStyle { solid, frosted }
+
 @Serializable enum class ArcStyle { solid, dashed, contour, dotted }
 @Serializable enum class IconFrame { disc, roundedSquare, none, registration, brackets }
 @Serializable enum class HubStyle { plain, crosshair, compass }

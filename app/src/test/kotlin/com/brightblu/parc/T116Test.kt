@@ -24,7 +24,7 @@ class T116Test {
     }
 
     @Test fun moveSkipsHiddenNeighboursAndPersistsAcrossTheExistingDocumentFormat() {
-        val original = HubConfig().showPage("notes", true).showPage("power", false)
+        val original = legacyHubConfig().showPage("notes", true).showPage("power", false)
             .showTile("apps", "new apps", false).move("apps", "biggest apps", -1)
         val moved = original.moveVisiblePage("network", -1)
         val restored = HubConfig.decode(moved.encode())

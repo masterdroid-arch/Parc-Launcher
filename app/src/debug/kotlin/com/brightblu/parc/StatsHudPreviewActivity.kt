@@ -62,7 +62,9 @@ class StatsHudPreviewActivity : ComponentActivity() {
             val repository = com.brightblu.parc.core.data.stats.StatsAlertRepository.create(this, lifecycleScope)
             setContent {
                 Box(Modifier.fillMaxSize().background(Color(skin.colors.bg.toInt()))) {
-                    SettingsPageFrame(skin, onBack = { finish() }) { StatsAlertSettings(repository, skin) }
+                    SettingsPageFrame(skin, onBack = { finish() }) {
+                        com.brightblu.parc.model.ParcPage(safeTop = false, scroll = false) { StatsAlertSettings(repository, skin) }
+                    }
                 }
             }
             return

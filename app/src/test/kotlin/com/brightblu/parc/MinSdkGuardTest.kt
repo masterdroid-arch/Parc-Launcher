@@ -5,11 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Parc must install on Android 13 (API 33). T95 once raised every module to 34 by accident, which
- * made Android 13 phones refuse the APK with "problem parsing the package". This guard fails the
- * build if any module asks for more than 33, or if the app manifest overrides it.
- */
+/** PROJECT §6.1 requires API 33; libraries may support earlier APIs. */
 class MinSdkGuardTest {
     private fun root(): File {
         var dir: File? = File("").absoluteFile

@@ -1,5 +1,6 @@
 package com.brightblu.parc.feature.search
 
+import com.brightblu.parc.model.textFamily
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ClipData
@@ -11,10 +12,12 @@ import android.provider.ContactsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,7 +55,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -85,7 +91,10 @@ import com.brightblu.parc.feature.search.extras.PhoneSettingHit
 import com.brightblu.parc.model.AppId
 import com.brightblu.parc.model.MatchRange
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.parcMinTouch
+import com.brightblu.parc.model.parcPress
 import com.brightblu.parc.model.Skin
+import com.brightblu.parc.ring.module.frostedBackground
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -139,11 +148,18 @@ fun SearchSheet(
     /** OPUS8 (T133): Parc's own settings pages; empty offers none. */
     parcSettings: List<com.brightblu.parc.feature.search.extras.ParcSettingEntry> = emptyList(),
     onOpenParcSetting: (String) -> Unit = {},
+    /** T157: 0 (below the screen) to 1 (shown), on `Springs.sheet`; read only inside layer and draw lambdas. */
+    progress: () -> Float = { 1f },
+    /** T157: the state has closed but the sheet is still springing away; it keeps the last open content and takes no touches. */
+    closing: Boolean = false,
 ) {
-    val ui = state.state.collectAsState().value
-    if (!ui.isOpen) return
+    val live = state.state.collectAsState().value
+    val lastOpen = remember { arrayOfNulls<SearchUiState>(1) }
+    if (live.isOpen) lastOpen[0] = live
+    val ui = if (live.isOpen) live else lastOpen[0] ?: return
+    if (!live.isOpen && !closing) return
     val focus = remember { FocusRequester() }
-    LaunchedEffect(ui.isOpen) { focus.requestFocus() }
+    LaunchedEffect(live.isOpen) { if (live.isOpen) focus.requestFocus() }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -227,8 +243,13 @@ fun SearchSheet(
         parcHits.isNotEmpty()
 
     val statusBarDp = WindowInsets.statusBars.getTop(LocalDensity.current) / LocalDensity.current.density
-    Box(modifier.fillMaxSize().background(Color((if (skin.style.header == com.brightblu.parc.model.HeaderStyle.ruled)
-        skin.colors.bg else skin.colors.scrim).toInt())).searchSkinDecoration(skin)) {
+    val scrim = Color((if (skin.style.header == com.brightblu.parc.model.HeaderStyle.ruled) skin.colors.bg else skin.colors.scrim).toInt())
+    Box(modifier.fillMaxSize()
+        .drawBehind { drawRect(scrim, alpha = progress().coerceIn(0f, 1f)) }
+        .searchSkinDecoration(skin)
+        .then(if (live.isOpen) Modifier else Modifier.pointerInput(Unit) {
+            awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } }
+        })) {
         // OPUS1: the sheet never grows under the status bar or the pull-down search bar. The
         // result list is the only part that shrinks (weight, not a fixed cap), so the field, the
         // links and the first result always stay on screen, with or without the keyboard and at
@@ -238,6 +259,7 @@ fun SearchSheet(
                 .align(Alignment.BottomCenter)
                 .padding(top = SearchSheetLayout.topClearanceDp(statusBarDp).dp)
                 .fillMaxWidth()
+                .graphicsLayer { translationY = (1f - progress().coerceIn(0f, 1f)) * size.height }
                 .surface(skin),
         ) {
             // OPUS3: links and permission prompts sit above the results, so the best result is the
@@ -291,7 +313,7 @@ fun SearchSheet(
                 Modifier
                     .weight(1f, fill = false)
                     .fillMaxWidth()
-                    .heightIn(max = (Metrics.menuRowHeightDp * SheetVisibleRows).dp),
+                    .heightIn(max = (Metrics.searchRowHeightDp * SheetVisibleRows).dp),
                 state = listState,
                 reverseLayout = true,
             ) {
@@ -411,14 +433,14 @@ private fun ShortcutRow(label: String, skin: Skin, onClick: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .height(Metrics.menuRowHeightDp.dp)
-            .padding(start = Metrics.textGutterDp.dp * 2, end = Metrics.textGutterDp.dp),
+            .heightIn(min = Metrics.searchRowHeightDp.dp)
+            .padding(start = Metrics.nestedRowInsetDp.dp, end = Metrics.screenGutterDp.dp, top = Metrics.rowGapDp.dp, bottom = Metrics.rowGapDp.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         BasicText(
             label,
             style = TextStyle(
-                fontFamily = if (skin.typography.fallbackFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+                fontFamily = skin.textFamily,
                 color = Color(skin.colors.textSecondary.toInt()),
                 fontSize = skin.typography.menu.sizeSp.sp,
                 fontWeight = FontWeight(skin.typography.menu.weight),
@@ -449,7 +471,7 @@ private fun CalculatorRow(
             BasicText(
                 if (copied) "Copied" else calculation.expression,
                 style = TextStyle(
-                fontFamily = if (skin.typography.fallbackFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+                fontFamily = skin.textFamily,
                     color = Color(skin.colors.textSecondary.toInt()),
                     fontSize = skin.typography.caption.sizeSp.sp,
                     fontWeight = FontWeight(skin.typography.caption.weight),
@@ -484,8 +506,8 @@ private fun ContactRow(
                 onClick = onOpen,
                 onLongClick = { if (number != null) expanded = !expanded },
             )
-            .heightIn(min = Metrics.menuRowHeightDp.dp)
-            .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.gridDp.dp),
+            .heightIn(min = Metrics.searchRowHeightDp.dp)
+            .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.rowGapDp.dp),
         verticalArrangement = Arrangement.Center,
     ) {
         BasicText(
@@ -498,7 +520,7 @@ private fun ContactRow(
             BasicText(
                 number,
                 style = TextStyle(
-                fontFamily = if (skin.typography.fallbackFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+                fontFamily = skin.textFamily,
                     color = Color(skin.colors.textSecondary.toInt()),
                     fontSize = skin.typography.caption.sizeSp.sp,
                     fontWeight = FontWeight(skin.typography.caption.weight),
@@ -509,7 +531,7 @@ private fun ContactRow(
             )
         }
         if (expanded && number != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp * 4)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Metrics.cardInsetDp.dp)) {
                 ContactAction("Call", skin) { onCall(number) }
                 ContactAction("Message", skin) { onMessage(number) }
             }
@@ -522,13 +544,14 @@ private fun ContactAction(label: String, skin: Skin, onClick: () -> Unit) {
     Box(
         Modifier
             .height(Metrics.menuRowHeightDp.dp)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .parcMinTouch(),
         contentAlignment = Alignment.CenterStart,
     ) {
         BasicText(
             label,
             style = TextStyle(
-                fontFamily = if (skin.typography.fallbackFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+                fontFamily = skin.textFamily,
                 color = Color(skin.colors.accent.toInt()),
                 fontSize = skin.typography.caption.sizeSp.sp,
                 fontWeight = FontWeight(skin.typography.caption.weight),
@@ -545,7 +568,7 @@ private fun WebRow(query: String, skin: Skin, onClick: () -> Unit) {
         BasicText(
             "Search the web for \"$query\"",
             style = TextStyle(
-                fontFamily = if (skin.typography.fallbackFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+                fontFamily = skin.textFamily,
                 color = Color(skin.colors.textSecondary.toInt()),
                 fontSize = skin.typography.caption.sizeSp.sp,
                 fontWeight = FontWeight(skin.typography.caption.weight),
@@ -584,8 +607,8 @@ private fun SheetCaption(text: String, skin: Skin) {
     Box(
         Modifier
             .fillMaxWidth()
-            .height(Metrics.menuRowHeightDp.dp)
-            .padding(horizontal = Metrics.textGutterDp.dp),
+            .heightIn(min = Metrics.menuRowHeightDp.dp)
+            .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.cardInsetDp.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         BasicText(
@@ -597,12 +620,14 @@ private fun SheetCaption(text: String, skin: Skin) {
 
 @Composable
 private fun RowBox(onClick: () -> Unit, content: @Composable () -> Unit) {
+    val source = remember { MutableInteractionSource() }
     Box(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .heightIn(min = Metrics.menuRowHeightDp.dp)
-            .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.gridDp.dp),
+            .parcPress(source)
+            .clickable(interactionSource = source, indication = LocalIndication.current, onClick = onClick)
+            .heightIn(min = Metrics.searchRowHeightDp.dp)
+            .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.rowGapDp.dp),
         contentAlignment = Alignment.CenterStart,
     ) { content() }
 }
@@ -615,7 +640,7 @@ private fun MoreAboveRow(hidden: Int, skin: Skin, onClick: () -> Unit) {
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .heightIn(min = Metrics.touchTargetDp.dp)
-            .padding(horizontal = Metrics.textGutterDp.dp),
+            .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.rowGapDp.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         BasicText(
@@ -630,8 +655,8 @@ private fun SheetMessage(text: String, skin: Skin) {
     Box(
         Modifier
             .fillMaxWidth()
-            .height(Metrics.menuRowHeightDp.dp)
-            .padding(horizontal = Metrics.textGutterDp.dp),
+            .heightIn(min = Metrics.menuRowHeightDp.dp)
+            .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.cardInsetDp.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         BasicText(text, style = captionStyle(skin))
@@ -657,13 +682,18 @@ private fun SearchField(
     onValueChange: (String) -> Unit,
     onSubmit: () -> Unit,
 ) {
-    val textStyle = searchStyle(skin)
+    val textStyle = searchStyle(skin).copy(fontSize = Metrics.searchFieldTextSp.sp)
+    val pill = RoundedCornerShape(Metrics.searchFieldCornerDp.dp)
     BasicTextField(
         value = query,
         onValueChange = onValueChange,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.gridDp.dp * 3)
+            .padding(horizontal = Metrics.rowGapDp.dp, vertical = Metrics.rowGapDp.dp)
+            .height(Metrics.searchFieldHeightDp.dp)
+            .background(Color(skin.colors.bg.toInt()), pill)
+            .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), pill)
+            .padding(horizontal = Metrics.screenGutterDp.dp)
             .focusRequester(focus),
         textStyle = textStyle,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
@@ -671,19 +701,21 @@ private fun SearchField(
         singleLine = true,
         cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
         decorationBox = { innerTextField ->
-            if (query.isEmpty()) {
-                BasicText(
-                    "Search",
-                    style = textStyle.copy(color = Color(skin.colors.textSecondary.toInt())),
-                )
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                if (query.isEmpty()) {
+                    BasicText(
+                        "Search",
+                        style = textStyle.copy(color = Color(skin.colors.textSecondary.toInt())),
+                    )
+                }
+                innerTextField()
             }
-            innerTextField()
         },
     )
 }
 
 private fun searchStyle(skin: Skin): TextStyle = TextStyle(
-    fontFamily = if (skin.style.annotationFamily == "monospace" && skin.style.clockFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else if (skin.style.header == com.brightblu.parc.model.HeaderStyle.ruled) androidx.compose.ui.text.font.FontFamily.Serif else null,
+    fontFamily = if (skin.style.annotationFamily == "monospace" && skin.style.clockFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else if (skin.style.header == com.brightblu.parc.model.HeaderStyle.ruled) androidx.compose.ui.text.font.FontFamily.Serif else skin.textFamily,
     color = Color(skin.colors.textPrimary.toInt()),
     fontSize = skin.typography.search.sizeSp.sp,
     fontWeight = FontWeight(skin.typography.search.weight),
@@ -691,7 +723,7 @@ private fun searchStyle(skin: Skin): TextStyle = TextStyle(
 )
 
 private fun captionStyle(skin: Skin): TextStyle = TextStyle(
-    fontFamily = if (skin.style.annotationFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+    fontFamily = if (skin.style.annotationFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else skin.textFamily,
     color = Color(skin.colors.textSecondary.toInt()),
     fontSize = skin.typography.caption.sizeSp.sp,
     fontWeight = FontWeight(skin.typography.caption.weight),
@@ -752,8 +784,15 @@ private fun startSafely(context: Context, intent: Intent) {
 }
 
 private fun Modifier.surface(skin: Skin): Modifier {
-    val corner = RoundedCornerShape(skin.shape.surfaceCornerDp.dp)
-    return this
-        .background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha), corner)
+    // T157: a pebble sheet: 32 dp top corners, square bottom (it sits on the keyboard or the navigation bar).
+    val top = Metrics.searchSheetCornerDp.dp
+    val corner = RoundedCornerShape(topStart = top, topEnd = top, bottomStart = 0.dp, bottomEnd = 0.dp)
+    // T154: frosted skins (Glass) get the pre-rendered frost; every other skin keeps the flat surface fill.
+    val fill = if (skin.shape.moduleStyle == com.brightblu.parc.model.ModuleStyle.frosted) {
+        this.frostedBackground(skin, Metrics.searchSheetCornerDp, roundBottom = false)
+    } else {
+        this.background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha), corner)
+    }
+    return fill
         .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), corner)
 }

@@ -1,5 +1,6 @@
 package com.brightblu.parc.feature.settings.ui
 
+import com.brightblu.parc.model.textFamily
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +13,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -32,7 +35,7 @@ fun settingsText(skin: Skin, tint: Long = skin.colors.textPrimary, caption: Bool
     val token = if (caption) skin.typography.caption else skin.typography.menu
     return TextStyle(color = Color(tint.toInt()), fontSize = token.sizeSp.sp,
         fontWeight = FontWeight(token.weight), letterSpacing = token.trackingSp.sp,
-        fontFamily = if (skin.typography.fallbackFamily == "monospace") FontFamily.Monospace else FontFamily.Default)
+        fontFamily = skin.textFamily)
 }
 
 /**
@@ -48,25 +51,42 @@ fun settingsText(skin: Skin, tint: Long = skin.colors.textPrimary, caption: Bool
  */
 @Composable
 fun SettingsSection(title: String, skin: Skin) {
-    BasicText(title.uppercase(java.util.Locale.ROOT), style = settingsText(skin, skin.colors.textSecondary, true),
-        modifier = Modifier.fillMaxWidth().padding(start = Metrics.gridDp.dp * 4, top = Metrics.gridDp.dp * 6,
-            bottom = Metrics.gridDp.dp * 2).semantics { heading() })
+    ParcSectionHeader(title.uppercase(java.util.Locale.ROOT), settingsText(skin, skin.colors.textSecondary, true))
 }
 
+/**
+ * A card of rows: its first and last row sit one card inset from the card edge (T166). A row draws its hairline
+ * under itself, so the last one is clipped away here; it would otherwise float above the card's border.
+ */
 @Composable
 fun SettingsCard(skin: Skin, content: @Composable ColumnScope.() -> Unit) {
     val shape = RoundedCornerShape(Metrics.menuCornerDp.dp)
     Column(Modifier.fillMaxWidth().background(Color(skin.colors.surface.toInt()), shape)
-        .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), shape).clip(shape), content = content)
+        .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), shape).clip(shape)) {
+        Column(Modifier.padding(vertical = ParcSpacing.rowCardVerticalPaddingDp().dp).drawWithContent {
+            val cut = skin.shape.surfaceBorderDp.dp.toPx().coerceAtLeast(1f)
+            clipRect(bottom = size.height - cut) { this@drawWithContent.drawContent() }
+        }, content = content)
+    }
+}
+
+/** A card of plain content (text, a field, a preview): [ParcCardContent] gives it the card inset. */
+@Composable
+fun SettingsPanel(skin: Skin, content: @Composable ColumnScope.() -> Unit) {
+    val shape = RoundedCornerShape(Metrics.menuCornerDp.dp)
+    Column(Modifier.fillMaxWidth().background(Color(skin.colors.surface.toInt()), shape)
+        .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), shape).clip(shape)) {
+        Column(Modifier.parcSettingsPadding(), content = content)
+    }
 }
 
 /** A titled card of rows with an optional explanation under it; the building block of every page. */
 @Composable
 fun SettingsGroup(title: String?, skin: Skin, footer: String = "", content: @Composable ColumnScope.() -> Unit) {
-    if (title != null) SettingsSection(title, skin) else Spacer(Modifier.height(Metrics.gridDp.dp * 4))
+    if (title != null) SettingsSection(title, skin) else Spacer(Modifier.height(ParcSpacing.groupLeadDp(LocalParcBlockGap.current).dp))
     SettingsCard(skin, content)
     if (footer.isNotBlank()) BasicText(footer, style = settingsText(skin, skin.colors.textSecondary, true),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = Metrics.gridDp.dp * 4, vertical = Metrics.gridDp.dp * 2))
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Metrics.settingsRowInsetDp.dp, vertical = Metrics.sectionHeaderGapDp.dp))
 }
 
 /** The one frame live previews sit in: skin background, rounded, a small caption, fixed height. */
@@ -74,13 +94,13 @@ fun SettingsGroup(title: String?, skin: Skin, footer: String = "", content: @Com
 fun SettingsPreviewFrame(skin: Skin, caption: String = "Preview", heightDp: Float = Metrics.settingsPreviewHeightDp,
     background: Long = skin.colors.bg, content: @Composable BoxScope.() -> Unit) {
     val shape = RoundedCornerShape(Metrics.menuCornerDp.dp)
-    Column(Modifier.fillMaxWidth().padding(top = Metrics.gridDp.dp * 2)) {
+    Column(Modifier.fillMaxWidth().padding(top = Metrics.sectionHeaderGapDp.dp)) {
         Box(Modifier.fillMaxWidth().height(heightDp.dp).clip(shape).background(Color(background.toInt()), shape)
             .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), shape)
             .semantics(mergeDescendants = true) { contentDescription = caption },
             contentAlignment = Alignment.Center, content = content)
         BasicText(caption, style = settingsText(skin, skin.colors.textSecondary, true),
-            modifier = Modifier.padding(start = Metrics.gridDp.dp * 4, top = Metrics.gridDp.dp))
+            modifier = Modifier.padding(start = Metrics.settingsRowInsetDp.dp, top = Metrics.lineGapDp.dp))
     }
 }
 
@@ -95,49 +115,60 @@ fun SettingRow(
     val act = { if (destructive) confirm = true else onClick() }
     val tint = when { !enabled -> skin.colors.textSecondary; destructive -> skin.colors.warn
         kind == SettingKind.Action -> skin.colors.accent; else -> skin.colors.textPrimary }
-    Row(Modifier.fillMaxWidth().heightIn(min = Metrics.touchTargetDp.dp)
-        .then(if (kind == SettingKind.Toggle) Modifier.toggleable(checked, enabled, Role.Switch) { act() }
-            else Modifier.clickable(enabled = enabled, role = Role.Button, onClick = act))
-        .padding(horizontal = Metrics.gridDp.dp * 4, vertical = Metrics.gridDp.dp * 3),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp * 3)) {
-        if (leading != null) Box(Modifier.size(Metrics.settingsSampleDp.dp).clearAndSetSemantics {},
-            contentAlignment = Alignment.Center) { leading() }
-        else if (kind == SettingKind.Action || (kind == SettingKind.Page && icon != "+"))
-            Box(Modifier.size(Metrics.settingsSampleDp.dp).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
+    val showValue = value.isNotBlank() && kind != SettingKind.Toggle && kind != SettingKind.Action
+    // Short values sit on the right like a phone's settings; long ones go under the title so
+    // neither the title nor the value is squeezed at large text sizes.
+    val valueBeside = showValue && SettingsLayoutRules.valueBeside(value)
+    // T166: one row block for every Settings row: 56 dp tall at least, 20 dp left and right, 12 dp above and
+    // below, and the trailing switch, value or arrow 20 dp from the edge of the card.
+    ParcSettingsRow(
+        modifier = if (kind == SettingKind.Toggle) Modifier.toggleable(checked, enabled, Role.Switch) { act() }
+            else Modifier.clickable(enabled = enabled, role = Role.Button, onClick = act),
+        leading = if (leading != null) {
+            { Box(Modifier.size(Metrics.settingsSampleDp.dp).clearAndSetSemantics {}, contentAlignment = Alignment.Center) { leading() } }
+        } else if (kind == SettingKind.Action || (kind == SettingKind.Page && icon != "+")) {
+            { Box(Modifier.size(Metrics.settingsSampleDp.dp).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
                 BasicText(icon, style = settingsText(skin, tint))
+            } }
+        } else null,
+        trailing = if (valueBeside || kind != SettingKind.Action) {
+            {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+                    if (valueBeside) BasicText(value,
+                        style = settingsText(skin, skin.colors.accent, true).copy(textAlign = androidx.compose.ui.text.style.TextAlign.End),
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = Metrics.settingsValueMaxWidthDp.dp))
+                    when (kind) {
+                        SettingKind.Toggle -> Switch(checked, onCheckedChange = null, enabled = enabled,
+                            modifier = Modifier.clearAndSetSemantics {}, colors = settingsSwitchColors(skin))
+                        SettingKind.Choice, SettingKind.Page ->
+                            BasicText("›", style = settingsText(skin, skin.colors.accent), modifier = Modifier.clearAndSetSemantics {})
+                        SettingKind.Action -> Unit
+                    }
+                }
             }
-        val showValue = value.isNotBlank() && kind != SettingKind.Toggle && kind != SettingKind.Action
-        // Short values sit on the right like a phone's settings; long ones go under the title so
-        // neither the title nor the value is squeezed at large text sizes.
-        val valueBeside = showValue && SettingsLayoutRules.valueBeside(value)
-        Column(Modifier.weight(1f)) {
-            BasicText(title, style = settingsText(skin, tint))
-            if (showValue && !valueBeside) BasicText(value, style = settingsText(skin, skin.colors.accent, true),
-                modifier = Modifier.padding(top = Metrics.gridDp.dp / 2))
-            if (description.isNotBlank()) BasicText(description, style = settingsText(skin, skin.colors.textSecondary, true),
-                maxLines = descriptionMaxLines, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Metrics.gridDp.dp / 2))
-        }
-        if (valueBeside) BasicText(value,
-            style = settingsText(skin, skin.colors.accent, true).copy(textAlign = androidx.compose.ui.text.style.TextAlign.End),
-            maxLines = 2, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = Metrics.settingsValueMaxWidthDp.dp))
-        when (kind) {
-            SettingKind.Toggle -> Switch(checked, onCheckedChange = null, enabled = enabled,
-                modifier = Modifier.clearAndSetSemantics {}, colors = settingsSwitchColors(skin))
-            SettingKind.Choice, SettingKind.Page ->
-                BasicText("›", style = settingsText(skin, skin.colors.accent), modifier = Modifier.clearAndSetSemantics {})
-            SettingKind.Action -> Unit
-        }
+        } else null,
+    ) {
+        BasicText(title, style = settingsText(skin, tint))
+        if (showValue && !valueBeside) BasicText(value, style = settingsText(skin, skin.colors.accent, true),
+            modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
+        if (description.isNotBlank()) BasicText(description, style = settingsText(skin, skin.colors.textSecondary, true),
+            maxLines = descriptionMaxLines, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
     }
-    if (divider) Box(Modifier.fillMaxWidth().padding(horizontal = Metrics.gridDp.dp * 4)
-        .height(skin.shape.surfaceBorderDp.dp).background(Color(skin.colors.lineBase.toInt())))
+    if (divider) SettingsDivider(skin)
     if (confirm) AlertDialog(onDismissRequest = { confirm = false },
         containerColor = Color(skin.colors.surface.toInt()),
         title = { BasicText("$title?", style = settingsText(skin)) },
         text = { BasicText("This changes saved data. Continue?", style = settingsText(skin, skin.colors.textSecondary)) },
         confirmButton = { TextButton(onClick = { confirm = false; onClick() }) { BasicText("Continue", style = settingsText(skin, skin.colors.warn)) } },
         dismissButton = { TextButton(onClick = { confirm = false }) { BasicText("Cancel", style = settingsText(skin, skin.colors.accent)) } })
+}
+
+/** The hairline between two rows of a card, inset like the row text. */
+@Composable
+fun SettingsDivider(skin: Skin) {
+    Box(Modifier.fillMaxWidth().padding(horizontal = Metrics.settingsRowInsetDp.dp)
+        .height(skin.shape.surfaceBorderDp.dp).background(Color(skin.colors.lineBase.toInt())))
 }
 
 @Composable
@@ -163,14 +194,14 @@ fun SettingsOptionChips(
     divider: Boolean = true, sample: (@Composable (index: Int, selected: Boolean) -> Unit)? = null,
     onSelect: (Int) -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = Metrics.gridDp.dp * 4, vertical = Metrics.gridDp.dp * 3)) {
+    Column(Modifier.fillMaxWidth().parcRowPadding()) {
         // The selected chip carries the value, so the title gets the whole width.
         BasicText(title, style = settingsText(skin))
         if (description.isNotBlank()) BasicText(description, style = settingsText(skin, skin.colors.textSecondary, true),
-            modifier = Modifier.padding(top = Metrics.gridDp.dp / 2))
-        FlowRow(Modifier.fillMaxWidth().padding(top = Metrics.gridDp.dp * 3),
-            horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp * 2),
-            verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp * 2)) {
+            modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
+        FlowRow(Modifier.fillMaxWidth().padding(top = Metrics.rowGapDp.dp),
+            horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp),
+            verticalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
             options.forEachIndexed { index, label ->
                 val on = index == selected
                 val shape = RoundedCornerShape(skin.shape.surfaceCornerDp.dp)
@@ -179,9 +210,9 @@ fun SettingsOptionChips(
                     .border(maxOf(skin.shape.surfaceBorderDp, 1f).dp * (if (on) 2 else 1),
                         Color((if (on) skin.colors.accent else skin.colors.lineActive).toInt()), shape)
                     .selectable(on, role = Role.RadioButton) { onSelect(index) }
-                    .padding(horizontal = Metrics.gridDp.dp * 3, vertical = Metrics.gridDp.dp * 2),
+                    .parcSettingsPadding(),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
+                    verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
                     if (sample != null) Box(Modifier.size(Metrics.settingsSampleDp.dp).clearAndSetSemantics {},
                         contentAlignment = Alignment.Center) { sample(index, on) }
                     BasicText(label, style = settingsText(skin, if (on) skin.colors.accent else skin.colors.textPrimary, true)
@@ -190,8 +221,7 @@ fun SettingsOptionChips(
             }
         }
     }
-    if (divider) Box(Modifier.fillMaxWidth().padding(horizontal = Metrics.gridDp.dp * 4)
-        .height(skin.shape.surfaceBorderDp.dp).background(Color(skin.colors.lineBase.toInt())))
+    if (divider) SettingsDivider(skin)
 }
 
 @Composable
@@ -207,7 +237,7 @@ fun SettingsChoice(title: String, value: String, options: List<String>, skin: Sk
                     Row(Modifier.fillMaxWidth().heightIn(min = Metrics.touchTargetDp.dp)
                         .clickable(role = Role.RadioButton) { onSelect(index); open = false }
                         .semantics { selected = options[index] == value }
-                        .padding(vertical = Metrics.gridDp.dp * 2), verticalAlignment = Alignment.CenterVertically) {
+                        .padding(vertical = Metrics.itemGapDp.dp), verticalAlignment = Alignment.CenterVertically) {
                         BasicText(options[index], Modifier.weight(1f), style = settingsText(skin))
                         if (options[index] == value) BasicText("✓", style = settingsText(skin, skin.colors.accent))
                     }
@@ -223,7 +253,7 @@ fun SettingsSearch(query: String, skin: Skin, onQuery: (String) -> Unit) {
         modifier = Modifier.fillMaxWidth().heightIn(min = Metrics.touchTargetDp.dp)
             .background(Color(skin.colors.surface.toInt()), RoundedCornerShape(Metrics.menuCornerDp.dp))
             .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineActive.toInt()), RoundedCornerShape(Metrics.menuCornerDp.dp))
-            .padding(Metrics.gridDp.dp * 4).semantics { contentDescription = "Search settings" },
+            .parcSettingsPadding().semantics { contentDescription = "Search settings" },
         decorationBox = { inner ->
             if (query.isEmpty()) BasicText("Search settings", style = settingsText(skin, skin.colors.textSecondary))
             inner()
@@ -247,20 +277,22 @@ fun SettingsTheme(skin: Skin, content: @Composable () -> Unit) {
             inverseSurface = tint(c.textPrimary), inverseOnSurface = tint(c.bg), inversePrimary = tint(c.bg),
         )
     }
-    MaterialTheme(colorScheme = scheme, content = content)
+    val family = skin.textFamily
+    val typography = remember(family) { skinTypography(family) }
+    MaterialTheme(colorScheme = scheme, typography = typography, content = content)
 }
 
 /** A visual choice stays beside its current value and preview, instead of opening a popup. */
 @Composable
 fun SettingsVisualChoice(title: String, value: Int, labels: List<String>, skin: Skin, description: String = "",
     divider: Boolean = true, onSelect: (Int) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = Metrics.gridDp.dp * 4, vertical = Metrics.gridDp.dp * 3)) {
+    Column(Modifier.fillMaxWidth().parcRowPadding()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             BasicText(title, Modifier.weight(1f), style = settingsText(skin))
             BasicText(labels[value.coerceIn(labels.indices)], style = settingsText(skin, skin.colors.accent, true))
         }
         if (description.isNotBlank()) BasicText(description, style = settingsText(skin, skin.colors.textSecondary, true),
-            modifier = Modifier.padding(top = Metrics.gridDp.dp / 2))
+            modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
         Slider(value = value.toFloat(), onValueChange = { onSelect(kotlin.math.round(it).toInt().coerceIn(labels.indices)) },
             valueRange = 0f..labels.lastIndex.toFloat(), steps = (labels.size - 2).coerceAtLeast(0),
             modifier = Modifier.semantics { stateDescription = labels[value.coerceIn(labels.indices)] })
@@ -269,8 +301,7 @@ fun SettingsVisualChoice(title: String, value: Int, labels: List<String>, skin: 
             BasicText(labels.last(), style = settingsText(skin, skin.colors.textSecondary, true))
         }
     }
-    if (divider) Box(Modifier.fillMaxWidth().padding(horizontal = Metrics.gridDp.dp * 4)
-        .height(skin.shape.surfaceBorderDp.dp).background(Color(skin.colors.lineBase.toInt())))
+    if (divider) SettingsDivider(skin)
 }
 
 /** Pure layout rules of [SettingRow], kept out of Compose for tests. */
@@ -279,4 +310,18 @@ object SettingsLayoutRules {
     const val MaxBesideValueChars = 12
 
     fun valueBeside(value: String): Boolean = value.isNotBlank() && value.length <= MaxBesideValueChars
+}
+
+/** Material text roles that carry the skin's font, so dialog and button text follows the theme too. */
+internal fun skinTypography(family: FontFamily?): androidx.compose.material3.Typography {
+    val base = androidx.compose.material3.Typography()
+    if (family == null) return base
+    fun TextStyle.f() = copy(fontFamily = family)
+    return base.copy(
+        displayLarge = base.displayLarge.f(), displayMedium = base.displayMedium.f(), displaySmall = base.displaySmall.f(),
+        headlineLarge = base.headlineLarge.f(), headlineMedium = base.headlineMedium.f(), headlineSmall = base.headlineSmall.f(),
+        titleLarge = base.titleLarge.f(), titleMedium = base.titleMedium.f(), titleSmall = base.titleSmall.f(),
+        bodyLarge = base.bodyLarge.f(), bodyMedium = base.bodyMedium.f(), bodySmall = base.bodySmall.f(),
+        labelLarge = base.labelLarge.f(), labelMedium = base.labelMedium.f(), labelSmall = base.labelSmall.f(),
+    )
 }

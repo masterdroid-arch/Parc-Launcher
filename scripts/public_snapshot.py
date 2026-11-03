@@ -26,6 +26,9 @@ BRANDING = ('parc-icon.svg', 'parc-icon-round.svg', 'parc-icon-legacy.svg',
 SCRIPTS = ('make-public-snapshot.sh', 'verify-public-snapshot.sh', 'check-public-snapshot.sh',
            'public_snapshot.py', 'test_public_snapshot.py', 'rel.init.gradle',
            'create-release-key.sh', 'sign-release.sh', 'check-no-tracked-keystores.sh')
+# README pictures: finished images only, never their sources or fonts.
+MEDIA_DIR = 'docs/media'
+MEDIA_SUFFIXES = {'.svg', '.png', '.jpg', '.jpeg'}
 IGNORED_DIRS = {'.git', 'private', 'reports', 'prompts', 'keys', '.agent', '.agents', '.codex',
                 '.claude', '.kotlin', '.gradle', '.idea', 'build', '__pycache__'}
 IGNORED_FILES = {'local.properties', 'keystore.properties', '.DS_Store',
@@ -105,6 +108,14 @@ def export_files(source):
         yield Path('scripts') / name
     for name in BRANDING:
         yield Path('branding') / name
+    media = source / MEDIA_DIR
+    if media.is_dir() and not media.is_symlink():
+        for directory, dirs, files in os.walk(media, followlinks=False):
+            dirs[:] = [d for d in dirs if d != 'src' and not (Path(directory) / d).is_symlink()]
+            for name in sorted(files):
+                entry = Path(directory) / name
+                if entry.suffix.lower() in MEDIA_SUFFIXES and not entry.is_symlink():
+                    yield entry.relative_to(source)
 
 
 def source_file(source, relative):
@@ -123,6 +134,12 @@ def scan(relative, data, denylist):
         content = ''.join(piece if index % 2 else
                           re.sub(r'\bthis@[A-Za-z_]\w*', 'receiver', piece)
                           for index, piece in enumerate(pieces))
+    if relative.parts[:2] == ('docs', 'media') and relative.suffix.lower() == '.svg':
+        # Embedded image and font payloads are random base64; they would match key patterns by chance.
+        content = re.sub(r'base64,[A-Za-z0-9+/=]{200,}', 'base64,PAYLOAD', content)
+    if relative.parts[:2] == ('docs', 'media') and relative.suffix.lower() in {'.png', '.jpg', '.jpeg'}:
+        # Pictures are binary: a text scan only finds chance matches. They are checked by eye before release.
+        return []
     findings = [kind for kind, pattern in PATTERNS.items() if re.search(pattern, content, re.I)]
     if any(word.casefold() in content.casefold() for word in denylist):
         findings.append('private app')

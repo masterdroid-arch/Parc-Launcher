@@ -17,11 +17,6 @@ internal class HubConfigStore(context: Context) {
     private val clockKey = stringPreferencesKey("clock_options")
     private val sizeKey = stringPreferencesKey("hub_size")
     private val pageKey = stringPreferencesKey("last_page")
-    private val headerTimeKey = booleanPreferencesKey("header_time")
-    val headerTime = store.data.map { it[headerTimeKey] ?: false }.catch {
-        if (it is IOException) emit(false) else throw it
-    }
-    suspend fun setHeaderTime(show: Boolean) { store.edit { it[headerTimeKey] = show } }
     val lastPage = store.data.map { it[pageKey] ?: "clock" }.catch {
         if (it is IOException) emit("clock") else throw it
     }

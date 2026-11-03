@@ -5,10 +5,6 @@ import android.os.SystemClock
 import android.os.Debug
 import android.util.Log
 import android.view.MotionEvent
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +16,22 @@ import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import com.brightblu.parc.model.*
+import com.brightblu.parc.ring.module.HubEvent
+import com.brightblu.parc.ring.module.ModuleCard
+import com.brightblu.parc.ring.module.HubModuleState
+import com.brightblu.parc.ring.module.HubUiState
+import com.brightblu.parc.ring.module.OpenMotion
+import com.brightblu.parc.ring.module.CardRect
+import com.brightblu.parc.ring.module.FrostRequest
+import com.brightblu.parc.ring.module.HomeCard
+import com.brightblu.parc.ring.module.HomeCards
+import com.brightblu.parc.ring.module.GlassWallpaper
+import com.brightblu.parc.ring.module.GlassWallpaperStage
+import com.brightblu.parc.ring.module.HazeStage
+import com.brightblu.parc.ring.module.rememberFrosted
+import com.brightblu.parc.ring.module.MagnifyGeometry
+import com.brightblu.parc.ring.module.MagnifyMotion
+import com.brightblu.parc.ring.module.PressMotion
 import kotlinx.coroutines.*
 import kotlin.math.*
 
@@ -56,7 +68,18 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
      * OPUS8 (T133): a long-press on empty Home space, with the touch point in dp. Null offers
      * nothing (the field behaves as before). The rules are in [EmptySpacePress].
      */
-    private val emptyHold: ((xDp: Float, yDp: Float) -> Unit)? = null) : RingRenderer {
+    private val emptyHold: ((xDp: Float, yDp: Float) -> Unit)? = null,
+    /** T142: the hub module's state holder; fed with the touch stream, never read for decisions. */
+    private val module: HubModuleState? = null,
+    /** T148: Spin limit and Bounce for the arc release; read at each release. */
+    private val arcFeel: () -> ArcFeel = { ArcFeel() },
+    /**
+     * T171: true when the skin's `moduleSurface` alpha is final for the arc hub (the Home hub: the user's opacity, already
+     * raised for readability by :app, T172). The frost then uses it as is; other hosts keep the T153 70 percent start.
+     */
+    private val cardAlphaIsOpacity: Boolean = false,
+    /** T173: "Glass refraction" is on; read where the frost of the arc card is requested. */
+    private val refraction: () -> Boolean = { false }) : RingRenderer {
     private var searchSwipeStart: ((Float, Float) -> Boolean)? = null
 
     /** Uses the rendered scene and its live rotation offsets, in dp. */
@@ -68,15 +91,45 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val density = LocalDensity.current.density
             val fontScale = LocalDensity.current.fontScale
+            val resources = androidx.compose.ui.platform.LocalContext.current.resources
+            val folderWordFace = remember(resources) { resources.getFont(com.brightblu.parc.core.model.R.font.figtree_variable) }
+            val folderNumberFace = remember(resources) { resources.getFont(com.brightblu.parc.core.model.R.font.doto_variable) }
             val lookSettings = look()
             val detail = clockDetail()
-            val image = rememberImageWallpaper(lookSettings, skin, (maxWidth.value * density).toInt(), (maxHeight.value * density).toInt())
+            // T176: the picture always carries the user's dim (also with glass, so the frosted cards darken with it);
+            // with glass on only the readability scrim is left out (the cards keep their own text readable).
+            val glassOn = com.brightblu.parc.ring.module.FrostPath.frosted(skin)
+            val image = rememberImageWallpaper(GlassBackdrop.pictureLook(lookSettings, glassOn), skin,
+                (maxWidth.value * density).toInt(), (maxHeight.value * density).toInt())
+            val glassStage = GlassBackdrop.stage(glassOn, lookSettings.wallpaper, image != null)
             val imageDestination = remember(maxWidth, maxHeight, density) { Rect(0, 0, (maxWidth.value * density).toInt(), (maxHeight.value * density).toInt()) }
             val imagePaint = remember { Paint(Paint.FILTER_BITMAP_FLAG) }
             val estimate = rememberWallpaperLuminance(lookSettings.wallpaper == WallpaperStyle.System)
             val readability = remember(skin, lookSettings, estimate, screenHeightKey(maxHeight.value, density)) {
                 wallpaperScrim(skin, lookSettings, estimate, (maxHeight.value * density).toInt())
             }
+            val systemPixels = rememberSystemWallpaperPixels(glassStage == GlassStage.WallpaperTint && lookSettings.wallpaper == WallpaperStyle.System,
+                estimate, (maxWidth.value * density).toInt(), (maxHeight.value * density).toInt())
+            // T176, the three backgrounds and what the glass frosts:
+            //  - a picture the user chose (Image): that picture, with its dim (the main case);
+            //  - the phone wallpaper (System): its pixels when the platform lets Parc read them, dimmed like Home; otherwise
+            //    a flat stage of the wallpaper's main colour (dimmed), so nothing pretends to be a blurred picture;
+            //  - just the skin colour (Black, Solid): no picture, the T153 haze stage of the skin's own colours.
+            val phoneColour = rememberSystemWallpaperColour(glassStage == GlassStage.WallpaperTint && lookSettings.wallpaper == WallpaperStyle.System && systemPixels == null)
+            val systemStage = remember(systemPixels, phoneColour, lookSettings.wallpaperDimPercent, skin.colors.bg) {
+                if (lookSettings.wallpaper != WallpaperStyle.System) null
+                else systemWallpaperStage(systemPixels, phoneColour, backgroundArgb(skin, lookSettings))
+            }
+            val glassPixels = if (glassStage != GlassStage.WallpaperTint) null
+                else if (lookSettings.wallpaper == WallpaperStyle.Image) image else systemStage
+            val glassWallpaper = remember(glassPixels) {
+                glassPixels?.let { GlassWallpaper(GlassBackdrop.identity(it.width, it.height) { x, y -> it.getPixel(x, y) }, it) }
+            }
+            DisposableEffect(glassWallpaper) {
+                GlassWallpaperStage.current = glassWallpaper
+                onDispose { if (GlassWallpaperStage.current === glassWallpaper) GlassWallpaperStage.current = null }
+            }
+            val glassTint = remember(glassStage, skin.colors.bg) { GlassBackdrop.wallpaperTint(skin.colors.bg.toInt()) }
             val view = LocalView.current
             val screenWidth = maxWidth.value
             val screenHeight = maxHeight.value
@@ -107,9 +160,11 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                     session.focus.intValue = -1
                     session.dragging.value = false
                     session.aiming.value = false
+                    session.magnify.clear()
                     session.hubGesture.cancel()
                     session.edgeHold.reset()
                     latest.onAim(null)
+                    module?.dispatch(HubEvent.Cancel)
                 }
             }
             LaunchedEffect(session, environment.visible, environment.animatorScale, session.activity.intValue, unread, state.searchHint) {
@@ -125,6 +180,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                         val rotating = session.rotation.step(now) { arcId, offset ->
                             latest.onRotate(arcId, offset)
                         }
+                        if (session.rotation.takeTick() && hapticsEnabled()) feel.play(view, FeelEvent.Tick)
                         if (session.aiming.value) {
                             val drawing = session.current
                             val x = session.x.floatValue / density
@@ -133,7 +189,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                             val step = session.edgeHold.step(zone, now)
                             if (step != 0 && drawing != null) {
                                 val id = drawing.state.arcs[kotlin.math.abs(zone) - 1].id
-                                session.rotation.drag(id, -step.toFloat())
+                                session.rotation.nudge(id, -step.toFloat())
                                 latest.onRotate(id, session.rotation.offset(id))
                                 if (hapticsEnabled()) feel.play(view, FeelEvent.Tick)
                                 val next = drawing.aim(x, y, -1, session.rotation.aligned)
@@ -168,7 +224,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                     val drawing = try {
                         SceneDrawing(requested.state, requested.skin, requested.density, requested.fontScale,
                             requested.width, requested.height, requested.decorations.get(requested.state.arcs),
-                            requested.look, requested.detail, reuse.get(family))
+                            requested.look, requested.detail, reuse.get(family), moduleCard = module != null, folderWordFace = folderWordFace, folderNumberFace = folderNumberFace)
                     } catch (failure: Throwable) {
                         val detailText = "${requested.state.layer}/slots=${requested.state.slots.size}: " +
                             "${failure.javaClass.simpleName}: ${failure.message.orEmpty()}"
@@ -202,7 +258,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                 val id = drawing.state.arcs[0].id
                 val target = RingRotation.nearestOffsetFor(request.itemIndex, session.rotation.offset(id), drawing.state.slots.size)
                 session.rotation.turnTo(id, target, SystemClock.uptimeMillis(),
-                    if (request.animate) session.motionScale else 0f) { arcId, offset -> latest.onRotate(arcId, offset) }
+                    if (request.animate) session.rotationTimeScale() else 0f, arcFeel()) { arcId, offset -> latest.onRotate(arcId, offset) }
                 session.reportSteer(steer)
                 session.activity.intValue++
                 session.frame.intValue++
@@ -219,7 +275,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                     session.effects.resume(SystemClock.uptimeMillis())
                     session.activity.intValue++
                 }
-                session.accept(next, scope, skin, environment.visible && environment.animatorScale > 0f) { latest.onSettled(it) }
+                session.accept(next, scope, skin, environment.visible && environment.animatorScale > 0f, environment.animatorScale) { latest.onSettled(it) }
                 session.frame.intValue++
             }
             DisposableEffect(session) { onDispose { session.cancel() } }
@@ -230,6 +286,44 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                 }
             }
             val editEnabled = editing?.enabled == true
+            // T143: the module card is rasterised once per size, skin or origin change; one drawBitmap per frame.
+            val origin = state.arcs.firstOrNull()
+            val cardRect = remember(origin?.originXDp, origin?.originYDp, screenWidth) {
+                ModuleCard.rect(origin?.originXDp ?: 0f, origin?.originYDp ?: 0f, screenWidth)
+            }
+            // T176: on Home (cardAlphaIsOpacity) the arc card goes through HubCardPaint, the one path the stats card uses too.
+            val flatCard = remember(module != null && origin != null, cardRect, skin.colors.moduleSurface, skin.shape.moduleCornerDp, density) {
+                if (module != null && origin != null) {
+                    if (cardAlphaIsOpacity) com.brightblu.parc.ring.module.HubCardPaint.flat(skin, (cardRect.width * density).toInt(),
+                        (cardRect.height * density).toInt(), density)
+                    else ModuleCard.raster(skin, cardRect, density)
+                } else null
+            }
+            // T153: a frosted card skin swaps in the pre-rendered frost when it is ready; until then the flat tint shows.
+            val refractNow = refraction()
+            val frostRequest = remember(flatCard != null, skin.shape.moduleStyle, cardRect, skin.colors.moduleSurface, skin.colors.bg,
+                skin.colors.lineActive, skin.colors.moduleInk, skin.shape.moduleCornerDp, density, screenWidth, screenHeight, glassWallpaper?.id,
+                cardAlphaIsOpacity, lookSettings.wallpaperReadability, refractNow) {
+                if (flatCard == null || !com.brightblu.parc.ring.module.FrostPath.frosted(skin)) null
+                else if (cardAlphaIsOpacity) com.brightblu.parc.ring.module.HubCardPaint.request(skin, (screenWidth * density).toInt(),
+                    (screenHeight * density).toInt(), (cardRect.left * density).toInt(), (cardRect.top * density).toInt(),
+                    flatCard.width, flatCard.height, density, glassWallpaper?.id ?: 0, refractNow)
+                else FrostRequest.of(skin,
+                    (screenWidth * density).toInt(), (screenHeight * density).toInt(), (cardRect.left * density).toInt(),
+                    (cardRect.top * density).toInt(), flatCard.width, flatCard.height, (skin.shape.moduleCornerDp * density).toInt(),
+                    stageId = glassWallpaper?.id ?: 0, edgePx = FrostRequest.edgeFor(density), ink = skin.colors.moduleInk.toInt())
+            }
+            val frostedCard by rememberFrosted(frostRequest, glassWallpaper?.bitmap)
+            val cardBitmap = frostedCard ?: flatCard
+            val cardPaint = remember { Paint(Paint.FILTER_BITMAP_FLAG) }
+            // T153: the Glass stage is bg plus the cached haze bitmap, drawn once per frame as one scaled bitmap.
+            val hazeStage = remember(glassStage, skin.colors.bg, skin.colors.lineActive, screenWidth, screenHeight, density) {
+                if (glassStage == GlassStage.Haze) HazeStage.bitmap((screenWidth * density).toInt(),
+                    (screenHeight * density).toInt(), skin.colors.bg.toInt(), skin.colors.lineActive.toInt()) else null
+            }
+            val hazeDestination = remember(screenWidth, screenHeight, density) {
+                android.graphics.RectF(0f, 0f, screenWidth * density, screenHeight * density)
+            }
             LaunchedEffect(editEnabled, state.layer, state.arcs.firstOrNull()?.folderId, state.searchOpen) {
                 session.dragging.value = false
                 session.rotating.value = false
@@ -242,8 +336,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                 if (event.actionMasked == MotionEvent.ACTION_DOWN && ignoreDown(x, y)) return@pointerInteropFilter false
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
-                        session.interrupt { latest.onInterrupted(it) }
-                        session.rotation.snapAll { arcId, offset -> latest.onRotate(arcId, offset) }
+                        session.catchMotion()
                         session.effects.touch(SystemClock.uptimeMillis())
                         session.effects.finger(event.x, event.y, down = true)
                         session.activity.intValue++
@@ -268,17 +361,19 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                         session.lastAim = -1
                         session.rotating.value = false
                         session.rotateCandidate = if (!onHub && !editEnabled) drawing?.rotationArc(x, y) ?: -1 else -1
-                        session.rotateLastRounded = if (session.rotateCandidate >= 0) {
-                            val id = drawing?.state?.arcs?.getOrNull(session.rotateCandidate)?.id.orEmpty()
-                            round(session.rotation.offset(id)).toInt()
-                        } else 0
+                        if (session.rotateCandidate >= 0) {
+                            session.rotation.grab(drawing?.state?.arcs?.getOrNull(session.rotateCandidate)?.id.orEmpty())
+                        }
                         session.focus.intValue = if (onHub) -1 else drawing?.hit(x, y, session.rotation.aligned) ?: -1
                         session.downSlot = session.focus.intValue
+                        session.pressDown(if (onHub && !editEnabled) PressMotion.HUB else session.downSlot, scope)
+                        module?.dispatch(HubEvent.Down(onHub && !editEnabled, session.downSlot, now))
                         session.longPressed = false
                         session.emptyHold = false
                         val slot = drawing?.state?.slots?.getOrNull(session.downSlot)
                         session.dragFrom = if (editEnabled) slot?.position else null
                         session.dragging.value = session.dragFrom != null
+                        session.syncMagnify(scope, arcFeel().magnify, editEnabled)
                         // Long-press routing (T30): in edit mode nothing opens a menu; a press on a
                         // slot opens its menu (app, folder, action); only a hub hold enters edit mode.
                         if (editEnabled) {
@@ -334,26 +429,31 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                                 hypot(x - session.downX, y - session.downY) > Metrics.rotateSlopDp) {
                                 session.rotating.value = true
                                 session.press?.cancel()
-                                session.focus.intValue = -1
+                                session.focus.intValue = if (arcFeel().magnify == Magnify.Off) -1
+                                    else drawing?.hit(x, y, session.rotation.aligned) ?: -1
                                 session.rotateLastX = x
                                 session.rotateLastY = y
                                 session.rotateLastTime = SystemClock.uptimeMillis()
                                 session.rotateVelocity = 0f
+                                session.rotateSamples = 0
                             }
                             if (session.rotating.value) {
                                 val slots = drawing?.rotateSlots(session.rotateCandidate, x, y,
                                     x - session.rotateLastX, y - session.rotateLastY) ?: 0f
-                                session.rotation.drag(arcId, slots)
-                                val rounded = round(session.rotation.offset(arcId)).toInt()
-                                if (rounded != session.rotateLastRounded) {
-                                    session.rotateLastRounded = rounded
+                                if (session.rotation.drag(arcId, slots)) {
                                     session.reportSteer(steer)
                                     if (hapticsEnabled()) feel.play(view, FeelEvent.Tick)
                                 }
+                                // The slot under the thumb follows it across slots while the arc turns.
+                                if (arcFeel().magnify != Magnify.Off) session.focus.intValue = drawing?.hit(x, y, session.rotation.aligned) ?: -1
                                 val now = SystemClock.uptimeMillis()
-                                val dt = (now - session.rotateLastTime).coerceAtLeast(1L) / 1000f
-                                // drag subtracts `slots` from the offset, so the offset velocity is -slots/dt.
-                                if (dt > 0f) session.rotateVelocity = -slots / dt
+                                val dt = (now - session.rotateLastTime).coerceAtLeast(4L) / 1000f
+                                // drag subtracts `slots` from the offset, so the offset velocity is -slots/dt;
+                                // blended with the previous sample so one jittery event does not decide the fling.
+                                val instant = -slots / dt
+                                session.rotateVelocity = if (session.rotateSamples == 0) instant
+                                    else 0.5f * session.rotateVelocity + 0.5f * instant
+                                session.rotateSamples++
                                 session.rotateLastX = x
                                 session.rotateLastY = y
                                 session.rotateLastTime = now
@@ -372,6 +472,9 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                                     if (next != -1 && hapticsEnabled()) feel.play(view, FeelEvent.Tick)
                                     latest.onAim(aimed)
                                 }
+                                if (module != null && drawing != null) module.dispatch(HubEvent.Move(
+                                    drawing.hubDx(x), drawing.hubDy(y), next.coerceAtLeast(HubUiState.NO_AIM),
+                                    drawing.state.layer != Layer.Home, session.hubTravelDp))
                                 session.lastAim = next
                             }
                         } else {
@@ -381,13 +484,16 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                             session.focus.intValue = next
                             if (hypot(x - session.downX, y - session.downY) > Metrics.gridDp * 2) session.press?.cancel()
                         }
+                        session.syncMagnify(scope, arcFeel().magnify, editEnabled)
                     }
                     MotionEvent.ACTION_UP -> {
                         val now = SystemClock.uptimeMillis()
+                        session.pressUp(scope)
                         session.effects.touch(now)
                         session.effects.release()
                         session.activity.intValue++
                         session.press?.cancel()
+                        session.releaseArc(session.current, now, view, arcFeel()) { id, off -> latest.onRotate(id, off) }
                         session.hubTravelDp += hypot(x - session.x.floatValue / density, y - session.y.floatValue / density)
                         val drawing = session.current
                         session.hubGesture.move(drawing?.hubReach(x, y) ?: 0f)
@@ -398,9 +504,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                             if (to != null && editing?.canDrop(from, to) == true) editing.drop(from, to)
                             else if (hapticsEnabled()) feel.play(view, FeelEvent.Reject)
                         } else if (session.rotating.value) {
-                            val arcId = drawing?.state?.arcs?.getOrNull(session.rotateCandidate)?.id.orEmpty()
-                            session.rotation.startFling(arcId, session.rotateVelocity, SystemClock.uptimeMillis(),
-                                session.motionScale) { id, off -> latest.onRotate(id, off) }
+                            // Released below, with every other grabbed arc.
                         } else if (session.aiming.value) {
                             val aimed = session.hubGesture.release(drawing?.hubReach(x, y) ?: 0f, now,
                                 drawing?.aim(x, y, session.lastAim, session.rotation.aligned) ?: -1,
@@ -446,6 +550,11 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                             latest.onHubTap()
                             session.hubTapSent = true
                         }
+                        if (module != null) {
+                            val upSlot = drawing?.state?.slots?.getOrNull(session.downSlot)
+                            module.dispatch(HubEvent.Up(now, session.downSlot, upSlot?.slot is Slot.Folder,
+                                drawing?.hubDx(x) ?: 0f, drawing?.hubDy(y) ?: 0f, session.hubTravelDp))
+                        }
                         session.dragging.value = false
                         session.rotating.value = false
                         session.rotateCandidate = -1
@@ -458,13 +567,17 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                         session.lastAim = -1
                         session.touching.value = false
                         session.focus.intValue = -1
+                        session.syncMagnify(scope, arcFeel().magnify, editEnabled)
                     }
                     MotionEvent.ACTION_CANCEL -> {
+                        session.pressUp(scope)
+                        module?.dispatch(HubEvent.Cancel)
                         session.effects.release()
                         session.activity.intValue++
                         session.press?.cancel()
                         if (session.aiming.value) latest.onAim(null)
-                        if (session.rotating.value) session.rotation.snapAll { id, off -> latest.onRotate(id, off) }
+                        session.rotateVelocity = 0f
+                        session.releaseArc(session.current, SystemClock.uptimeMillis(), view, arcFeel()) { id, off -> latest.onRotate(id, off) }
                         session.dragging.value = false
                         session.rotating.value = false
                         session.rotateCandidate = -1
@@ -476,6 +589,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                         session.lastAim = -1
                         session.touching.value = false
                         session.focus.intValue = -1
+                        session.syncMagnify(scope, arcFeel().magnify, editEnabled)
                     }
                 }
                 true
@@ -490,30 +604,24 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                     // dim so closing Settings cannot leave a ghost of the old surface behind.
                     canvas.drawColor(0, PorterDuff.Mode.CLEAR)
                 }
-                canvas.drawColor(if (lookSettings.wallpaper == WallpaperStyle.Image) Color.BLACK else backgroundArgb(skin, lookSettings))
-                if (lookSettings.wallpaper == WallpaperStyle.Image && image != null) canvas.drawBitmap(image, null, imageDestination, imagePaint)
-                if (readability != null) canvas.drawRect(0f, 0f, size.width, size.height, readability)
+                // T169/T176: the stage behind everything, drawn by the same function the Settings previews use.
+                drawHomeStage(canvas, skin, lookSettings, glassStage, image, null, imageDestination, imagePaint, glassTint,
+                    readability, hazeStage, hazeDestination, cardPaint)
                 val progress = session.progress.floatValue
                 val old = session.outgoing
                 val current = session.current
                 current?.drawBackground(canvas)
+                if (cardBitmap != null) canvas.drawBitmap(cardBitmap, cardRect.left * density, cardRect.top * density, cardPaint)
                 val home = session.sharedHome
                 val folder = session.sharedFolder
-                val shared = old != null && home != null && folder != null && progress < 1f
+                val shared = old != null && home != null && folder != null
                 if (shared) {
                     val opening = if (current?.state?.layer == Layer.Folder) progress else 1f - progress
                     val eased = FolderTransition.emphasis(opening)
-                    home!!.draw(canvas, 1f - (1f - Metrics.folderGhostAlpha) * eased,
-                        1f - (1f - Metrics.homeRecedeScale) * eased, -1, false, omitted = session.sharedIndex,
+                    home!!.draw(canvas, 1f - eased, 1f - eased, -1, false,
                         showCaptions = false)
-                    folder!!.draw(canvas, eased, 1f, -1, false, expansion = opening)
-                    home.drawShared(canvas, session.sharedIndex, opening)
-                } else if (old != null && progress < 1f) old.draw(canvas, RingSnap.outgoingAlpha(progress), RingSnap.outgoingScale(progress), -1, false)
-                else if (current?.state?.layer == Layer.Folder && home != null) {
-                    home.draw(canvas, Metrics.folderGhostAlpha, Metrics.homeRecedeScale, -1, false,
-                        omitted = session.sharedIndex, showCaptions = false)
-                    home.drawShared(canvas, session.sharedIndex, 1f)
-                }
+                    folder!!.draw(canvas, eased, 1f, -1, false, growth = session.open.growth)
+                } else if (old != null) old.draw(canvas, RingSnap.outgoingAlpha(progress), RingSnap.outgoingScale(progress), -1, false)
                 if (current != null) {
                     if (!shared) {
                         current.draw(canvas, if (old == null) 1f else RingSnap.incomingAlpha(progress),
@@ -524,11 +632,17 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                             drop = session.dropPosition, allowed = session.dropAllowed,
                             sweep = effects.sweep, slotsAlpha = effects.slots,
                             touching = session.touching.value, lineAlpha = effects.lineAlpha, pulse = if (unread) effects.pulse else 0f,
-                            swap = effects.swap, rotations = session.rotation.aligned)
+                            swap = effects.swap, rotations = session.rotation.aligned,
+                            growth = if (old == null) null else session.open.growth,
+                            pressIndex = session.pressMotion.subject,
+                            pressScale = session.pressMotion.scale(Metrics.pressSlotScale),
+                            magnify = session.magnify, magnifyKind = arcFeel().magnify)
                     }
                     current.drawChrome(canvas, session.touching.value, effects.glowX, effects.glowY,
                         session.aiming.value && session.focus.intValue == RingAim.BACK,
-                        hint = effects.hint, showHint = state.searchHint)
+                        hint = effects.hint, showHint = state.searchHint,
+                        hubScale = if (session.pressMotion.subject == PressMotion.HUB)
+                            session.pressMotion.scale(Metrics.pressHubScale) else 1f)
                 }
                 counter.after(before)
             }
@@ -537,7 +651,16 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
     }
 }
 
+/** A finger that rested this long before lifting hands no velocity to the spring. */
+private const val RELEASE_STALE_MS = 100L
+
 private class RenderSession(skin: Skin) {
+    private val stiffnessScale = 1f / skin.motionScale
+    private val skinMotion = skin.motionScale
+
+    /** Time scale of the arc settle: system animator scale times the skin's; 0 means jump. */
+    fun rotationTimeScale(): Float = if (motionScale <= 0f) 0f else motionScale * skinMotion
+
     /** OPUS4: tells the letter strip which slot offset the All-apps ring shows. Allocation-free. */
     fun reportSteer(steer: RingSteer?) {
         if (steer == null) return
@@ -578,7 +701,12 @@ private class RenderSession(skin: Skin) {
     var aimCandidate = false
     var lastAim = -1
     var press: Job? = null
-    private var snap: Job? = null
+    private var motionJob: Job? = null
+    private var onSettled: (RingState) -> Unit = {}
+    val open = OpenMotion()
+    val pressMotion = PressMotion()
+    /** T149: spring of the slot under the thumb (DESIGN 3.3). */
+    val magnify = MagnifyMotion()
     var sharedHome: SceneDrawing? = null
     var sharedFolder: SceneDrawing? = null
     var sharedIndex = -1
@@ -590,7 +718,7 @@ private class RenderSession(skin: Skin) {
     var rotateLastX = 0f
     var rotateLastY = 0f
     var rotateLastTime = 0L
-    var rotateLastRounded = 0
+    var rotateSamples = 0
     private var rotationArcIds: List<String> = emptyList()
     private var lastSwapPulse: Set<SlotPosition> = emptySet()
 
@@ -603,9 +731,12 @@ private class RenderSession(skin: Skin) {
         rotation.seed(next.state.arcs, next.state.rotations)
     }
 
-    fun accept(next: SceneDrawing, scope: CoroutineScope, skin: Skin, animated: Boolean, settled: (RingState) -> Unit) {
+    fun accept(next: SceneDrawing, scope: CoroutineScope, skin: Skin, animated: Boolean, systemScale: Float,
+        settled: (RingState) -> Unit) {
         val previous = current
+        if (previous != null && !previous.sameScene(next)) magnify.clear()
         adopt(next)
+        onSettled = settled
         // Usage-layer swap (T35): play the cross-fade once per distinct set of changed slots.
         if (next.state.swapPulse != lastSwapPulse) {
             lastSwapPulse = next.state.swapPulse
@@ -618,7 +749,9 @@ private class RenderSession(skin: Skin) {
             } else if (next.state.layer != Layer.Folder) {
                 sharedHome = null; sharedFolder = null
             }
-            snap?.cancel(); outgoing = null; current = next; progress.floatValue = 1f
+            motionJob?.cancel(); motionJob = null
+            open.jumpToEnd(); pressMotion.jumpToEnd(); magnify.clear()
+            outgoing = null; current = next; progress.floatValue = 1f
             settled(next.state)
             return
         }
@@ -627,39 +760,111 @@ private class RenderSession(skin: Skin) {
             progress.floatValue = if (outgoing == null) 1f else progress.floatValue
             return
         }
+        // Going back to the scene being left (a catch): keep progress and velocity, flip the direction.
+        val reversing = outgoing?.sameScene(next) == true
         // A newer host target wins; only a pointer interruption reports its chosen endpoint.
-        interrupt { }
+        if (!reversing) interrupt { }
         outgoing = current
         current = next
         sharedHome = if (outgoing?.state?.layer == Layer.Home && next.state.layer == Layer.Folder) outgoing
             else if (outgoing?.state?.layer == Layer.Folder && next.state.layer == Layer.Home) next else null
         sharedFolder = if (sharedHome == null) null else if (next.state.layer == Layer.Folder) next else outgoing
         sharedIndex = sharedHome?.folderIndex(sharedFolder?.state?.arcs?.firstOrNull()?.folderId) ?: -1
-        progress.floatValue = 0f
-        snap = scope.launch {
-            val ease = skin.effectiveMotion.easeEmphasized
-            animate(0f, 1f, animationSpec = tween(((if (sharedHome != null) Metrics.folderTransitionMs else skin.effectiveMotion.durSnap) * skin.motionScale).toInt(),
-                easing = if (sharedHome != null) LinearEasing else CubicBezierEasing(ease.x1, ease.y1, ease.x2, ease.y2))) { value, _ ->
-                progress.floatValue = value
+        val shared = sharedFolder
+        val opening = next.state.layer == Layer.Folder || shared == null
+        val count = (shared ?: next).state.slots.size
+        if (reversing) open.reverse(count, flip = shared != null) else {
+            open.begin(count, opening)
+            progress.floatValue = 0f
+        }
+        progress.floatValue = open.master.value
+        runMotion(scope)
+    }
+
+    /** One frame loop for the open spring and the press spring; ends when both are at rest or caught. */
+    fun runMotion(scope: CoroutineScope) {
+        if (motionJob?.isActive == true) return
+        motionJob = scope.launch {
+            var last = withFrameNanos { it }
+            while (true) {
+                val now = withFrameNanos { it }
+                val dt = ((now - last) / 1_000_000_000f).coerceAtMost(Metrics.springMaxStepMs / 1000f)
+                last = now
+                val scale = if (motionScale > 0f) motionScale else 1f
+                if (outgoing != null) {
+                    open.step(dt, Springs.open, stiffnessScale, scale)
+                    progress.floatValue = open.master.value
+                }
+                pressMotion.step(dt, Springs.press, stiffnessScale, scale)
+                magnify.step(dt, Springs.press, stiffnessScale, scale)
+                frame.intValue++
+                if (outgoing != null && !open.frozen && open.settled) {
+                    outgoing = null
+                    progress.floatValue = 1f
+                    current?.let { onSettled(it.state) }
+                }
+                if (!(pressMotion.active || magnify.active || (outgoing != null && !open.frozen))) break
             }
-            outgoing = null
-            progress.floatValue = 1f
-            current?.let { settled(it.state) }
         }
     }
+
+    /** A touch stops an open or close where it is; values and velocity are kept. */
+    /**
+     * Finger up or cancel on a grabbed arc: spring toward the target slot with the finger's velocity
+     * (zero if it rested before lifting). A debug build logs start, target and offset, no app names.
+     */
+    fun releaseArc(drawing: SceneDrawing?, now: Long, view: android.view.View, feel: ArcFeel,
+        report: (String, Float) -> Unit) {
+        val index = rotateCandidate
+        if (index < 0) return
+        val id = drawing?.state?.arcs?.getOrNull(index)?.id ?: return
+        val stale = now - rotateLastTime > RELEASE_STALE_MS
+        val released = rotation.release(id, if (stale) 0f else rotateVelocity, feel, rotationTimeScale(), now, report)
+        if (released != null && rotating.value &&
+            view.context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            android.util.Log.d("Parc", String.format(java.util.Locale.ROOT,
+                "arc release start=%d target=%d offset=%.3f", released.startSlot, released.target, released.from))
+        }
+        rotateSamples = 0
+    }
+
+    fun catchMotion() { if (outgoing != null) open.catch() }
+
+    fun pressDown(subject: Int, scope: CoroutineScope) {
+        if (motionScale <= 0f || subject == PressMotion.NONE) return
+        pressMotion.press(subject)
+        runMotion(scope)
+    }
+
+    /** The slot under the thumb (the focus the aim or the hit test chose) grows; letting go springs it back. */
+    fun syncMagnify(scope: CoroutineScope, setting: Magnify, editing: Boolean) {
+        val want = if (setting != Magnify.Off && touching.value && !dragging.value && !editing && focus.intValue >= 0)
+            focus.intValue else MagnifyMotion.NONE
+        if (want == magnify.subject) return
+        magnify.focus(want)
+        if (motionScale <= 0f) { magnify.jumpToEnd(); frame.intValue++ } else runMotion(scope)
+    }
+
+    fun pressUp(scope: CoroutineScope) {
+        pressMotion.release()
+        if (open.frozen) open.resume()
+        if (pressMotion.active || outgoing != null) runMotion(scope)
+    }
+
     fun interrupt(settled: (RingState) -> Unit) {
         if (outgoing == null) return
-        snap?.cancel()
         if (!RingSnap.endpoint(progress.floatValue)) current = outgoing
         if (current?.state?.layer != Layer.Folder) { sharedHome = null; sharedFolder = null }
         outgoing = null
+        open.jumpToEnd()
         progress.floatValue = 1f
         current?.let { settled(it.state) }
     }
     fun finish() {
-        snap?.cancel(); outgoing = null; progress.floatValue = 1f; rotation.stopFlings()
+        motionJob?.cancel(); motionJob = null; open.jumpToEnd(); pressMotion.jumpToEnd(); magnify.clear()
+        outgoing = null; progress.floatValue = 1f; rotation.stopFlings()
     }
-    fun cancel() { snap?.cancel(); press?.cancel(); rotation.stopFlings() }
+    fun cancel() { motionJob?.cancel(); press?.cancel(); rotation.stopFlings() }
 }
 
 /**
@@ -700,7 +905,10 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
     private val look: LookSettings = LookSettings(),
     private val clockDetail: ClockDetail = ClockDetail(),
     /** OPUS2: rasters reused from the previous preparation; null builds everything (gallery rasters). */
-    private val reuse: SlotRasters? = null) {
+    private val reuse: SlotRasters? = null,
+    /** T143: the hub sits on the module card, so guide lines are `moduleGuide` and the hub is a disc. */
+    private val moduleCard: Boolean = false,
+    private val folderWordFace: Typeface? = null, private val folderNumberFace: Typeface? = null) {
     /** OPUS3: what this drawing was prepared with, so a warmed one is only shown when still right. */
     val skinUsed: Skin get() = skin
     val lookUsed: LookSettings get() = look
@@ -751,6 +959,7 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
         color = skin.colors.accent.toInt(); style = Paint.Style.STROKE
         strokeWidth = skin.lineWidths.activeDp * density
     }
+    private val hubDisc = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = skin.colors.accent.toInt(); style = Paint.Style.FILL }
     private val distanceLabels = Array(state.slots.size) { i ->
         val arc = state.arcs.firstOrNull { it.id == state.slots[i].position.arcId }
         if (spec.aim == AimStyle.distance && arc != null) text("Reach ${arc.radiusDp.toInt()}", skin.typography.caption, 1f,
@@ -799,6 +1008,25 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
     private val captions = arrayOfNulls<Bitmap>(state.slots.size)
     private val captionX = FloatArray(state.slots.size)
     private val captionY = FloatArray(state.slots.size)
+    /** T170 caption solver state (dp): live slot centres, caption sizes, and the box a caption must stay in. */
+    private val liveCx = FloatArray(state.slots.size)
+    private val liveCy = FloatArray(state.slots.size)
+    private val captionWDp = FloatArray(state.slots.size)
+    private val captionHDp = FloatArray(state.slots.size)
+    private val isCaption = BooleanArray(state.slots.size)
+    private val slotVisible = BooleanArray(state.slots.size)
+    private val captionPlacer = FolderLabelPlacer(state.slots.size)
+    private val livePlacer = FolderLabelPlacer(state.slots.size)
+    private val captionCard: CardRect? = if (moduleCard && state.arcs.isNotEmpty())
+        ModuleCard.rect(state.arcs[0].originXDp, state.arcs[0].originYDp, screenWidth) else null
+    private val captionLeftDp = max(Metrics.folderLabelScreenMarginDp,
+        (captionCard?.left ?: 0f) + if (captionCard != null) Metrics.folderLabelCardInsetDp else 0f)
+    private val captionTopDp = max(Metrics.folderLabelScreenMarginDp,
+        (captionCard?.top ?: 0f) + if (captionCard != null) Metrics.folderLabelCardInsetDp else 0f)
+    private val captionRightDp = min(screenWidth - Metrics.folderLabelScreenMarginDp,
+        (captionCard?.right ?: screenWidth) - if (captionCard != null) Metrics.folderLabelCardInsetDp else 0f)
+    private val captionBottomDp = min(screenHeight - Metrics.folderLabelScreenMarginDp,
+        (captionCard?.bottom ?: screenHeight) - if (captionCard != null) Metrics.folderLabelCardInsetDp else 0f)
     private val arcIndex = IntArray(state.slots.size)
     private val dim = FloatArray(state.slots.size)
     private val swapFade = BooleanArray(state.slots.size) { state.slots[it].position in state.swapPulse }
@@ -844,13 +1072,17 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
     private val glowRadius = skin.glowRadiusDp * density
     private val glow = Bitmap.createBitmap(Metrics.iconBitmapPx, Metrics.iconBitmapPx, Bitmap.Config.ARGB_8888)
     private val headerTypeface = if (spec.header == HeaderStyle.ruled) Typeface.create(spec.clockFamily, Typeface.NORMAL) else null
-    private val title = text(state.title, skin.typography.title, fontScale, typefaceOverride = headerTypeface)
+    private val title = text(state.title, skin.typography.title, fontScale, typefaceOverride = if (state.layer == Layer.Folder) folderWordFace?.let { Typeface.create(it, skin.typography.title.weight, false) } else headerTypeface)
+    private val folderCount = if (state.layer == Layer.Folder) text(state.slots.size.toString(),
+        skin.typography.countDot, 1f, typefaceOverride = Typeface.create(
+            if (skin.typography.numeralFamily == "Doto") folderNumberFace else folderWordFace,
+            skin.typography.countDot.weight, false)) else null
     private val clock = clockText(state.clock)
     private val clockSubline = if (clock == null) null else clockDetail.text.takeIf { it.isNotEmpty() }?.let {
         text(it, skin.typography.caption, 1f, textColor = skin.colors.textSecondary.toInt())
     }
     private val empty = text(state.emptyMessage, skin.typography.search, fontScale)
-    private val chromeDim = if (state.searchOpen && state.highlight == null) Metrics.searchIdleAlpha else 1f
+    private val chromeDim = if (state.searchOpen && !state.hostDimsModule && state.highlight == null) Metrics.searchIdleAlpha else 1f
 
     private val accessibilityFocus = state.slots.indexOfFirst { it.position == state.accessibilityFocus }
 
@@ -884,14 +1116,15 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
             val end = max(arc.startAngle, arc.endAngle) / 360f
             val fade = (end - start) * skin.shape.lineEndFadeFraction
             for (active in 0..1) {
-                val color = (if (active == 1) skin.colors.lineActive else skin.colors.lineBase).toInt()
+                val guide = moduleCard && active == 0
+                val color = (if (active == 1) skin.colors.lineActive else if (guide) skin.colors.moduleGuide else skin.colors.lineBase).toInt()
                 lines[i * 2 + active].apply {
-                    if (spec.dashOnDp > 0f || (skin.style.arc == ArcStyle.contour && i % 2 == 1)) {
+                    if (!guide && (spec.dashOnDp > 0f || (skin.style.arc == ArcStyle.contour && i % 2 == 1))) {
                         pathEffect = DashPathEffect(floatArrayOf(
                             (if (spec.dashOnDp > 0f) spec.dashOnDp else Metrics.atlasMajorTickDp) * density,
                             (if (spec.dashOffDp > 0f) spec.dashOffDp else Metrics.gridDp * 1.5f) * density), 0f)
                     }
-                    strokeWidth = (if (active == 1) skin.lineWidths.activeDp else skin.lineWidths.baseDp) * density
+                    strokeWidth = (if (active == 1) skin.lineWidths.activeDp else if (guide) Metrics.moduleGuideDp else skin.lineWidths.baseDp) * density
                     shader = SweepGradient(0f, 0f, intArrayOf(color and 0xffffff, color and 0xffffff,
                         color, color, color and 0xffffff, color and 0xffffff),
                         floatArrayOf(0f, start, start + fade, end - fade, end, 1f))
@@ -927,22 +1160,30 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
             val highlight = state.highlight
             dim[i] = if (!slot.enabled || (highlight != null && (app == null || app.id !in highlight))) Metrics.searchDimAlpha else chromeDim
             icons[i] = reuse?.rasters?.get(SlotRasterKey(a, slot.bitmap, slotIdentity(slot), if (slot.bitmap == null) slot.label else "")) { icon(slot) } ?: icon(slot)
-            if (slot.slot is Slot.Folder) captions[i] = cachedLabel(1, slot.label) { if ((look.wallpaper == WallpaperStyle.System || look.wallpaper == WallpaperStyle.Image) && spec.label != LabelStyle.mapLabel) backedText(folderCaption(slot.label), skin.typography.caption, Metrics.folderLabelMaxWidthDp) else text(if (spec.label == LabelStyle.brackets) "[ ${folderCaption(slot.label)} ]" else folderCaption(slot.label), skin.typography.caption,
-                1f, Metrics.folderLabelMaxWidthDp, halo = spec.label == LabelStyle.mapLabel) }
-            labels[i] = cachedLabel(2, slot.label) { labelPill(slot.label, min(Metrics.labelMaxWidthDp,
+            if (slot.slot is Slot.Folder) captions[i] = cachedLabel(1, slot.label) { folderCaptionBitmap(slot.label) }
+            labels[i] = cachedLabel(2, slot.label) { if (state.layer == Layer.Folder && moduleCard)
+                text(slot.label, skin.typography.label, 1f, Metrics.labelMaxWidthDp,
+                    textColor = skin.colors.moduleInk.toInt(),
+                    typefaceOverride = folderWordFace?.let { Typeface.create(it, skin.typography.label.weight, false) })
+                else labelPill(slot.label, min(Metrics.labelMaxWidthDp,
                 screenWidth - Metrics.keepOutLeftDp - Metrics.keepOutRightDp)) }
         }
         bearingVisible = decoration.visibleBearings(px, py,
             (look.iconSizeDp / 2f + Metrics.gridDp * 4) * density)
-        val folderPlacement = FolderLabels(
-            FloatArray(px.size) { (px[it] + cx) / density },
-            FloatArray(py.size) { (py[it] + cy) / density },
-            FloatArray(px.size) { (captions[it]?.width ?: 0) / density },
-            FloatArray(px.size) { (captions[it]?.height ?: 0) / density },
-            BooleanArray(px.size) { captions[it] != null }, screenWidth, screenHeight, look.iconSizeDp.toFloat())
         for (i in captions.indices) {
-            captionX[i] = folderPlacement.x[i] * density - cx
-            captionY[i] = folderPlacement.y[i] * density - cy
+            liveCx[i] = (px[i] + cx) / density
+            liveCy[i] = (py[i] + cy) / density
+            captionWDp[i] = (captions[i]?.width ?: 0) / density
+            captionHDp[i] = (captions[i]?.height ?: 0) / density
+            isCaption[i] = captions[i] != null
+            val a = arcIndex[i]
+            slotVisible[i] = !arcRotates[a] || RingRotation.edgeAlpha(
+                RingRotation.windowPosition(itemIndex[i], settled[a], arcCount[a], arcCapacity[a]), arcCapacity[a]) > 0f
+        }
+        solveCaptions(captionPlacer)
+        for (i in captions.indices) {
+            captionX[i] = captionPlacer.x[i] * density - cx
+            captionY[i] = captionPlacer.y[i] * density - cy
         }
         val size = glow.width / 2f
         val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -962,6 +1203,43 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
 
     fun sameScene(other: SceneDrawing): Boolean = state.layer == other.state.layer &&
         state.arcs.firstOrNull()?.folderId == other.state.arcs.firstOrNull()?.folderId
+
+    /** Runs the caption solver on [liveCx]/[liveCy] into [placer]; no allocation. */
+    private fun solveCaptions(placer: FolderLabelPlacer) =
+        placer.solve(liveCx, liveCy, captionWDp, captionHDp, isCaption, slotVisible, captions.size,
+            look.iconSizeDp.toFloat(), captionLeftDp, captionTopDp, captionRightDp, captionBottomDp)
+
+    /**
+     * T170 folder caption: plain 12 sp medium text, in the card ink on the module card, over a tint of
+     * the card colour at 10 % (never a dark pill). Without a card it uses the skin ink; over a picture it
+     * keeps an opaque glyph halo in the skin surface colour so it stays readable with no fill.
+     */
+    private fun folderCaptionBitmap(value: String): Bitmap? {
+        val onCard = moduleCard
+        val ink = if (onCard) skin.colors.moduleInk.toInt() else skin.colors.textPrimary.toInt()
+        val tint = (if (onCard) skin.colors.moduleSurface else skin.colors.surface).toInt() or 0xFF000000.toInt()
+        val overPicture = !onCard && (look.wallpaper == WallpaperStyle.System || look.wallpaper == WallpaperStyle.Image)
+        val token = TypeToken(Metrics.folderLabelSp, Metrics.folderLabelWeight, skin.typography.caption.trackingSp)
+        val horizontal = Metrics.folderLabelPaddingHorizontalDp * density
+        val vertical = Metrics.folderLabelPaddingVerticalDp * density
+        val caption = folderCaption(value)
+        val maxWidth = if (spec.label == LabelStyle.brackets) Metrics.folderLabelBracketMaxWidthDp else Metrics.folderLabelMaxWidthDp
+        val label = text(if (spec.label == LabelStyle.brackets) "[ $caption ]" else caption, token, 1f,
+            maxWidth - Metrics.folderLabelPaddingHorizontalDp * 2, textColor = ink,
+            halo = overPicture || spec.label == LabelStyle.mapLabel) ?: return null
+        val bitmap = Bitmap.createBitmap(ceil(label.width + horizontal * 2).toInt(),
+            ceil(label.height + vertical * 2).toInt(), Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = tint
+            alpha = (Metrics.folderLabelTintAlpha * 255).roundToInt()
+        }
+        val radius = min(Metrics.folderLabelCornerDp * density, bitmap.height / 2f)
+        canvas.drawRoundRect(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat(), radius, radius, p)
+        p.alpha = 255
+        canvas.drawBitmap(label, horizontal, vertical, p)
+        return bitmap
+    }
 
     private fun text(value: String, token: TypeToken, scale: Float, widthDp: Float = Float.POSITIVE_INFINITY,
         textColor: Int = skin.colors.textPrimary.toInt(), typefaceOverride: Typeface? = null,
@@ -1244,12 +1522,30 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
      * inward when it would cross a keep-out, then clamped. Writes [labelLeftDp]/[labelTopDp] so the
      * draw loop allocates nothing (same rule as [RingLabels.place]).
      */
-    private fun placeLabel(i: Int, label: Bitmap, rotations: FloatArray) {
-        val lxDp = (cx + slotX(i, rotations)) / density
-        val lyDp = (cy + slotY(i, rotations)) / density
+    /** The card the module sits on (dp), or null when the drawing has none; magnified slots stay inside it. */
+    private val magnifyCard: CardRect? = if (moduleCard && state.arcs.isNotEmpty())
+        ModuleCard.rect(state.arcs[0].originXDp, state.arcs[0].originYDp, screenWidth) else null
+
+    /** Extra offset in px of slot [i] when magnified by [progress], relative to its resting centre. */
+    private fun pushXPx(i: Int, offsets: FloatArray, kind: Magnify, progress: Float): Float {
+        val x = slotX(i, offsets)
+        return (MagnifyGeometry.pushedX(kind, magnifyCard, (cx + x) / density, slotAngleDeg(i, offsets), progress) -
+            (cx + x) / density) * density
+    }
+
+    private fun pushYPx(i: Int, offsets: FloatArray, kind: Magnify, progress: Float): Float {
+        val y = slotY(i, offsets)
+        return (MagnifyGeometry.pushedY(kind, magnifyCard, (cy + y) / density, slotAngleDeg(i, offsets), progress) -
+            (cy + y) / density) * density
+    }
+
+    private fun placeLabel(i: Int, label: Bitmap, rotations: FloatArray, kind: Magnify = Magnify.Off, growth: Float = 0f) {
+        // A magnified slot sits further out and is bigger, so its name keeps the same gap from the icon edge.
+        val lxDp = (cx + slotX(i, rotations) + pushXPx(i, rotations, kind, growth)) / density
+        val lyDp = (cy + slotY(i, rotations) + pushYPx(i, rotations, kind, growth)) / density
         val wDp = label.width / density
         val hDp = label.height / density
-        val offset = look.iconSizeDp / 2f + Metrics.labelGapDp
+        val offset = look.iconSizeDp / 2f * (1f + (MagnifyGeometry.scaleAt(kind, growth) - 1f) * depthScale[arcIndex[i]]) + Metrics.labelGapDp
         val left = Metrics.keepOutLeftDp
         val right = screenWidth - Metrics.keepOutRightDp
         val top = Metrics.keepOutTopDp
@@ -1341,6 +1637,9 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
         return best
     }
 
+    fun hubDx(x: Float): Float = x - cx / density
+    fun hubDy(y: Float): Float = y - cy / density
+
     fun hubReach(x: Float, y: Float): Float = hypot(x * density - cx, y * density - cy) / density
 
     fun edgeZone(x: Float, y: Float): Int {
@@ -1408,13 +1707,19 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
     fun draw(canvas: Canvas, alpha: Float, scale: Float, focus: Int, showFocus: Boolean = true,
         aiming: Boolean = false, editing: Boolean = false, dragged: Int = -1,
         dragX: Float = 0f, dragY: Float = 0f, drop: SlotPosition? = null, allowed: Boolean = false,
-        sweep: Float = 1f, slotsAlpha: Float = 1f, lineAlpha: Float = 1f, pulse: Float = 0f, omitted: Int = -1, expansion: Float = 1f, touching: Boolean = false,
+        sweep: Float = 1f, slotsAlpha: Float = 1f, lineAlpha: Float = 1f, pulse: Float = 0f, omitted: Int = -1, growth: FloatArray? = null, touching: Boolean = false,
+        pressIndex: Int = -1, pressScale: Float = 1f,
+        magnify: MagnifyMotion? = null, magnifyKind: Magnify = Magnify.Off,
         swap: Float = 1f, rotations: FloatArray = settled, showCaptions: Boolean = true) {
         if (alpha <= 0f) return
         canvas.save(); canvas.translate(cx, cy); canvas.scale(scale * (Metrics.collapsedScale + (1f - Metrics.collapsedScale) * sweep),
             scale * (Metrics.collapsedScale + (1f - Metrics.collapsedScale) * sweep))
         var i = 0
         val selected = if (!showFocus || focus == RingAim.BACK) -1 else if (focus in icons.indices) focus else accessibilityFocus
+        val magnified = magnify != null && magnifyKind != Magnify.Off
+        // Slot drawn last so it sits above its neighbours: the magnified one, or the one just shrinking back.
+        val topSlot = if (!magnified) -1 else if (magnify!!.subject >= 0) magnify.subject else magnify.leavingSubject
+        val selectedGrowth = if (magnified && selected >= 0) magnify!!.progress(selected) else 0f
         val directionX = if (aiming && selected >= 0) slotX(selected, rotations) else if (touching) dragX - cx else 0f
         val directionY = if (aiming && selected >= 0) slotY(selected, rotations) else if (touching) dragY - cy else 0f
         val directionLength = hypot(directionX, directionY)
@@ -1486,13 +1791,17 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
                 canvas.drawBitmap(distance, -distance.width.toFloat() - (Metrics.hubRadiusDp + Metrics.gridDp) * density,
                     -Metrics.hubRadiusDp * density, paint)
             }
-            rect.set(slotX(selected, rotations) - glowRadius, slotY(selected, rotations) - glowRadius,
-                slotX(selected, rotations) + glowRadius, slotY(selected, rotations) + glowRadius)
+            val glowX = slotX(selected, rotations) + pushXPx(selected, rotations, magnifyKind, selectedGrowth)
+            val glowY = slotY(selected, rotations) + pushYPx(selected, rotations, magnifyKind, selectedGrowth)
+            rect.set(glowX - glowRadius, glowY - glowRadius, glowX + glowRadius, glowY + glowRadius)
             paint.alpha = (255 * alpha).toInt()
             canvas.drawBitmap(glow, null, rect, paint)
         }
+        var pass = 0
+        while (pass < 2) {
         i = 0
         while (i < icons.size) {
+            if ((pass == 1) != (i == topSlot)) { i++; continue }
             val a = arcIndex[i]
             val window = RingRotation.windowPosition(itemIndex[i], rotations[a], arcCount[a], arcCapacity[a])
             val edge = RingRotation.edgeAlpha(window, arcCapacity[a])
@@ -1509,15 +1818,19 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
                 rect.set(liveX - glowRadius, liveY - glowRadius, liveX + glowRadius, liveY + glowRadius)
                 canvas.drawBitmap(glow, null, rect, paint)
             }
-            paint.alpha = (255 * alpha * slotsAlpha * dim[i] * depthAlpha[a] * edge
+            val grown = if (growth != null && i < growth.size) growth[i] else 1f
+            paint.alpha = (255 * alpha * slotsAlpha * dim[i] * depthAlpha[a] * edge * grown.coerceIn(0f, 1f)
                 * (if (swapFade[i]) swap else 1f)
                 * if (selected == i) skin.icons.alphaFocused else skin.icons.alphaUnfocused).toInt()
             if (i != dragged && i != omitted) {
-                val spring = FolderTransition.slot(expansion, i)
                 val depth = depthScale[a] * RingRotation.edgeScale(window, arcCapacity[a])
-                val x = liveX * spring + shiftX * a / 3f
-                val y = liveY * spring + shiftY * a / 3f
-                val radius = half * spring * depth
+                val grow = if (magnified) magnify!!.progress(i) else 0f
+                val x = liveX * grown + shiftX * a / 3f + (if (grow > 0f) pushXPx(i, rotations, magnifyKind, grow) else 0f)
+                val y = liveY * grown + shiftY * a / 3f + (if (grow > 0f) pushYPx(i, rotations, magnifyKind, grow) else 0f)
+                // With Magnify on, growing under the thumb replaces the press shrink of that slot.
+                val radius = half * (Metrics.openFromScale + (1f - Metrics.openFromScale) * grown) * depth *
+                    (if (i == pressIndex && !magnified) pressScale else 1f) *
+                    (if (grow > 0f) MagnifyGeometry.scaleAt(magnifyKind, grow) else 1f)
                 val shadowRadius = radius + Metrics.contactShadowDp * density
                 rect.set(x - shadowRadius, y - shadowRadius, x + shadowRadius, y + shadowRadius)
                 canvas.drawBitmap(contact, null, rect, paint)
@@ -1560,7 +1873,24 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
             }
             i++
         }
+        pass++
+        }
         if (showCaptions) {
+            // A rotating arc moves its icons, so the caption spots are solved again from the live centres.
+            var liveCaptions = false
+            for (a in arcRotates.indices) if (arcRotates[a]) liveCaptions = true
+            if (liveCaptions) {
+                var k = 0
+                while (k < captions.size) {
+                    liveCx[k] = (cx + slotX(k, rotations)) / density
+                    liveCy[k] = (cy + slotY(k, rotations)) / density
+                    val ka = arcIndex[k]
+                    slotVisible[k] = !arcRotates[ka] || RingRotation.edgeAlpha(
+                        RingRotation.windowPosition(itemIndex[k], rotations[ka], arcCount[ka], arcCapacity[ka]), arcCapacity[ka]) > 0f
+                    k++
+                }
+                solveCaptions(livePlacer)
+            }
             i = 0
             while (i < captions.size) {
                 val caption = captions[i]
@@ -1570,16 +1900,9 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
                     if (edge > 0f) {
                         var x = captionX[i]
                         var y = captionY[i]
-                        if (arcRotates[a]) {
-                            val margin = Metrics.folderLabelScreenMarginDp * density
-                            val offset = (look.iconSizeDp / 2f + Metrics.folderLabelGapDp) * density
-                            val centerY = cy + slotY(i, rotations)
-                            x = (cx + slotX(i, rotations) - caption.width / 2f)
-                                .coerceIn(margin, max(margin, screenWidth * density - margin - caption.width)) - cx
-                            val below = centerY + offset
-                            y = (if (below + caption.height <= screenHeight * density - margin) below
-                                else centerY - offset - caption.height)
-                                .coerceIn(margin, max(margin, screenHeight * density - margin - caption.height)) - cy
+                        if (liveCaptions) {
+                            x = livePlacer.x[i] * density - cx
+                            y = livePlacer.y[i] * density - cy
                         }
                         paint.alpha = (255 * alpha * slotsAlpha * dim[i] * edge).toInt()
                         canvas.drawBitmap(caption, x + shiftX * a / 3f, y + shiftY * a / 3f, paint)
@@ -1651,16 +1974,16 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
         if (selected in labels.indices && selected != omitted) {
             val label = labels[selected]
             if (label != null) {
-                placeLabel(selected, label, rotations)
+                placeLabel(selected, label, rotations, magnifyKind, selectedGrowth)
                 paint.alpha = (255 * alpha * slotsAlpha).toInt()
                 canvas.drawBitmap(label, labelLeftDp * density - cx, labelTopDp * density - cy, paint)
             }
         }
         if (aiming && selected in icons.indices) {
             aimPaint.alpha = (255 * alpha).toInt()
-            val x = slotX(selected, rotations) + shiftX * arcIndex[selected] / 3f
-            val y = slotY(selected, rotations) + shiftY * arcIndex[selected] / 3f
-            val r = half * depthScale[arcIndex[selected]] + Metrics.aimRingGapDp * density
+            val x = slotX(selected, rotations) + shiftX * arcIndex[selected] / 3f + pushXPx(selected, rotations, magnifyKind, selectedGrowth)
+            val y = slotY(selected, rotations) + shiftY * arcIndex[selected] / 3f + pushYPx(selected, rotations, magnifyKind, selectedGrowth)
+            val r = half * depthScale[arcIndex[selected]] * MagnifyGeometry.scaleAt(magnifyKind, selectedGrowth) + Metrics.aimRingGapDp * density
             if (spec.iconFrame == IconFrame.brackets) {
                 val arm = r * Metrics.atlasRegistrationLength
                 canvas.drawLine(x - r + arm, y - r, x - r, y - r, aimPaint)
@@ -1690,19 +2013,22 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
     }
 
     fun drawChrome(canvas: Canvas, touching: Boolean, x: Float, y: Float, back: Boolean = false,
-        hint: Float = 0f, showHint: Boolean = false) {
+        hint: Float = 0f, showHint: Boolean = false, hubScale: Float = 1f) {
         paint.alpha = (255 * chromeDim).toInt()
+        val chromeTop = state.chromeTopDp * density
         if (clock != null) {
-            val top = Metrics.keepOutTopDp * density
+            val top = chromeTop
             canvas.drawBitmap(clock, Metrics.textGutterDp * density, top, paint)
             if (clockSubline != null) {
                 canvas.drawBitmap(clockSubline, Metrics.textGutterDp * density,
                     top + clock.height + Metrics.clockSublineGapDp * density, paint)
             }
         }
-        if (title != null) canvas.drawBitmap(title, Metrics.textGutterDp * density, Metrics.keepOutTopDp * density, paint)
+        if (title != null) canvas.drawBitmap(title, Metrics.textGutterDp * density, chromeTop, paint)
+        if (folderCount != null) canvas.drawBitmap(folderCount, Metrics.textGutterDp * density,
+            chromeTop + (title?.height ?: 0) + Metrics.gridDp * 2 * density, paint)
         if (empty != null) canvas.drawBitmap(empty, Metrics.textGutterDp * density,
-            (Metrics.keepOutTopDp + skin.typography.title.sizeSp + Metrics.gridDp * 4) * density, paint)
+            chromeTop + (skin.typography.title.sizeSp + Metrics.gridDp * 4) * density, paint)
         if (touching) {
             rect.set(x - glowRadius, y - glowRadius, x + glowRadius, y + glowRadius)
             canvas.drawBitmap(glow, null, rect, paint)
@@ -1717,7 +2043,10 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
             canvas.drawLine(bx - r / 2f, cy, bx + r / 2f, cy + r, aimPaint)
         }
         hub.alpha = (255 * chromeDim).toInt()
-        canvas.drawCircle(cx, cy, Metrics.hubRadiusDp * density, hub)
+        if (moduleCard) {
+            hubDisc.alpha = (255 * chromeDim).toInt()
+            canvas.drawCircle(cx, cy, Metrics.hubRadiusDp * density * hubScale, hubDisc)
+        } else canvas.drawCircle(cx, cy, Metrics.hubRadiusDp * density * hubScale, hub)
         decoration.drawHub(canvas, cx, cy)
         if (clock != null && spec.header == HeaderStyle.ruled) {
             canvas.drawLine(Metrics.textGutterDp * density,
@@ -1760,8 +2089,9 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
         canvas.drawLine(gcx + gr * 0.7f, gcy + gr * 0.7f, gcx + gr * 0.7f + handleLength, gcy + gr * 0.7f + handleLength, searchGlyphPaint)
         if (showHint && searchCaption != null) {
             paint.alpha = (255 * chromeDim).toInt()
-            canvas.drawBitmap(searchCaption, bx + bR + Metrics.searchButtonCaptionGapDp * density,
-                by - searchCaption.height / 2f, paint)
+            // The caption sits centred ABOVE the button: to its right it ran into the label of the first slot (Maps, Drive).
+            canvas.drawBitmap(searchCaption, (bx - searchCaption.width / 2f).coerceAtLeast(Metrics.gridDp * density),
+                by - bR - Metrics.searchButtonCaptionGapDp * density / 2f - searchCaption.height, paint)
         }
     }
 }
@@ -1800,20 +2130,19 @@ private fun liftedSurface(skin: Skin): Int {
     return (255 shl 24) or (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
 }
 
-/** One active fling: an exact critically damped spring from a recorded start toward [target]. */
-private class RotationFling(val offset0: Float, val velocity0: Float, val target: Float,
-    val omega: Float, val start: Long)
-
 /**
- * Per-arc live rotation state (T29). Offsets are kept unwrapped while animating and wrapped into
+ * Per-arc live rotation state (T29, T148). Offsets are kept unwrapped while animating and wrapped into
  * `0..count-1` by the scene builders/persistence; item mapping always reads through [RingRotation].
- * [aligned] mirrors the current scene's arcs for the allocation-free draw loop; the frame clock
- * advances active flings and reports each settle so the host can persist it.
+ * [aligned] mirrors the current scene's arcs for the allocation-free draw loop. The drag, release
+ * and settle rules are the pure [ArcMotion]; this class only holds one [ArcMotionState] per arc that
+ * is being touched or is settling, and reports each landing so the host can persist it.
  */
 private class RotationRuntime {
     private val offsets = HashMap<String, Float>()
-    private val flings = HashMap<String, RotationFling>()
+    private val motions = HashMap<String, ArcMotionState>()
     private var indexById = HashMap<String, Int>()
+    private var lastStep = 0L
+    private var tickPending = false
     var aligned = FloatArray(0)
         private set
 
@@ -1836,84 +2165,159 @@ private class RotationRuntime {
         indexById[arcId]?.let { if (it in aligned.indices) aligned[it] = value }
     }
 
-    /** A tangential drag of `tangentialSlots` slot steps moves the ring with the finger. */
-    fun drag(arcId: String, tangentialSlots: Float) = write(arcId, offset(arcId) - tangentialSlots)
+    /** Edge-hold nudge of a whole slot; no gesture state. */
+    fun nudge(arcId: String, tangentialSlots: Float) = write(arcId, offset(arcId) - tangentialSlots)
 
-    /** Begin the fling from the release velocity; an absent animator snaps immediately. */
-    fun startFling(arcId: String, velocity: Float, now: Long, scale: Float, report: (String, Float) -> Unit) {
-        val current = offset(arcId)
-        val target = RingRotation.flingTarget(current, velocity)
-        if (scale <= 0f) {
-            write(arcId, target)
-            report(arcId, target)
-            return
-        }
-        val omega = sqrt(Metrics.rotateSpringStiffness.toDouble()).toFloat() * scale
-        flings[arcId] = RotationFling(current, velocity, target, omega, now)
+    /** Finger down on [arcId]: a settle in progress is caught where it is, velocity kept. */
+    fun grab(arcId: String) {
+        val current = motions[arcId] ?: ArcMotion.rest(offset(arcId))
+        motions[arcId] = ArcMotion.down(current.copy(offset = offset(arcId)))
     }
 
-    /** OPUS4: turn [arcId] to [target]: at once (scale 0) or with the same spring a fling settles with. */
-    fun turnTo(arcId: String, target: Float, now: Long, scale: Float, report: (String, Float) -> Unit) {
-        flings.remove(arcId)
-        if (scale <= 0f) {
-            write(arcId, target)
-            report(arcId, target)
-            return
-        }
-        val omega = sqrt(Metrics.rotateSpringStiffness.toDouble()).toFloat() * scale
-        flings[arcId] = RotationFling(offset(arcId), 0f, target, omega, now)
+    /** The finger moved the arc; true when a slot passed the front. */
+    fun drag(arcId: String, tangentialSlots: Float): Boolean {
+        val m = motions[arcId] ?: return false
+        val step = ArcMotion.drag(m, -tangentialSlots)
+        motions[arcId] = step.state
+        write(arcId, step.state.offset)
+        return step.tick
     }
 
-    /** Snap any active fling to its target (touch interruption / scene change / cancel). */
+    /**
+     * Finger up (or cancel): spring toward the whole target slot, or jump when [timeScale] is 0.
+     * Returns the state at release for the debug log, or null if the arc was not grabbed.
+     */
+    fun release(arcId: String, velocity: Float, feel: ArcFeel, timeScale: Float, now: Long,
+        report: (String, Float) -> Unit): ArcMotionState? {
+        val m = motions[arcId] ?: return null
+        if (m.phase != ArcPhase.Dragging) return null
+        val step = ArcMotion.release(m, velocity, feel, timeScale)
+        if (step.tick) tickPending = true
+        if (motions.values.none { it.phase == ArcPhase.Settling }) lastStep = now
+        land(arcId, step.state, report)
+        return step.state
+    }
+
+    /** OPUS4: turn [arcId] to [target]: at once (scale 0) or with the same spring a release settles with. */
+    fun turnTo(arcId: String, target: Float, now: Long, timeScale: Float, feel: ArcFeel,
+        report: (String, Float) -> Unit) {
+        val from = offset(arcId)
+        val s = ArcMotionState(phase = ArcPhase.Settling, offset = from, from = from, target = target.toInt(),
+            damping = feel.bounce.dampingRatio, timeScale = timeScale, tickSlot = ArcMotion.slotOf(from), dirty = true)
+        if (motions.values.none { it.phase == ArcPhase.Settling }) lastStep = now
+        land(arcId, if (timeScale <= 0f) ArcMotion.jump(s).state else s, report)
+    }
+
+    private fun land(arcId: String, state: ArcMotionState, report: (String, Float) -> Unit) {
+        write(arcId, state.offset)
+        if (state.phase == ArcPhase.Settling) {
+            motions[arcId] = state
+        } else {
+            motions.remove(arcId)
+            if (state.dirty) report(arcId, state.offset)
+        }
+    }
+
+    /** Take the settle to its target at once (animator duration scale 0, touch interruption). */
     fun snapAll(report: (String, Float) -> Unit) {
-        if (flings.isEmpty()) return
-        val pending = flings.entries.toList()
-        flings.clear()
-        for ((id, fling) in pending) {
-            write(id, fling.target)
-            report(id, fling.target)
+        if (motions.isEmpty()) return
+        val pending = motions.entries.toList()
+        for ((id, m) in pending) {
+            if (m.phase != ArcPhase.Settling) continue
+            val jumped = ArcMotion.jump(m).state
+            land(id, jumped, report)
         }
     }
 
-    /** Advance active flings; returns true while any is still moving. */
+    /** True once if a slot passed the front during the last [step]; the host plays one Tick. */
+    fun takeTick(): Boolean { val t = tickPending; tickPending = false; return t }
+
+    /** Advance settling arcs; returns true while any is still moving. At most one tick per frame. */
     fun step(now: Long, report: (String, Float) -> Unit): Boolean {
-        if (flings.isEmpty()) return false
+        if (motions.isEmpty()) return false
+        val dt = ((now - lastStep).coerceIn(0L, 250L)) / 1000f
+        lastStep = now
         var animating = false
-        val iterator = flings.entries.iterator()
-        while (iterator.hasNext()) {
-            val entry = iterator.next()
-            val fling = entry.value
-            val t = (now - fling.start) / 1000f
-            val (o, v) = RingRotation.spring(fling.offset0, fling.velocity0, fling.target, fling.omega, t)
-            write(entry.key, o)
-            if (RingRotation.isSettled(o, v, fling.target)) {
-                write(entry.key, fling.target)
-                iterator.remove()
-                report(entry.key, fling.target)
-            } else {
-                animating = true
-            }
+        val pending = motions.entries.toList()
+        for ((id, m) in pending) {
+            if (m.phase != ArcPhase.Settling) continue
+            val step = ArcMotion.step(m, dt)
+            if (step.tick) tickPending = true
+            land(id, step.state, report)
+            if (step.state.phase == ArcPhase.Settling) animating = true
         }
         return animating
     }
 
-    fun stopFlings() { flings.clear() }
+    /** Scene change: settling arcs stop on their target silently, grabs are dropped. */
+    fun stopFlings() {
+        for ((id, m) in motions.entries.toList()) {
+            write(id, if (m.phase == ArcPhase.Settling) m.target.toFloat() else offset(id))
+        }
+        motions.clear()
+    }
 }
 
-/** Static gallery raster, using exactly the prepared home renderer. Call off the UI thread.
- * The caller owns caching; no renderer sessions, gesture handlers or ambient loops are started.
+/**
+ * T176/T178: the stage behind the cards and arcs, ONE function for Home and every preview. [picture] is the chosen picture
+ * (already dimmed by `loadImageWallpaper`); [phoneStandIn] is drawn for the phone wallpaper where the window cannot show it
+ * (previews: the wallpaper's main colour), Home passes null because its window shows the real wallpaper.
+ */
+internal fun drawHomeStage(canvas: Canvas, skin: Skin, look: LookSettings, glassStage: GlassStage, picture: Bitmap?,
+    phoneStandIn: Bitmap?, destination: Rect, paint: Paint, glassTint: Int, readability: Paint?, haze: Bitmap?,
+    hazeDestination: android.graphics.RectF, hazePaint: Paint) {
+    // T169: with glass over the wallpaper nothing but one faint flat tint (8 percent at most) lies on the picture.
+    val wallpaperGlass = glassStage == GlassStage.WallpaperTint
+    canvas.drawColor(if (look.wallpaper == WallpaperStyle.Image) Color.BLACK
+        else if (wallpaperGlass) Color.TRANSPARENT else backgroundArgb(skin, look))
+    if (look.wallpaper == WallpaperStyle.Image && picture != null) canvas.drawBitmap(picture, null, destination, paint)
+    if (look.wallpaper == WallpaperStyle.System && phoneStandIn != null) {
+        canvas.drawBitmap(phoneStandIn, null, destination, paint)
+        if (!wallpaperGlass) canvas.drawColor(backgroundArgb(skin, look))
+    }
+    if (wallpaperGlass) {
+        // T176: the phone wallpaper keeps its dim under glass too (the window shows it; the dim is one flat colour).
+        if (look.wallpaper == WallpaperStyle.System) canvas.drawColor(backgroundArgb(skin, look))
+        canvas.drawColor(glassTint)
+    } else {
+        if (readability != null) canvas.drawRect(0f, 0f, destination.width().toFloat(), destination.height().toFloat(), readability)
+        if (haze != null) canvas.drawBitmap(haze, null, hazeDestination, hazePaint)
+    }
+}
+
+/**
+ * Static gallery and Settings preview raster (T178): the same stage ([drawHomeStage]), the same hub cards
+ * ([com.brightblu.parc.ring.module.HubCardPaint] through [HomeCards]) and the same arc scene ([SceneDrawing]) as Home.
+ * [skin] is the arc card skin, as Home's renderer gets it. Call off the UI thread; the caller owns caching.
  */
 fun rasterHome(state: RingState, skin: Skin, widthDp: Float, heightDp: Float,
-    density: Float, look: LookSettings, background: Bitmap? = null): Bitmap {
+    density: Float, look: LookSettings, picture: Bitmap? = null, phoneColour: Int? = null,
+    arcCard: HomeCard? = null, statsCard: HomeCard? = null,
+    folderWordFace: android.graphics.Typeface? = null, folderNumberFace: android.graphics.Typeface? = null): Bitmap {
     val bitmap = Bitmap.createBitmap((widthDp * density).toInt(), (heightDp * density).toInt(), Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     canvas.drawColor(skin.colors.bg.toInt())
-    if (background != null) canvas.drawBitmap(background, null,
-        Rect(0, 0, bitmap.width, bitmap.height), Paint(Paint.FILTER_BITMAP_FLAG))
+    val glassOn = com.brightblu.parc.ring.module.FrostPath.frosted(skin)
+    val glassStage = GlassBackdrop.stage(glassOn, look.wallpaper, picture != null)
+    val phone = if (look.wallpaper == WallpaperStyle.System && phoneColour != null)
+        Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888).apply { eraseColor(phoneColour or (0xFF shl 24)) } else null
+    // What the cards frost: the same choice as Home (the picture, the phone wallpaper stage, or the haze).
+    val frostStage = if (glassStage != GlassStage.WallpaperTint) null
+        else if (look.wallpaper == WallpaperStyle.Image) picture
+        else systemWallpaperStage(null, phoneColour, backgroundArgb(skin, look))
+    val haze = if (glassStage == GlassStage.Haze) HazeStage.bitmap(bitmap.width, bitmap.height, skin.colors.bg.toInt(),
+        skin.colors.lineActive.toInt()) else null
+    val destination = Rect(0, 0, bitmap.width, bitmap.height)
+    drawHomeStage(canvas, skin, look, glassStage, picture, phone, destination, Paint(Paint.FILTER_BITMAP_FLAG),
+        GlassBackdrop.wallpaperTint(skin.colors.bg.toInt()), wallpaperScrim(skin, look, null, bitmap.height), haze,
+        android.graphics.RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat()), Paint(Paint.FILTER_BITMAP_FLAG))
     val decorations = SkinDecorationCache(skin, widthDp, heightDp, density)
+    // Home draws the arcs on the module card (moduleCard = true), so the preview does too.
     val scene = SceneDrawing(state.copy(clock = ""), skin, density, 1f, widthDp, heightDp,
-        decorations.get(state.arcs), look)
+        decorations.get(state.arcs), look, moduleCard = arcCard != null, folderWordFace = folderWordFace, folderNumberFace = folderNumberFace)
     scene.drawBackground(canvas)
+    arcCard?.let { HomeCards.draw(canvas, it, density, widthDp, heightDp, frostStage) }
+    statsCard?.let { HomeCards.draw(canvas, it, density, widthDp, heightDp, frostStage) }
     scene.draw(canvas, 1f, 1f, -1)
     scene.drawChrome(canvas, false, 0f, 0f)
     return bitmap

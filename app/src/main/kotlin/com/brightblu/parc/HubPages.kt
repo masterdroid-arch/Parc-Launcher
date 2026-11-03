@@ -1,10 +1,14 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import com.brightblu.parc.feature.settings.ui.*
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import kotlin.math.roundToInt
@@ -20,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -29,6 +34,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.ParcSpacing
 import com.brightblu.parc.model.HeaderStyle
 import com.brightblu.parc.model.Skin
 import kotlinx.coroutines.launch
@@ -71,8 +77,6 @@ internal fun HubPages(
             scope.launch { store.update { it.copy(size = size) } }
         }
     }
-    val headerTime by store.headerTime.collectAsState(initial = false)
-    val time = rememberHubTime()
     val savedPage by store.lastPage.collectAsState(initial = "clock")
     val demo = DemoMode.enabled && !LocalHubPreview.current
     // T130: demo pages are not part of HubConfig (Notes is hidden by default), so the demo list
@@ -113,74 +117,64 @@ internal fun HubPages(
     val page = selected.takeIf { it in pages } ?: pages.firstOrNull()
     val density = androidx.compose.ui.platform.LocalDensity.current
     val imeUp = WindowInsets.ime.getBottom(density) > 0
+    val scrollGate = LocalHubScrollGate.current
     Column(modifier.fillMaxWidth().fillMaxHeight().clipToBounds()
-        .background(if (LocalHubLook.current.wallpaper in setOf(com.brightblu.parc.model.WallpaperStyle.System, com.brightblu.parc.model.WallpaperStyle.Image)) Color.Transparent else Color(skin.colors.bg.toInt()))
-        .pointerInput(pages, page, imeUp) {
-            var travel = 0f
-            detectHorizontalDragGestures(
-                onDragStart = { travel = 0f },
-                onHorizontalDrag = { change, amount ->
-                    // While the reply field owns the IME, horizontal drags belong to text
-                    // selection, not page switching.
-                    if (!imeUp) { change.consume(); travel += amount }
-                },
-                onDragEnd = {
-                    if (page != null && abs(travel) >= Metrics.hubPageSwipeDp.dp.toPx()) {
-                        // OPUS1: pages loop (last -> first, first -> last).
-                        hubPageAfterSwipe(pages, page, forward = travel < 0)?.let { if (it != page) select(it) }
+        // T167: direction lock. The first drag past the touch slop is either a page swipe (mostly
+        // horizontal, taken here before any page sees it) or a scroll (anything else, left alone).
+        // While the reply field owns the IME, horizontal drags belong to text selection.
+        .then(if (imeUp) Modifier else Modifier.pointerInput(pages, page) {
+            val slop = viewConfiguration.touchSlop
+            val threshold = Metrics.hubPageSwipeDp.dp.toPx()
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                var lock = HubDragLock.Undecided
+                var dx = 0f
+                var dy = 0f
+                do {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    val delta = change.positionChange()
+                    dx += delta.x; dy += delta.y
+                    if (lock == HubDragLock.Undecided) lock = HubPageScroll.lock(dx, dy, slop)
+                    if (lock == HubDragLock.Horizontal) {
+                        change.consume()
+                        if (!change.pressed && page != null && abs(dx) >= threshold) {
+                            // OPUS1: pages loop (last -> first, first -> last).
+                            hubPageAfterSwipe(pages, page, forward = dx < 0)?.let { if (it != page) select(it) }
+                        }
                     }
-                },
-            )
-        }) {
-        Row(Modifier.fillMaxWidth().heightIn(min = Metrics.touchTargetDp.dp).drawWithCache {
-            val p = androidx.compose.ui.graphics.Path().apply { moveTo(0f, size.height); lineTo(size.width, size.height) }
-            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(skin.lineWidths.baseDp.dp.toPx())
-            val tint = Color(skin.colors.lineBase.toInt())
-            onDrawBehind { if (skin.style.header == HeaderStyle.ruled) drawPath(p, tint, style = stroke) }
-        }, verticalAlignment = Alignment.CenterVertically) {
-            if (!demo && focusState?.active != null) {
+                } while (event.changes.any { it.pressed })
+            }
+        })) {
+        // T158: the tabs lead the card; the focus pass row shows only while a Focus mode is running.
+        if (pages.isNotEmpty()) HubTabStrip(pages, page, skin) { select(it) }
+        if (!demo && focusState?.active != null) {
+            Row(Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    BasicText(hubPageTitle(demo, page) + " · " + focusState.activeName.orEmpty(), maxLines = 1,
+                    BasicText("Focus · " + focusState.activeName.orEmpty(), maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        style = TextStyle(color = Color(skin.colors.accent.toInt()), fontSize = skin.typography.caption.sizeSp.sp))
+                        style = TextStyle(fontFamily = skin.textFamily, color = Color(skin.colors.accent.toInt()), fontSize = skin.typography.caption.sizeSp.sp))
                     HubText(focusRemaining(focusState), skin)
                 }
-                Box(Modifier.size(Metrics.focusControlDp.dp).semantics { contentDescription = "Emergency Focus pass" }
-                    .clickable {
-                        focusControls = true
-                    }, contentAlignment = Alignment.Center) { HubText("Pass", skin) }
-            } else {
-                HubText(hubPageTitle(demo, page) + if (headerTime) " · $time" else "", skin, Modifier.weight(1f).height(Metrics.hubHeaderHeightDp.dp).wrapContentHeight(Alignment.CenterVertically))
-                if (!demo && (focusAvailable || focusSummary != null)) {
-                    HubButton(if (focusSummary != null) "Summary" else "Focus", skin, compact = true) {
-                        if ("focus" in pages) select("focus")
-                        else if (focusSummary != null) focusControls = true else onToggleFocus()
-                    }
-                }
+                Box(Modifier.heightIn(min = Metrics.focusControlDp.dp).widthIn(min = Metrics.focusControlDp.dp).semantics { contentDescription = "Emergency Focus pass" }
+                    .clickable { focusControls = true }, contentAlignment = Alignment.Center) { HubText("Pass", skin) }
             }
-            if (page != null) HubButton(hubTemplates.getValue(page).action, skin) {
-                if (page == "clock") {
-                    val intent = android.content.Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS)
-                    runCatching { context.startActivity(intent) }
-                } else optionsPage = page
-            }
-            if (page != null) HubButton("…", skin, "${hubPageName(page)} page options") {
-                optionsPage = page
-            }
-
-
         }
         if (page == null) {
             HubText("All pages hidden · open Hub pages in Settings", skin)
         } else {
             BoxWithConstraints(Modifier.weight(1f).clipToBounds().pointerInput(page) {
                 detectTapGestures(onLongPress = { optionsPage = page })
-            }.drawWithCache {
+            }.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }.drawWithCache {
                 val fadeHeight = Metrics.hubFadeHeightDp.dp.toPx().coerceAtMost(size.height)
-                val background = Color(skin.colors.bg.toInt())
-                val fade = Brush.verticalGradient(listOf(background.copy(alpha = 0f), background),
+                // T158: the card can be frosted or see-through, so the fade is a mask on the content, not a colour.
+                val fade = Brush.verticalGradient(listOf(Color.Black, Color.Transparent),
                     startY = size.height - fadeHeight, endY = size.height)
-                onDrawWithContent { drawContent(); drawRect(fade) }
+                // T167: the fade only shows while a page has more content below it.
+                onDrawWithContent {
+                    drawContent()
+                    if (scrollGate?.canScrollForward == true) drawRect(fade, blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+                }
             }) {
                 val configuredTiles = config.tiles(page).filterNot { it in config.hiddenTiles[page].orEmpty() }
                 val tiles = if (page == "timers" || page == QuickToggleCatalog.PageId) configuredTiles else HubPanelLayout.visibleTiles(configuredTiles, config.size, maxHeight.value, density.fontScale)
@@ -202,33 +196,39 @@ internal fun HubPages(
                     }
                 } }
             }
-            if (config.size != HubSize.Compact) Row(Modifier.fillMaxWidth().height(Metrics.hubDotsHeightDp.dp), horizontalArrangement = Arrangement.Center) {
-                val start = (pages.indexOf(page) - 3).coerceIn(0, (pages.size - 7).coerceAtLeast(0))
-                pages.drop(start).take(7).forEach { id ->
-                    Box(Modifier.size(Metrics.menuRowHeightDp.dp).semantics { contentDescription = "${hubPageName(id)} page${if (id == page) ", selected" else ""}" }
-                        .clickable { select(id) }, contentAlignment = Alignment.Center) {
-                        Box(Modifier.size(if (id == page) Metrics.hubDotActiveWidthDp.dp else Metrics.hudDotDp.dp, Metrics.hudDotDp.dp)
-                            .background(Color((if (id == page) skin.colors.accent else skin.colors.textSecondary).toInt()), CircleShape))
-                    }
+        }
+        // T158: the grip keeps the middle; the page's action and its options sit at the card's inset on either side.
+        val focusButton = if (demo || focusState?.active != null || page == "clock") null
+            else if (focusSummary != null) "Summary" else if (focusAvailable && "focus" !in pages) "Focus" else null
+        Row(Modifier.fillMaxWidth().height(Metrics.hubGripHeightDp.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                if (page == "clock") HubButton("Alarms", skin, "Open alarms") {
+                    runCatching { context.startActivity(android.content.Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS)) }
+                } else if (focusButton != null) HubButton(focusButton, skin) {
+                    if ("focus" in pages) select("focus")
+                    else if (focusSummary != null) focusControls = true else onToggleFocus()
                 }
             }
-        }
-        Box(Modifier.fillMaxWidth().height(Metrics.hubGripHeightDp.dp)
-            .semantics { contentDescription = "Hub size: ${config.size}. Tap to cycle; drag to resize" }
-            .clickable(enabled = !imeUp) { resize(config.size.next()) }
-            .pointerInput(config.size, imeUp) {
-                var travel = 0f
-                detectVerticalDragGestures(onDragStart = { travel = 0f },
-                    onVerticalDrag = { change, amount -> if (!imeUp) { change.consume(); travel += amount } },
-                    onDragEnd = {
-                        if (!imeUp && abs(travel) > Metrics.hubPageSwipeDp.dp.toPx() / 2f) {
-                            val steps = (travel / Metrics.hubPageSwipeDp.dp.toPx()).roundToInt()
-                            resize(HubSize.entries[(config.size.ordinal + steps).coerceIn(0, HubSize.entries.lastIndex)])
-                        }
-                    })
-            }, contentAlignment = Alignment.Center) {
-            Box(Modifier.size(Metrics.hubGripWidthDp.dp, Metrics.hubGripLineDp.dp)
-                .background(Color(skin.colors.textSecondary.toInt()), CircleShape))
+            Box(Modifier.width(Metrics.hubGripTouchWidthDp.dp).fillMaxHeight()
+                .semantics { contentDescription = "Hub size: ${config.size}. Tap to cycle; drag to resize" }
+                .clickable(enabled = !imeUp) { resize(config.size.next()) }
+                .pointerInput(config.size, imeUp) {
+                    var travel = 0f
+                    detectVerticalDragGestures(onDragStart = { travel = 0f },
+                        onVerticalDrag = { change, amount -> if (!imeUp) { change.consume(); travel += amount } },
+                        onDragEnd = {
+                            if (!imeUp && abs(travel) > Metrics.hubPageSwipeDp.dp.toPx() / 2f) {
+                                val steps = (travel / Metrics.hubPageSwipeDp.dp.toPx()).roundToInt()
+                                resize(HubSize.entries[(config.size.ordinal + steps).coerceIn(0, HubSize.entries.lastIndex)])
+                            }
+                        })
+                }, contentAlignment = Alignment.Center) {
+                Box(Modifier.size(Metrics.hubGripWidthDp.dp, Metrics.hubGripLineDp.dp)
+                    .background(Color(skin.colors.textSecondary.toInt()), CircleShape))
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                if (page != null) HubButton("…", skin, "${hubPageName(page)} page options") { optionsPage = page }
+            }
         }
     }
 }
@@ -268,14 +268,14 @@ internal fun HubPageSettings(skin: Skin, config: HubConfig, update: ((HubConfig)
 @Composable
 private fun HubText(text: String, skin: Skin, modifier: Modifier = Modifier) {
     BasicText(text, modifier, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = TextStyle(color = Color(skin.colors.textPrimary.toInt()), fontSize = Metrics.hubNameSp.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-        fontFamily = if (skin.style.clockFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else if (skin.style.header == HeaderStyle.ruled) androidx.compose.ui.text.font.FontFamily.Serif else null))
+        fontFamily = if (skin.style.clockFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else if (skin.style.header == HeaderStyle.ruled) androidx.compose.ui.text.font.FontFamily.Serif else skin.textFamily))
 }
 
 @Composable
 private fun HubButton(text: String, skin: Skin, description: String = text, enabled: Boolean = true, compact: Boolean = false, click: () -> Unit) {
     Box(Modifier.height((if (compact) Metrics.hubHeaderHeightDp else Metrics.menuRowHeightDp).dp).widthIn(min = Metrics.menuRowHeightDp.dp)
         .semantics { contentDescription = description }.clickable(enabled = enabled, onClick = click)
-        .padding(horizontal = Metrics.gridDp.dp), contentAlignment = Alignment.Center) {
-        BasicText(text, style = TextStyle(fontFamily = if (skin.typography.fallbackFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null, color = Color((if (enabled) skin.colors.accent else skin.colors.lineActive).toInt()), fontSize = skin.typography.caption.sizeSp.sp))
+        .padding(horizontal = Metrics.lineGapDp.dp), contentAlignment = Alignment.Center) {
+        BasicText(text, style = TextStyle(fontFamily = skin.textFamily, color = Color((if (enabled) skin.colors.accent else skin.colors.lineActive).toInt()), fontSize = skin.typography.caption.sizeSp.sp))
     }
 }

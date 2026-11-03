@@ -108,12 +108,6 @@ class WorkProfileTest {
         assertNull(workProfileNotice(LaunchOutcome.Unavailable))
     }
 
-    @Test fun markWorkAppsIsOnByDefaultInParcSettings() {
-        val row = settingsRootRows("Midnight", false, true, false, true)
-            .single { it.id == SettingsRowId.MarkWorkApps }
-        assertEquals(true, row.checked)
-        assertEquals("Mark work apps", row.label)
-    }
 
     private class Index(entries: List<AppEntry>) : AppIndex {
         override val apps = MutableStateFlow(entries)

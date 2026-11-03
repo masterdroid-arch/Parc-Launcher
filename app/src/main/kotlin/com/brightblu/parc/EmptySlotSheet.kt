@@ -1,5 +1,7 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
+import com.brightblu.parc.ring.module.frostedBackground
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -37,17 +39,19 @@ internal fun EmptySlotSheet(title: String, apps: List<AppEntry>, skin: Skin, pic
         .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClose)) {
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
             .padding(top = Metrics.keepOutTopDp.dp)
-            .background(Color(skin.colors.surface.toInt()),
-                RoundedCornerShape(topStart = Metrics.menuCornerDp.dp, topEnd = Metrics.menuCornerDp.dp))
+            .then(if (skin.shape.moduleStyle == com.brightblu.parc.model.ModuleStyle.frosted)
+                Modifier.frostedBackground(skin, Metrics.menuCornerDp, roundBottom = false)
+            else Modifier.background(Color(skin.colors.surface.toInt()),
+                RoundedCornerShape(topStart = Metrics.menuCornerDp.dp, topEnd = Metrics.menuCornerDp.dp)))
             // Taps inside the sheet never reach the scrim.
             .clickable(remember { MutableInteractionSource() }, indication = null) {}
             .navigationBarsPadding()
-            .padding(bottom = Metrics.gridDp.dp * 2)) {
+            .padding(bottom = Metrics.itemGapDp.dp)) {
             Row(Modifier.fillMaxWidth().heightIn(min = Metrics.touchTargetDp.dp)
-                .padding(start = Metrics.textGutterDp.dp), verticalAlignment = Alignment.CenterVertically) {
+                .padding(start = Metrics.screenGutterDp.dp, end = Metrics.actionEdgeGapDp.dp), verticalAlignment = Alignment.CenterVertically) {
                 BasicText(if (picking) EditModeText.AddApp else title, Modifier.weight(1f).semantics { heading() },
                     style = sheetStyle(skin, skin.colors.textPrimary).copy(fontWeight = FontWeight.SemiBold))
-                SheetAction(EditModeText.Close, skin, onClose)
+                SheetAction(EditModeText.Close, skin, onClose, compact = true)
             }
             if (picking) {
                 LazyColumn(Modifier.weight(1f, fill = false).heightIn(max = (Metrics.touchTargetDp * PickerRows).dp)) {
@@ -67,26 +71,28 @@ internal fun EmptySlotSheet(title: String, apps: List<AppEntry>, skin: Skin, pic
 @Composable
 internal fun EditModeBar(skin: Skin, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().navigationBarsPadding()
-        .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.gridDp.dp), contentAlignment = Alignment.Center) {
+        .padding(horizontal = Metrics.screenGutterDp.dp, vertical = Metrics.lineGapDp.dp), contentAlignment = Alignment.Center) {
         BasicText(EditModeText.Instructions,
             Modifier.background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha),
                 RoundedCornerShape(Metrics.snackbarCornerDp.dp))
-                .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.gridDp.dp * 2),
+                .padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
             style = sheetStyle(skin, skin.colors.textPrimary).copy(fontSize = skin.typography.caption.sizeSp.sp))
     }
 }
 
 @Composable
-private fun SheetAction(label: String, skin: Skin, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun SheetAction(label: String, skin: Skin, onClick: () -> Unit, modifier: Modifier = Modifier, compact: Boolean = false) {
+    // A full-width row has the word on the screen gutter. A button in the title row keeps its touch area one action edge gap
+    // from the edge (the Row gives that), so it only needs the item gap inside.
     Box(modifier.heightIn(min = Metrics.touchTargetDp.dp).clickable(onClick = onClick)
-        .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.gridDp.dp * 2),
+        .padding(horizontal = if (compact) Metrics.itemGapDp.dp else Metrics.screenGutterDp.dp, vertical = Metrics.itemGapDp.dp),
         contentAlignment = Alignment.CenterStart) {
         BasicText(label, maxLines = 2, overflow = TextOverflow.Ellipsis, style = sheetStyle(skin, skin.colors.accent))
     }
 }
 
 private fun sheetStyle(skin: Skin, color: Long): TextStyle = TextStyle(
-    fontFamily = if (skin.typography.fallbackFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+    fontFamily = skin.textFamily,
     color = Color(color.toInt()), fontSize = skin.typography.menu.sizeSp.sp)
 
 /** Rows of the app picker shown at once; the rest scroll. A count, not a size. */

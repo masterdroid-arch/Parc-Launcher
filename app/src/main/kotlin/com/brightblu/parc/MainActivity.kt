@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -73,10 +74,10 @@ class MainActivity : ComponentActivity() {
                     if (DemoMode.enabled) {
                         val skin by host.skinProvider.active.collectAsState()
                         BasicText("DEMO", Modifier.align(Alignment.TopEnd).statusBarsPadding()
-                            .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.gridDp.dp)
+                            .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.lineGapDp.dp)
                             .background(Color(skin.colors.surface.toInt()))
-                            .padding(horizontal = Metrics.gridDp.dp * 2, vertical = Metrics.gridDp.dp),
-                            style = TextStyle(color = Color(skin.colors.accent.toInt()),
+                            .padding(horizontal = Metrics.itemGapDp.dp, vertical = Metrics.lineGapDp.dp),
+                            style = TextStyle(fontFamily = skin.textFamily, color = Color(skin.colors.accent.toInt()),
                                 fontSize = skin.typography.caption.sizeSp.sp))
                     }
                 }

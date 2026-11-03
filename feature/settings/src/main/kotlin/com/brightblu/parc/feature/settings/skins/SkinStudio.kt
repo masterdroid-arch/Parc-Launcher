@@ -56,6 +56,10 @@ import com.brightblu.parc.feature.settings.ui.SettingsCard
 import com.brightblu.parc.feature.settings.ui.SettingsSection
 import com.brightblu.parc.feature.settings.ui.settingsText
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.parcSettingsPadding
+import com.brightblu.parc.model.ParcSettingsRow
+import com.brightblu.parc.model.parcCardPadding
+import com.brightblu.parc.model.parcRowPadding
 import com.brightblu.parc.model.Skin
 import kotlin.math.cos
 import kotlin.math.sin
@@ -112,12 +116,12 @@ fun SkinStudioContent(host: SkinStudioHost, skin: Skin) {
         SkinEditor(editing, host, skin, onModel = { model = it }, onClose = { model = null },
             onExport = { s -> exporting = s; exporter.launch(SkinExchange.fileName(s)) }, onMessage = { message = it }, message = message, onRemoved = { removed, wasActive -> undo.offer { if (host.saveSkin(removed) && wasActive) host.useSkin(removed.id) } })
     } else Column {
-        if (message.isNotBlank()) BasicText(message, Modifier.padding(vertical = Metrics.gridDp.dp * 2),
+        if (message.isNotBlank()) BasicText(message, Modifier.padding(vertical = Metrics.sectionHeaderGapDp.dp),
             style = settingsText(skin, skin.colors.accent, true))
         SettingsSection("Your skins", skin)
         SettingsCard(skin) {
             if (host.custom.isEmpty()) BasicText("No custom skins yet. Start from a built-in skin below.",
-                Modifier.padding(Metrics.gridDp.dp * 4), style = settingsText(skin, skin.colors.textSecondary, true))
+                Modifier.parcRowPadding(), style = settingsText(skin, skin.colors.textSecondary, true))
             host.custom.forEach { s ->
                 SettingRow(s.name, skin, SettingKind.Page, description = if (s.id == host.activeId) "In use" else "Edit colours") {
                     model = SkinEditorModel.from(s)
@@ -156,26 +160,22 @@ private fun SkinEditor(
     DisposableEffect(writer) { onDispose { writer.flush() } }
     val failing = model.failing()
     val preview = model.copy(existingId = editingId).toSkin(emptySet())
-    Column(Modifier.padding(top = Metrics.gridDp.dp * 2)) {
+    Column(Modifier.padding(top = Metrics.sectionHeaderGapDp.dp)) {
         SkinPreview(preview)
         NameField(model.name, skin, ok = model.nameValid) { onModel(model.withName(it)) }
-        if (message.isNotBlank()) BasicText(message, Modifier.padding(top = Metrics.gridDp.dp * 2), style = settingsText(skin, skin.colors.accent, true))
+        if (message.isNotBlank()) BasicText(message, Modifier.padding(top = Metrics.sectionHeaderGapDp.dp), style = settingsText(skin, skin.colors.accent, true))
         if (failing.isNotEmpty()) BasicText("Low contrast (needs 4.5:1): " + failing.joinToString { "${it.token.label} ${"%.1f".format(it.ratio)}" },
-            Modifier.padding(top = Metrics.gridDp.dp * 2), style = settingsText(skin, skin.colors.warn, true))
+            Modifier.padding(top = Metrics.sectionHeaderGapDp.dp), style = settingsText(skin, skin.colors.warn, true))
         SettingsSection("Colours", skin)
         SettingsCard(skin) {
             ColorToken.entries.forEach { t ->
                 val value = t.get(model.colors)
-                Row(Modifier.fillMaxWidth().heightIn(min = Metrics.touchTargetDp.dp)
-                    .clickable { token = if (token == t) null else t }.padding(Metrics.gridDp.dp * 3),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp * 3)) {
-                    Box(Modifier.size(28.dp).background(Color(value.toInt()), RoundedCornerShape(6.dp))
-                        .border(1.dp, Color(skin.colors.lineActive.toInt()), RoundedCornerShape(6.dp)))
-                    Column(Modifier.weight(1f)) {
-                        BasicText(t.label, style = settingsText(skin))
-                        BasicText(t.help, style = settingsText(skin, skin.colors.textSecondary, true))
-                    }
-                    BasicText(ColorMath.formatHex(value), style = settingsText(skin, skin.colors.textSecondary, true))
+                ParcSettingsRow(Modifier.clickable { token = if (token == t) null else t },
+                    leading = { Box(Modifier.size(28.dp).background(Color(value.toInt()), RoundedCornerShape(6.dp))
+                        .border(1.dp, Color(skin.colors.lineActive.toInt()), RoundedCornerShape(6.dp))) },
+                    trailing = { BasicText(ColorMath.formatHex(value), style = settingsText(skin, skin.colors.textSecondary, true)) }) {
+                    BasicText(t.label, style = settingsText(skin))
+                    BasicText(t.help, style = settingsText(skin, skin.colors.textSecondary, true))
                 }
                 if (token == t) ColorPicker(value, t.translucent, skin) { onModel(model.withColor(t, it)) }
             }
@@ -186,9 +186,9 @@ private fun SkinEditor(
             // OPUS6 (audit F7): unreadable text cannot be switched on (it can still be saved and fixed).
             val readable = model.canUse()
             if (!canSave) BasicText("Give this skin a unique name of 1 to 16 characters to save automatically.",
-                style = settingsText(skin, skin.colors.warn, true))
+                Modifier.parcRowPadding(), style = settingsText(skin, skin.colors.warn, true))
             if (!readable) BasicText("Text and dim text must stand out from the background (at least 3:1) before this skin can be used.",
-                style = settingsText(skin, skin.colors.warn, true))
+                Modifier.parcRowPadding(), style = settingsText(skin, skin.colors.warn, true))
             SettingRow("Use skin", skin, SettingKind.Action, description = "Apply these colours now", enabled = canSave && readable, icon = "▶") {
                 writer.flush()
                 val s = model.copy(existingId = editingId).toSkin(emptySet())
@@ -215,10 +215,10 @@ private fun SkinEditor(
 private fun NameField(name: String, skin: Skin, ok: Boolean, onName: (String) -> Unit) {
     BasicTextField(name, onName, singleLine = true, textStyle = settingsText(skin),
         cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
-        modifier = Modifier.fillMaxWidth().padding(top = Metrics.gridDp.dp * 3).heightIn(min = Metrics.touchTargetDp.dp)
+        modifier = Modifier.fillMaxWidth().padding(top = Metrics.rowGapDp.dp).heightIn(min = Metrics.touchTargetDp.dp)
             .background(Color(skin.colors.surface.toInt()), RoundedCornerShape(Metrics.menuCornerDp.dp))
             .border(skin.shape.surfaceBorderDp.dp, Color((if (ok) skin.colors.lineActive else skin.colors.warn).toInt()), RoundedCornerShape(Metrics.menuCornerDp.dp))
-            .padding(Metrics.gridDp.dp * 4).semantics { contentDescription = "Skin name" },
+            .parcSettingsPadding().semantics { contentDescription = "Skin name" },
         decorationBox = { inner ->
             if (name.isEmpty()) BasicText("Skin name", style = settingsText(skin, skin.colors.textSecondary))
             inner()
@@ -264,7 +264,7 @@ private fun SkinPreview(s: Skin) {
 private fun ColorPicker(value: Long, alpha: Boolean, skin: Skin, onChange: (Long) -> Unit) {
     val hsv = ColorMath.toHsv(value)
     var hex by remember(value) { mutableStateOf(ColorMath.formatHex(value)) }
-    Column(Modifier.padding(horizontal = Metrics.gridDp.dp * 4, vertical = Metrics.gridDp.dp * 2)) {
+    Column(Modifier.parcRowPadding()) {
         Slider("Hue", hsv.hue / 360f, skin) { onChange(ColorMath.fromHsv(hsv.copy(hue = it * 359.99f))) }
         Slider("Saturation", hsv.saturation, skin) { onChange(ColorMath.fromHsv(hsv.copy(saturation = it))) }
         Slider("Brightness", hsv.value, skin) { onChange(ColorMath.fromHsv(hsv.copy(value = it))) }
@@ -273,10 +273,10 @@ private fun ColorPicker(value: Long, alpha: Boolean, skin: Skin, onChange: (Long
             hex = t
             ColorMath.parseHex(t)?.let { p -> onChange(if (alpha) p else p or 0xFF000000L) }
         }, singleLine = true, textStyle = settingsText(skin), cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
-            modifier = Modifier.fillMaxWidth().padding(top = Metrics.gridDp.dp * 2).heightIn(min = Metrics.touchTargetDp.dp)
+            modifier = Modifier.fillMaxWidth().padding(top = Metrics.sectionHeaderGapDp.dp).heightIn(min = Metrics.touchTargetDp.dp)
                 .background(Color(skin.colors.surface.toInt()), RoundedCornerShape(8.dp))
                 .border(1.dp, Color((if (ColorMath.parseHex(hex) != null) skin.colors.lineActive else skin.colors.warn).toInt()), RoundedCornerShape(8.dp))
-                .padding(Metrics.gridDp.dp * 3).semantics { contentDescription = "Hex colour" })
+                .parcSettingsPadding().semantics { contentDescription = "Hex colour" })
     }
 }
 
@@ -284,7 +284,7 @@ private fun ColorPicker(value: Long, alpha: Boolean, skin: Skin, onChange: (Long
 private fun Slider(label: String, fraction: Float, skin: Skin, onFraction: (Float) -> Unit) {
     val changeFraction by rememberUpdatedState(onFraction)
     Row(Modifier.fillMaxWidth().heightIn(min = Metrics.touchTargetDp.dp), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp * 3)) {
+        horizontalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
         BasicText(label, Modifier.width(Metrics.gridDp.dp * 21), style = settingsText(skin, skin.colors.textSecondary, true))
         var width by remember { mutableStateOf(1f) }
         Box(Modifier.weight(1f).height(Metrics.touchTargetDp.dp)

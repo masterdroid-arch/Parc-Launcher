@@ -33,7 +33,7 @@ import kotlinx.coroutines.withContext
 internal const val DemoHubPageId = "demo"
 
 /** T130: the pages the demo hub shows, in order. Every body is demo-only or the clock; T136 adds Quick toggles with fixed sample states. */
-internal val DemoHubPages: List<String> = listOf("clock", "power", "notes", "focus", QuickToggleCatalog.PageId) +
+internal val DemoHubPages: List<String> = listOf("clock", "power", "focus", "notes", QuickToggleCatalog.PageId) +
     (if (WeatherVariant.Available) listOf(WeatherVariant.PageId) else emptyList())
 
 /**

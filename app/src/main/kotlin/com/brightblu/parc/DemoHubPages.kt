@@ -42,19 +42,18 @@ internal fun DemoPowerPage(store: DemoStatsStore, skin: Skin) {
         return
     }
     val today = data.today ?: return
-    Column(Modifier.fillMaxSize().verticalScroll(rememberHubScrollState()), verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
-        HudCell(skin, Modifier.fillMaxWidth()) { HubHero(DemoStatsFormat.percent(today.batteryPercent), "Battery · not charging", skin) }
-        if (LocalHubSize.current != HubSize.Compact) {
-            Row(horizontalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
-                HudCell(skin, Modifier.weight(1f)) { Readout("Battery temperature", "31°C", skin) }
-                HudCell(skin, Modifier.weight(1f)) { Readout("Screen on today", DemoStatsFormat.duration(today.screenTimeMinutes), skin) }
-            }
-            if (LocalHubSize.current == HubSize.Tall) DemoStatCell("Battery history", DemoStatsFormat.percent(today.batteryPercent),
-                "14 days · low ${DemoStatsFormat.percent(data.batteryLowPercent)}", data.days.map { it.batteryPercent },
-                Metrics.hubTileMaxHeightDp, skin, Modifier.fillMaxWidth())
-        }
+    // T159: the real overview with fixture numbers (not charging, 14-day low as the history). Fixed hours, no real reading.
+    val bars = demoHourBars(today.batteryPercent)
+    Column(Modifier.fillMaxSize().hubPageScroll(), verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
+        PowerOverview(today.batteryPercent, false, null, today.screenTimeMinutes * 60_000L, bars, skin)
     }
 }
+
+/** Eight fixture hours ending at [percent]: a gentle fall of 3 points an hour. */
+internal fun demoHourBars(percent: Int): List<HourBar> =
+    (0 until PowerPage.BarCount).map { i ->
+        HourBar(0L, (12 + i) % 24, (percent + (PowerPage.BarCount - 1 - i) * 3).coerceIn(0, 100), i == PowerPage.BarCount - 1)
+    }
 
 /** Three generic jottings. They are constants in code, never read from the notes store. */
 @Composable
@@ -66,8 +65,8 @@ internal fun DemoNotesPage(skin: Skin) {
         "Packing" to "Charger, headphones, umbrella",
     )
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberHubScrollState())
-            .padding(horizontal = Metrics.gridDp.dp),
+        Modifier.fillMaxSize().hubPageScroll()
+            .padding(horizontal = Metrics.lineGapDp.dp),
         verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp),
     ) {
         CellLabel("Quick jottings", skin)

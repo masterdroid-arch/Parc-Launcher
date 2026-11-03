@@ -24,7 +24,10 @@ dependencies {
     implementation(libs.compose.foundation)
     implementation(libs.compose.ui)
     implementation(libs.compose.animation.core)
+    // @Preview annotation only (Compose BOM member); not packaged.
+    compileOnly(libs.compose.ui.tooling.preview)
     testImplementation(libs.junit)
+    testImplementation(libs.coroutines.test)
 
     implementation(project(":core:model"))
     testImplementation(testFixtures(project(":core:model")))

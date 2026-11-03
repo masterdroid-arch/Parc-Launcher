@@ -24,8 +24,8 @@ import org.junit.Test
 class T30Test {
     @org.junit.Test fun hubPageOptionsCatalogIsCompleteForSettingsAndHome() {
         org.junit.Assert.assertEquals(HubCatalog.pages.toSet(), hubPageOptions.keys)
-        org.junit.Assert.assertTrue(settingsRowSpec(SettingsRowId.HubPages).description.contains("options"))
-        assertTrue(settingsRowSpec(SettingsRowId.HubPages).description.contains("Second time zone"))
+        org.junit.Assert.assertTrue(SettingsRegistry.byId.getValue("HubPages").help.contains("options"))
+        assertTrue("time zone" in SettingsRegistry.byId.getValue("HubPages").words)
         assertTrue(hubPageOptions.getValue("clock").tap.contains("Long press"))
         hubPageOptions.values.forEach { org.junit.Assert.assertTrue(it.fullSettings in SettingsPage.entries) }
     }
@@ -35,13 +35,6 @@ class T30Test {
         editorDestinations.values.forEach { assertTrue(it in SettingsPage.entries) }
     }
 
-    @Test fun focusV2UsesTheExistingRootPage() {
-        val spec = settingsRowSpec(SettingsRowId.Focus)
-        assertEquals(com.brightblu.parc.feature.settings.ui.SettingKind.Page, spec.kind)
-        assertTrue(spec.description.contains("how strict"))
-        assertTrue(spec.description.contains("apps"))
-        assertTrue(spec.description.contains("times"))
-    }
 
     private val geometry = RingLayout(384f, 853f)
     private val a = AppId("test/A@0")
@@ -138,18 +131,6 @@ class T30Test {
         assertEquals("", folderNameIssue("Media", folders, social))
     }
 
-    @Test fun settingsRootRowsReflectStoredValuesInOrder() {
-        val rows = settingsRootRows("Dusk", alignedArcs = true, statsVisible = false,
-            statsExpanded = true, joystick = false)
-        assertEquals(SettingsRowId.entries.filter { settingsRowVisible(it, LookSettings(), false, false, true, true) && it !in setOf(SettingsRowId.WallpaperSkinMode, SettingsRowId.WallpaperSkinLook) }.toSet(), rows.map { it.id }.toSet())
-        assertEquals("Dusk", rows[0].detail)
-        assertEquals("Circle · Thin", rows[1].detail)
-        assertEquals("No modes", rows.single { it.id == SettingsRowId.Focus }.detail)
-        assertEquals("Aligned", rows.single { it.id == SettingsRowId.ArcLayout }.detail)
-        assertEquals("Hidden", rows.single { it.id == SettingsRowId.StatsVisible }.detail)
-        assertFalse(rows.any { it.id == SettingsRowId.HubSize })
-        assertEquals("Off", rows.single { it.id == SettingsRowId.Joystick }.detail)
-    }
 
     @Test fun aMenuTallerThanTheSafeBandIsPinnedToTheTopInsteadOfThrowing() {
         // A long folder candidate list (T30 "Add apps") can be taller than the screen.

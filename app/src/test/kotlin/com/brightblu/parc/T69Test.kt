@@ -202,16 +202,6 @@ class T69Test {
 
     // ---- settings rows -----------------------------------------------------------------------
 
-    @Test fun settingsRootRowsShowTheStoredGestureLabels() {
-        val rows = settingsRootRows("Midnight", false, true, false, true,
-            gestures = GestureConfig(swipeUp = GestureAction.AllApps, hubLongPress = GestureAction.HubPage("power")))
-        assertEquals("All apps", rows.single { it.id == SettingsRowId.SwipeUp }.detail)
-        assertEquals("Stats · Power", rows.single { it.id == SettingsRowId.HubLongPress }.detail)
-        assertEquals("All apps", settingsRootRows("Midnight", false, true, false, true)
-            .single { it.id == SettingsRowId.SwipeUp }.detail)
-        assertEquals("Edit mode", settingsRootRows("Midnight", false, true, false, true)
-            .single { it.id == SettingsRowId.HubLongPress }.detail)
-    }
 
     // ---- session dispatch --------------------------------------------------------------------
 

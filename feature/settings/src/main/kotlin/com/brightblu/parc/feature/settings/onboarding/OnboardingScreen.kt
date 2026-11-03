@@ -1,5 +1,6 @@
 package com.brightblu.parc.feature.settings.onboarding
 
+import com.brightblu.parc.model.textFamily
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -36,7 +38,9 @@ import com.brightblu.parc.feature.settings.mainapps.MainAppsEditor
 import com.brightblu.parc.feature.settings.mainapps.MainAppsState
 import com.brightblu.parc.model.AppId
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.ParcPage
 import com.brightblu.parc.model.Skin
+import com.brightblu.parc.model.parcMinTouch
 import com.brightblu.parc.model.TypeToken
 
 /**
@@ -52,6 +56,7 @@ fun Onboarding(
     skin: Skin,
     onOpenTarget: (OnboardingTarget) -> Unit,
     modifier: Modifier = Modifier,
+    safeTop: Boolean = true,
 ) {
     val state by controller.state.collectAsState()
     val context = LocalContext.current
@@ -92,6 +97,7 @@ fun Onboarding(
         onPickToggle = picker::toggle,
         onPickMove = picker::move,
         modifier = modifier,
+        safeTop = safeTop,
     )
 }
 
@@ -109,19 +115,10 @@ fun OnboardingContent(
     onPickToggle: (AppId) -> Unit = {},
     onPickMove: (Int, Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
+    safeTop: Boolean = true,
 ) {
     val spec = state.current
-    Column(
-        modifier
-            .fillMaxSize()
-            .background(color(skin.colors.bg))
-            .padding(
-                start = Metrics.textGutterDp.dp,
-                end = Metrics.textGutterDp.dp,
-                top = Metrics.keepOutTopDp.dp,
-                bottom = Metrics.keepOutBottomDp.dp,
-            ),
-    ) {
+    ParcPage(modifier.background(color(skin.colors.bg)), safeTop = safeTop, scroll = false) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -130,18 +127,18 @@ fun OnboardingContent(
         ) {
             BasicText(
                 state.progress,
-                style = style(skin.colors.textSecondary, skin.typography.caption),
+                style = style(skin, skin.colors.textSecondary, skin.typography.caption),
             )
             BasicText(
                 spec.title,
-                style = style(skin.colors.textPrimary, skin.typography.title),
-                modifier = Modifier.padding(top = Metrics.gridDp.dp * 2),
+                style = style(skin, skin.colors.textPrimary, skin.typography.title),
+                modifier = Modifier.padding(top = Metrics.sectionHeaderGapDp.dp),
             )
             spec.lines.forEach { line ->
                 BasicText(
                     line,
-                    style = style(skin.colors.textPrimary, skin.typography.menu),
-                    modifier = Modifier.padding(top = Metrics.gridDp.dp * 3),
+                    style = style(skin, skin.colors.textPrimary, skin.typography.menu),
+                    modifier = Modifier.padding(top = Metrics.rowGapDp.dp),
                 )
             }
             val statusLabel = state.currentStatusLabel
@@ -149,14 +146,14 @@ fun OnboardingContent(
                 BasicText(
                     statusLabel,
                     style = style(
-                        if (state.currentStatus == OnboardingStatus.Done) {
+                        skin, if (state.currentStatus == OnboardingStatus.Done) {
                             skin.colors.accent
                         } else {
                             skin.colors.textSecondary
                         },
                         skin.typography.caption,
                     ),
-                    modifier = Modifier.padding(top = Metrics.gridDp.dp * 3),
+                    modifier = Modifier.padding(top = Metrics.rowGapDp.dp),
                 )
             }
             if (spec.step == OnboardingStep.MainApps && picker != null) {
@@ -166,7 +163,7 @@ fun OnboardingContent(
                     onQuery = onPickQuery,
                     onToggle = onPickToggle,
                     onMove = onPickMove,
-                    modifier = Modifier.padding(top = Metrics.gridDp.dp * 2),
+                    modifier = Modifier.padding(top = Metrics.sectionHeaderGapDp.dp),
                 )
             }
             spec.actions.forEach { action ->
@@ -212,8 +209,8 @@ private fun ActionRow(label: String, skin: Skin, onClick: () -> Unit) {
     Box(
         Modifier
             .fillMaxWidth()
-            .padding(top = Metrics.gridDp.dp * 3)
-            .height(Metrics.menuRowHeightDp.dp)
+            .padding(top = Metrics.rowGapDp.dp)
+            .heightIn(min = Metrics.menuRowHeightDp.dp)
             .background(color(skin.colors.surface), RoundedCornerShape(Metrics.menuCornerDp.dp))
             .border(
                 skin.shape.surfaceBorderDp.dp,
@@ -221,10 +218,10 @@ private fun ActionRow(label: String, skin: Skin, onClick: () -> Unit) {
                 RoundedCornerShape(Metrics.menuCornerDp.dp),
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = Metrics.gridDp.dp * 2),
+            .padding(horizontal = Metrics.settingsRowInsetDp.dp, vertical = Metrics.cardInsetDp.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
-        BasicText(label, style = style(skin.colors.textPrimary, skin.typography.menu))
+        BasicText(label, style = style(skin, skin.colors.textPrimary, skin.typography.menu))
     }
 }
 
@@ -241,13 +238,14 @@ private fun FooterButton(
         Modifier
             .height(Metrics.touchTargetDp.dp)
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = Metrics.gridDp.dp),
+            .parcMinTouch()
+            .padding(horizontal = Metrics.itemGapDp.dp),
         contentAlignment = Alignment.Center,
     ) {
         BasicText(
             label,
             style = style(
-                if (enabled) tint else skin.colors.textSecondary,
+                skin, if (enabled) tint else skin.colors.textSecondary,
                 skin.typography.menu,
             ),
         )
@@ -256,7 +254,8 @@ private fun FooterButton(
 
 private fun color(argb: Long): Color = Color(argb.toInt())
 
-private fun style(tint: Long, token: TypeToken): TextStyle = TextStyle(
+private fun style(skin: com.brightblu.parc.model.Skin, tint: Long, token: TypeToken): TextStyle = TextStyle(
+    fontFamily = skin.textFamily,
     color = color(tint),
     fontSize = token.sizeSp.sp,
     fontWeight = FontWeight(token.weight),

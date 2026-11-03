@@ -19,13 +19,14 @@ internal object AppBackup {
     val LookSpec = BackupSpecs.look
     val LayoutCountsSpec = BackupSpecs.uiPrefs
     /** Focus v2 travels through the core store registration, including friction options, delay steps, unlimited passes, accountability secrets and the persistent pass ledger. */
-    val HubSpec: BackupStoreSpec get() = BackupSpecs.hub
+    val HubSpec: BackupStoreSpec get() = BackupSpecs.hub.copy(keys = BackupSpecs.hub.keys +
+        HubAppearanceCodec.keys.map { com.brightblu.parc.core.data.backup.BackupKey(it, BackupValueType.Text) })
     val FocusModesSpec: BackupStoreSpec get() = BackupSpecs.focus
 
     fun stores(context: Context, customSkins: com.brightblu.parc.core.data.skins.CustomSkinStore? = null): List<BackupStore> {
         val app = context.applicationContext
         return BackupStores.core(app) + listOf(
-            BackupStores.of(HubSpec, app.hubDataStore),
+            BackupStore(HubSpec, HubAppearanceBackupAccess(com.brightblu.parc.core.data.backup.PreferencesStoreAccess(app.hubDataStore))),
             BackupStore(BackupSpecs.notes, NotesBackupAccess(com.brightblu.parc.core.data.backup.PreferencesStoreAccess(app.notesDataStore))),
             BackupStores.of(BackupSpecs.gestures, app.gestureDataStore),
             // The Look document also carries panel opacity and wallpaper readability.

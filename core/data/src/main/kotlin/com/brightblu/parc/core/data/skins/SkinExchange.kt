@@ -46,12 +46,21 @@ object SkinExchange {
         val baseObject = Json.encodeToJsonElement(Skin.serializer(), base) as JsonObject
 
         val merged = baseObject.toMutableMap()
+        // Optional v2 fields absent from a legacy file use schema defaults, not the
+        // active skin's module treatment. Existing import fallback tokens are retained.
+        for ((section, tokens) in mapOf(
+            "colors" to setOf("moduleSurface", "moduleGuide", "moduleInk"),
+            "shape" to setOf("moduleStyle", "tileCornerDp", "moduleCornerDp"),
+            "typography" to setOf("numeralFamily", "clockDot", "countDot", "bigDot"),
+        )) {
+            (merged[section] as? JsonObject)?.let { merged[section] = JsonObject(it - tokens) }
+        }
         for ((key, value) in root) {
             if (key !in knownTop) { notes += "Ignored unknown key '$key'"; continue }
             if (key == "id") continue
             if (key == "colors") {
                 val given = value as? JsonObject ?: return SkinImportResult.Rejected("'colors' must be an object")
-                val colors = (baseObject["colors"] as JsonObject).toMutableMap()
+                val colors = (merged["colors"] as JsonObject).toMutableMap()
                 for ((token, raw) in given) {
                     if (token !in knownColors) { notes += "Ignored unknown colour '$token'"; continue }
                     val argb = readColor(raw) ?: return SkinImportResult.Rejected("Bad colour for '$token'")

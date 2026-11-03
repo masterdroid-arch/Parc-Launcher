@@ -20,6 +20,9 @@ data class SkinColors(
     val accent2: Long = accent,
     /** Warning amber (T33/T32): the middle rung of the HUD's temperature colour scale. */
     val warn: Long = 0xFFFFB000L,
+    val moduleSurface: Long = surface,
+    val moduleGuide: Long = lineActive,
+    val moduleInk: Long = textPrimary,
 )
 
 /** Font role (sp, numeric weight, tracking in sp). Immutable, non-null, thread-safe. */
@@ -40,7 +43,19 @@ data class TypographyTokens(
     val menu: TypeToken = TypeToken(15f, 450, 0f),
     val maxDynamicTypeScale: Float = 1.3f,
     val fixedSlotLabels: Boolean = true,
-)
+    val numeralFamily: String = "",
+    val clockDot: TypeToken = TypeToken(56f, 500, 0f),
+    val countDot: TypeToken = TypeToken(28f, 600, 0f),
+    val bigDot: TypeToken = TypeToken(88f, 600, 0f),
+) {
+    init {
+        require(numeralFamily == "" || numeralFamily == "Doto")
+        for (role in listOf(clockDot, countDot, bigDot)) {
+            require(role.sizeSp.isFinite() && role.sizeSp >= 24f)
+            require(role.weight in 100..900 && role.trackingSp.isFinite())
+        }
+    }
+}
 
 /** Ring stroke sizes in dp. Immutable, non-null, thread-safe. */
 @Serializable
@@ -57,7 +72,15 @@ data class ShapeTokens(
     val surfaceBorderDp: Float = 1f,
     val dropShadows: Boolean = false,
     val backgroundGradients: Boolean = false,
-)
+    val moduleStyle: ModuleStyle = ModuleStyle.solid,
+    val tileCornerDp: Float = 20f,
+    val moduleCornerDp: Float = 32f,
+) {
+    init {
+        require(tileCornerDp.isFinite() && tileCornerDp >= 0f)
+        require(moduleCornerDp.isFinite() && moduleCornerDp >= 0f)
+    }
+}
 
 /** Supported icon treatment. Immutable, non-null, thread-safe. */
 @Serializable
@@ -159,13 +182,13 @@ data class Skin(
             bg = 0xFF000000, lineBase = 0xFF2A3544, lineActive = 0xFF3A4A5E,
             accent = 0xFF7FB4C8, glow = 0x477FB4C8, textPrimary = 0xFFE6EAF0,
             textSecondary = 0xFF8C97A6, pulse = 0xFFA8C7FA, danger = 0xFFE5736B,
-            scrim = 0xB8000000, surface = 0xFF050708,
+            scrim = 0xB8000000, surface = 0xFF050708, moduleSurface = 0xFF141B24,
         ))
         val Dusk = Skin("dusk", "Dusk", SkinColors(
             bg = 0xFF000000, lineBase = 0xFF2A2236, lineActive = 0xFF4A3B63,
             accent = 0xFFB79CDB, glow = 0x47B79CDB, textPrimary = 0xFFECE7F2,
             textSecondary = 0xFF978FA4, pulse = 0xFFD2BFF0, danger = 0xFFE5736B,
-            scrim = 0xB8000000, surface = 0xFF070609,
+            scrim = 0xB8000000, surface = 0xFF070609, moduleSurface = 0xFF1A1526,
         ))
     }
 }

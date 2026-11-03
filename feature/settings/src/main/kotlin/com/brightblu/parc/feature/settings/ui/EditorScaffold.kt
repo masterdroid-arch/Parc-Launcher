@@ -11,6 +11,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.ParcBlocks
+import com.brightblu.parc.model.parcBottomInset
 import com.brightblu.parc.model.Skin
 
 /** Stable identities are local education state, deliberately absent from Parc's backup allow-list. */
@@ -45,7 +47,11 @@ class LocalEditorHints(context: Context) : EditorHints {
     override fun markSeen(id: String) { prefs.edit().putBoolean(id, true).apply() }
 }
 
-/** Header and instruction stay outside the scrolling body. They wrap at large text sizes. */
+/**
+ * Header and instruction stay outside the scrolling body. They wrap at large text sizes. The page frame
+ * around it ([ParcPage] or the Settings page frame) owns the gutter and the gesture-bar space (T166), so the
+ * scaffold adds only the spacing between its own parts.
+ */
 @Composable
 fun EditorScaffold(
     spec: EditorSpec, skin: Skin, modifier: Modifier = Modifier,
@@ -62,19 +68,20 @@ fun EditorScaffold(
     Column(modifier.fillMaxSize()) {
         BasicText(title, style = settingsText(skin).copy(fontSize = skin.typography.title.sizeSp.sp))
         BasicText(instruction, style = settingsText(skin, skin.colors.textSecondary, true),
-            modifier = Modifier.padding(vertical = Metrics.gridDp.dp * 2))
-        if (undo != null) SettingRow("Undo", skin, SettingKind.Action, description = "Undo the last change", onClick = undo)
-        Column(Modifier.weight(1f).then(if (scroll) Modifier.verticalScroll(rememberScrollState()) else Modifier)
-            .padding(bottom = Metrics.keepOutBottomDp.dp), verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
+            modifier = Modifier.padding(vertical = Metrics.sectionHeaderGapDp.dp))
+        if (undo != null) SettingsCard(skin) {
+            SettingRow("Undo", skin, SettingKind.Action, description = "Undo the last change", divider = false, onClick = undo)
+        }
+        ParcBlocks(Metrics.rowGapDp, Modifier.weight(1f).then(if (scroll) Modifier.verticalScroll(rememberScrollState()).parcBottomInset() else Modifier)) {
             if (hint) SettingsCard(skin) {
                 SettingRow("First time here", skin, SettingKind.Action, description = instruction,
-                    descriptionMaxLines = Int.MAX_VALUE, icon = "✓") {
+                    descriptionMaxLines = Int.MAX_VALUE, icon = "✓", divider = false) {
                     hints.markSeen(educationId); hint = false
                 }
             }
             preview?.invoke()
             if (empty) BasicText(spec.empty, style = settingsText(skin, skin.colors.textSecondary),
-                modifier = Modifier.padding(vertical = Metrics.gridDp.dp * 2))
+                modifier = Modifier.padding(vertical = Metrics.sectionHeaderGapDp.dp))
             content()
         }
     }

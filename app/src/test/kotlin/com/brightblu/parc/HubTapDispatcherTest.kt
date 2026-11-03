@@ -65,10 +65,4 @@ class HubTapDispatcherTest {
         taps.tap(); advanceUntilIdle(); assertEquals(1, singles)
     }
 
-    @Test fun settingsRowDefaultsOnAndReflectsOff() {
-        val defaults = settingsRootRows("Midnight", false, true, false, true)
-        assertEquals(true, defaults.single { it.id == SettingsRowId.HubDoubleTap }.checked)
-        val off = settingsRootRows("Midnight", false, true, false, true, hubDoubleTap = false)
-        assertEquals(false, off.single { it.id == SettingsRowId.HubDoubleTap }.checked)
-    }
 }

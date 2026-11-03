@@ -12,10 +12,11 @@ import java.io.File
 @Composable
 internal fun rememberImageWallpaper(look: LookSettings, skin: Skin, width: Int, height: Int): Bitmap? {
     val context = LocalContext.current
-    val bitmap by produceState<Bitmap?>(null, look, skin, width to height) {
+    // The skin only matters to the scrim; keying on it otherwise would reload the picture whenever a card's ink changes (T172).
+    val bitmap by produceState<Bitmap?>(null, look, if (look.imageReadabilityScrim) skin else null, width to height) {
         value = null
         if (look.wallpaper == WallpaperStyle.Image) value = withContext(Dispatchers.IO) {
-            loadImageWallpaper(File(context.filesDir, "wallpaper/home.jpg"), look, skin, width, height)
+            loadImageWallpaper(File(context.applicationContext.filesDir, "wallpaper/home.jpg"), look, skin, width, height)
         }
     }
     return bitmap

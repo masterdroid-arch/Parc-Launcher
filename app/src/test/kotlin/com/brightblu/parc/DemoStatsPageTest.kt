@@ -23,7 +23,7 @@ class DemoStatsPageTest {
     fun demoOnShowsTheFourDemoPages() {
         assertEquals(DemoHubPages, hubPagesFor(demo = true, configured = configured))
         assertEquals(DemoHubPages, hubPagesFor(demo = true, configured = emptyList()))
-        assertEquals(listOf("clock", "power", "notes", "focus", "quicktoggles") + (if (WeatherVariant.Available) listOf("weather") else emptyList()), DemoHubPages)
+        assertEquals(listOf("clock", "power", "focus", "notes", "quicktoggles") + (if (WeatherVariant.Available) listOf("weather") else emptyList()), DemoHubPages)
     }
 
     @Test

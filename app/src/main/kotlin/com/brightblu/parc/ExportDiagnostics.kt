@@ -19,7 +19,7 @@ import kotlinx.coroutines.withContext
 import java.time.Instant
 
 /**
- * T88: what the Settings list needs to show the diagnostics row, same idea as [FeelSettingsEntry].
+ * T88: what the Settings list needs to show the diagnostics row, same idea as a registry row.
  * The Settings owner builds a row from these three fields and shows [DiagnosticsExport] under it or
  * on its own page; nothing else is required.
  */

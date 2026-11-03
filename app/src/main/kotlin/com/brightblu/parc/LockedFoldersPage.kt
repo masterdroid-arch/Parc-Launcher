@@ -37,7 +37,7 @@ internal fun LockedFoldersContent(services: LauncherServices, skin: Skin, gate: 
 
     BasicText(com.brightblu.parc.core.data.lock.LockedFolderText.Honesty,
         style = settingsText(skin, skin.colors.textSecondary, true),
-        modifier = Modifier.padding(vertical = Metrics.gridDp.dp * 2))
+        modifier = Modifier.padding(vertical = Metrics.sectionHeaderGapDp.dp))
     SettingsSection("Unlocking", skin)
     SettingsCard(skin) {
         SettingsChoice("Unlock lasts", timeout.label, UnlockTimeout.entries.map { it.label }, skin) { index ->
@@ -58,11 +58,12 @@ internal fun LockedFoldersContent(services: LauncherServices, skin: Skin, gate: 
     }
     BasicText("The unlock also ends when you leave Parc or the screen turns off.",
         style = settingsText(skin, skin.colors.textSecondary, true),
-        modifier = Modifier.padding(top = Metrics.gridDp.dp * 2))
+        modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp, vertical = Metrics.sectionHeaderGapDp.dp))
     SettingsSection("Folders", skin)
     if (layout.folders.isEmpty()) {
         BasicText("No folders yet. Create one under Folders first.",
-            style = settingsText(skin, skin.colors.textSecondary, true))
+            style = settingsText(skin, skin.colors.textSecondary, true),
+            modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp))
     } else SettingsCard(skin) {
         layout.folders.sortedWith(compareByDescending<com.brightblu.parc.model.Folder> { it.locked }.thenBy { it.name.lowercase() })
             .forEach { folder ->

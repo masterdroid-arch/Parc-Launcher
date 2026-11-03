@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,7 +26,7 @@ import com.brightblu.parc.model.Skin
 @Composable
 internal fun PullSearchBar(skin: Skin, progress: () -> Float, committed: Boolean,
     query: String, onQueryChange: (String) -> Unit) {
-    val style = TextStyle(fontFamily = if (skin.typography.fallbackFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null, color = Color(skin.colors.textPrimary.toInt()),
+    val style = TextStyle(fontFamily = skin.textFamily, color = Color(skin.colors.textPrimary.toInt()),
         fontSize = skin.typography.search.sizeSp.sp,
         fontWeight = androidx.compose.ui.text.font.FontWeight(skin.typography.search.weight),
         letterSpacing = skin.typography.search.trackingSp.sp)

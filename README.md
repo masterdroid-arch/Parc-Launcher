@@ -1,5 +1,7 @@
 # Parc Launcher
 
+<img src="docs/media/hero.svg" alt="Parc, a calm home screen for Android" width="100%">
+
 A calm home screen for Android. Your apps sit on arcs that sweep up from the
 bottom-right corner, under your thumb. Aim with the joystick, release to open.
 There is no app grid, no feed and no internet permission (a separate, optional
@@ -7,6 +9,10 @@ weather build adds that one permission for the Weather page; see below).
 
 Parc is a personal project, shared as open source. It is designed for a phone
 held in the right hand, in portrait, at about 384 x 853 dp.
+
+<img src="docs/media/how-it-works.svg" alt="Aim from the hub, release over an app, it opens" width="100%">
+
+<img src="docs/media/screens.svg" alt="Parc on a phone with the Glass skin" width="100%">
 
 ## What it does
 
@@ -41,7 +47,11 @@ held in the right hand, in portrait, at about 384 x 853 dp.
 Everything above is free, and this first public version is not on Google Play. A
 paid Play version may come later; the free build will stay free and open source.
 
+<img src="docs/media/stats-hub.svg" alt="The stats hub pages: Clock, Power, Focus, Notes" width="100%">
+
 ## Privacy
+
+<img src="docs/media/privacy.svg" alt="No INTERNET permission, accounts, ads, analytics or crash upload" width="100%">
 
 The normal Parc builds (`personal` and `play`) have no `INTERNET` permission. The
 build fails if that permission ever appears in their merged manifest, or if any

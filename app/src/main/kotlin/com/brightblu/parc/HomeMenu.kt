@@ -1,10 +1,10 @@
 package com.brightblu.parc
 
 /**
- * OPUS8 (T133): where a Home-menu row or a Settings search result opens Parc settings. [section]
- * opens one group page of the root (for example "Look"); null shows the page itself.
+ * OPUS8 (T133): where a Home-menu row or a Settings search result opens Parc settings. [row]
+ * is the registry id of the row to scroll to (T175); null shows the page from its top.
  */
-internal data class SettingsTarget(val page: SettingsPage, val section: SettingsSectionId? = null)
+internal data class SettingsTarget(val page: SettingsPage, val row: String? = null)
 
 /** OPUS8 (T133): the small Home menu, anchored where the finger held empty space (dp). */
 internal data class HomeMenuModel(val anchorXDp: Float, val anchorYDp: Float)
@@ -12,7 +12,7 @@ internal data class HomeMenuModel(val anchorXDp: Float, val anchorYDp: Float)
 /** The four rows, in order, with the words the owner approved (UXREVIEW answer 6). */
 internal enum class HomeMenuRow(val label: String, val target: SettingsTarget?) {
     EditHome("Edit home", null),
-    Look("Wallpaper and look", SettingsTarget(SettingsPage.Root, SettingsSectionId.Appearance)),
+    Look("Wallpaper and look", SettingsTarget(SettingsPage.Look, "WallpaperImage")),
     HubPages("Hub pages", SettingsTarget(SettingsPage.HubPages)),
     Settings("Parc settings", SettingsTarget(SettingsPage.Root)),
 }

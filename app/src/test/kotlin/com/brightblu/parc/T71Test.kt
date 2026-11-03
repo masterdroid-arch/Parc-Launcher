@@ -22,17 +22,6 @@ class T71Test {
         assertEquals(WallpaperStyle.Black, look.wallpaper)
     }
 
-    @Test fun theLookRowSitsAfterAppearanceAndShowsTheStoredSummary() {
-        val rows = settingsRootRows("Midnight", false, true, false, true)
-        assertEquals(SettingsRowId.Appearance, rows[0].id)
-        assertEquals(SettingsRowId.Look, rows[1].id)
-        assertEquals("Circle · Thin", rows[1].detail)
-        val custom = settingsRootRows("Midnight", false, true, false, true,
-            look = LookSettings(iconShape = IconShape.RoundedSquare, iconSizeDp = 52,
-                clockStyle = ClockStyle.Digital, showDate = true,
-                wallpaper = WallpaperStyle.System, wallpaperDimPercent = 60))
-        assertEquals("Rounded square · Digital", custom[1].detail)
-    }
 
     @Test fun referenceLayoutsKeepAPitchOfAtLeastSixtyAndAcceptEverySliderSize() {
         val screens = listOf(384f to 853f, 360f to 800f, 411f to 914f)

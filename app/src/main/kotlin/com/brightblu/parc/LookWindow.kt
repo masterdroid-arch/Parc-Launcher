@@ -38,7 +38,9 @@ internal fun applyLookWindow(activity: Activity, look: LookSettings, skin: Skin)
         }
     }
     window.statusBarColor = skin.colors.bg.toInt()
-    window.navigationBarColor = skin.colors.bg.toInt()
+    // T155: the module card runs to 12 dp above the screen edge, under the gesture bar. Android 15+ always draws the
+    // bar transparent; this makes older versions match, so the card is not cut by a coloured bar.
+    window.navigationBarColor = android.graphics.Color.TRANSPARENT
     applySkinSystemBars(activity, skin)
 }
 

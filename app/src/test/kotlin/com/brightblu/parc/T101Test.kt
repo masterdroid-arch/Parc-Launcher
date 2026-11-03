@@ -10,7 +10,7 @@ class T101Test {
     @Test fun timersPageIsInTheCatalogBeforeAgendaWithThreeTiles() {
         assertEquals(HubCatalog.pages.indexOf("agenda") - 1, HubCatalog.pages.indexOf("timers"))
         assertEquals(listOf("timers", "stopwatch", "next alarm"), HubCatalog.tiles("timers"))
-        assertTrue("timers" in HubConfig().pages)
+        assertTrue("timers" in legacyHubConfig().pages)
         assertEquals(listOf("timers", "stopwatch", "next alarm"), HubConfig().tiles("timers"))
         assertTrue(HubConfig().hiddenTiles["timers"].isNullOrEmpty())
     }

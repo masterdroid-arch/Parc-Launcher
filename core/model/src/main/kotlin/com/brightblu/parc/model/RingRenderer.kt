@@ -35,6 +35,8 @@ data class RingState(
     val emptyMessage: String = "",
     /** Empty search overlay dims the entire field by 40%; non-null highlight wins. */
     val searchOpen: Boolean = false,
+    /** T157: the host dims the whole module on the sheet spring while the search sheet shows, so the renderer does not dim it a second time. */
+    val hostDimsModule: Boolean = false,
     /** Host-provided accessibility focus; null when no virtual slot has focus. */
     val accessibilityFocus: SlotPosition? = null,
     /** Slot aimed at by an active hub joystick drag; null when not aiming. */
@@ -58,6 +60,11 @@ data class RingState(
      * plays one soft accent pulse on this launcher start.
      */
     val searchHint: Boolean = false,
+    /**
+     * Where the folder title, the clock and the empty message start, in dp from the top (T166): below the status
+     * bar and any cutout like every page ([ParcSpacing.pageTopDp]). Arcs and slots never read it.
+     */
+    val chromeTopDp: Float = Metrics.keepOutTopDp,
 )
 
 /** Hit payload with pointer position in dp. Immutable, non-null. */

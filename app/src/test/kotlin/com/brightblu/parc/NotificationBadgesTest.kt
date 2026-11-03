@@ -31,12 +31,4 @@ class NotificationBadgesTest {
         assertEquals(3, LauncherScenes.withUnread(allApps, layout, apps, counts, true, true).slots.single().unreadCount)
     }
 
-    @Test fun settingsExposeGrantAndIndependentDefaultSwitchValues() {
-        val rows = settingsRootRows("Midnight", false, true, false, true)
-        assertEquals("Not set", rows.single { it.id == SettingsRowId.NotificationAccess }.detail)
-        assertEquals(true, rows.single { it.id == SettingsRowId.NotificationBadges }.checked)
-        assertEquals(false, rows.single { it.id == SettingsRowId.BadgesInAllApps }.checked)
-        assertEquals("Set", settingsRootRows("Midnight", false, true, false, true, notificationAccess = true)
-            .single { it.id == SettingsRowId.NotificationAccess }.detail)
-    }
 }

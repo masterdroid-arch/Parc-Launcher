@@ -25,6 +25,9 @@ android {
 dependencies {
     api(platform(libs.compose.bom))
     api(libs.compose.runtime)
+    api(libs.compose.ui)
+    // T166: ParcPage, ParcCardContent, ParcSettingsRow and ParcSectionHeader lay out with foundation.
+    api(libs.compose.foundation)
     api(libs.coroutines.core)
     api(libs.serialization.json)
     testImplementation(libs.junit)

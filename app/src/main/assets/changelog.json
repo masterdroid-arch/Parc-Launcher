@@ -29,5 +29,59 @@
         "text": "Pick any picture for the background."
       }
     ]
+  },
+  {
+    "versionName": "1.1.0",
+    "versionCode": 10100,
+    "date": "2026-10-28",
+    "items": [
+      {
+        "headline": "Springy motion",
+        "text": "Menus, sheets and the stats card now open and settle with a soft spring."
+      },
+      {
+        "headline": "Hub on its own card",
+        "text": "The stats hub sits on its own card, with tabs for Clock, Power, Focus and Notes."
+      },
+      {
+        "headline": "Arc settings",
+        "text": "Choose how far the arcs spin, how much they bounce, how much they magnify, and which show."
+      },
+      {
+        "headline": "New skins",
+        "text": "Moss, Glass and Graphite join the gallery."
+      },
+      {
+        "headline": "Dot-matrix numbers",
+        "text": "Moss, Glass and Graphite draw the clock and battery numbers in dots."
+      },
+      {
+        "headline": "Figtree text",
+        "text": "All words in Parc now use the Figtree font."
+      }
+    ]
+  },
+  {
+    "versionName": "1.1.1",
+    "versionCode": 10101,
+    "date": "2026-11-01",
+    "items": [
+      {
+        "headline": "Settings in seven pages",
+        "text": "Seven clear pages, and search finds every setting."
+      },
+      {
+        "headline": "Same glass on both hubs",
+        "text": "Glass now looks the same on the arc hub and the stats hub, in every skin."
+      },
+      {
+        "headline": "Dim works on your picture",
+        "text": "Dim darkens a picture you chose, and the glass cards darken with it."
+      },
+      {
+        "headline": "Build stamp",
+        "text": "Backup and about shows the version and build time."
+      }
+    ]
   }
 ]

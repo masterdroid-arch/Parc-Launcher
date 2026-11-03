@@ -85,7 +85,11 @@ object BackupSpecs {
     val wallpaperImage = BackupStoreSpec("wallpaper_image", listOf(t("jpeg", 2_796_204)))
     val feel = BackupStoreSpec(
         Feel,
-        listOf(t("haptic_preset", 64), t("sound_theme", 64), BackupKey("sound_volume", BackupValueType.Int)),
+        // T147: the arc feel choices (stored ids). A backup made before T147 lacks them and restores the defaults.
+        listOf(
+            t("haptic_preset", 64), t("sound_theme", 64), BackupKey("sound_volume", BackupValueType.Int),
+            t("arc_spin_limit", 32), t("arc_bounce", 32), t("arc_magnify", 32), t("arc_home_arcs", 32),
+        ),
     )
     val uiPrefs = BackupStoreSpec(
         UiPrefs,

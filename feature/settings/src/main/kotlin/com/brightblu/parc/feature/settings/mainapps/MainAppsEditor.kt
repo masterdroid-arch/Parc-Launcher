@@ -1,5 +1,6 @@
 package com.brightblu.parc.feature.settings.mainapps
 
+import com.brightblu.parc.model.textFamily
 import com.brightblu.parc.feature.settings.ui.*
 
 import androidx.compose.foundation.background
@@ -32,6 +33,7 @@ import com.brightblu.parc.model.AppId
 import com.brightblu.parc.model.Metrics
 import com.brightblu.parc.model.Skin
 import com.brightblu.parc.model.TypeToken
+import com.brightblu.parc.model.parcSettingsPadding
 
 /**
  * "Your four main apps" picker surface (T62): a search box, the four slots with reorder, and the
@@ -71,13 +73,15 @@ fun MainAppsEditor(
         when {
             !state.loaded -> Hint("Reading installed apps...", skin)
             shown.visible.isEmpty() -> Hint("No matching apps.", skin)
-            else -> shown.visible.forEach { choice ->
-                AppRow(
-                    choice = choice,
-                    selected = state.isSelected(choice.id),
-                    skin = skin,
-                    onClick = { onToggle(choice.id) },
-                )
+            else -> Column(verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+                shown.visible.forEach { choice ->
+                    AppRow(
+                        choice = choice,
+                        selected = state.isSelected(choice.id),
+                        skin = skin,
+                        onClick = { onToggle(choice.id) },
+                    )
+                }
             }
         }
     }
@@ -96,13 +100,12 @@ private fun SlotRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = Metrics.touchTargetDp.dp)
-            .padding(vertical = Metrics.gridDp.dp / 2),
+            .heightIn(min = Metrics.touchTargetDp.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicText(
             "${index + 1}",
-            style = style(skin.colors.textSecondary, skin.typography.caption),
+            style = style(skin, skin.colors.textSecondary, skin.typography.caption),
             modifier = Modifier.width(Metrics.gridDp.dp * 5),
         )
         Box(
@@ -115,7 +118,7 @@ private fun SlotRow(
             BasicText(
                 choice?.label ?: "empty",
                 style = style(
-                    if (choice == null) skin.colors.textSecondary else skin.colors.textPrimary,
+                    skin, if (choice == null) skin.colors.textSecondary else skin.colors.textPrimary,
                     skin.typography.menu,
                 ),
             )
@@ -128,21 +131,21 @@ private fun SlotRow(
     }
 }
 
-/** 40 dp text button, the same touch target the hub uses for small actions. */
+/** 48 dp text button: the smallest touch target (T166), and the same one the hub uses for small actions. */
 @Composable
 private fun StepButton(label: String, enabled: Boolean, skin: Skin, onClick: () -> Unit) {
     Box(
         Modifier
-            .width(Metrics.gridDp.dp * 10)
+            .width(Metrics.minTouchDp.dp)
             .semantics { contentDescription = when(label) { "↑" -> "Move up"; "↓" -> "Move down"; else -> "Remove" } }
-            .height(Metrics.gridDp.dp * 10)
+            .height(Metrics.minTouchDp.dp)
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         BasicText(
             label,
             style = style(
-                if (enabled) skin.colors.textSecondary else skin.colors.lineBase,
+                skin, if (enabled) skin.colors.textSecondary else skin.colors.lineBase,
                 skin.typography.caption,
             ),
         )
@@ -161,20 +164,20 @@ private fun SearchBox(query: String, skin: Skin, onQuery: (String) -> Unit) {
                 color(skin.colors.lineBase),
                 RoundedCornerShape(Metrics.menuCornerDp.dp),
             )
-            .padding(horizontal = Metrics.gridDp.dp * 2),
+            .parcSettingsPadding(),
         contentAlignment = Alignment.CenterStart,
     ) {
         if (query.isEmpty()) {
             BasicText(
                 "Search apps",
-                style = style(skin.colors.textSecondary, skin.typography.menu),
+                style = style(skin, skin.colors.textSecondary, skin.typography.menu),
             )
         }
         BasicTextField(
             value = query,
             onValueChange = onQuery,
             singleLine = true,
-            textStyle = style(skin.colors.textPrimary, skin.typography.menu),
+            textStyle = style(skin, skin.colors.textPrimary, skin.typography.menu),
             cursorBrush = SolidColor(color(skin.colors.accent)),
             modifier = Modifier.fillMaxWidth(),
         )
@@ -184,7 +187,7 @@ private fun SearchBox(query: String, skin: Skin, onQuery: (String) -> Unit) {
 @Composable
 private fun AppRow(choice: MainAppChoice, selected: Boolean, skin: Skin, onClick: () -> Unit) {
     SettingsCard(skin) {
-        SettingRow(choice.label, skin, SettingKind.Toggle, description = choice.packageName, checked = selected, onClick = onClick)
+        SettingRow(choice.label, skin, SettingKind.Toggle, description = choice.packageName, checked = selected, divider = false, onClick = onClick)
     }
 }
 
@@ -197,14 +200,15 @@ private fun SectionLabel(text: String, skin: Skin) {
 private fun Hint(text: String, skin: Skin) {
     BasicText(
         text,
-        style = style(skin.colors.textSecondary, skin.typography.menu),
-        modifier = Modifier.padding(vertical = Metrics.gridDp.dp * 2),
+        style = style(skin, skin.colors.textSecondary, skin.typography.menu),
+        modifier = Modifier.padding(vertical = Metrics.sectionHeaderGapDp.dp),
     )
 }
 
 private fun color(argb: Long): Color = Color(argb.toInt())
 
-private fun style(tint: Long, token: TypeToken): TextStyle = TextStyle(
+private fun style(skin: com.brightblu.parc.model.Skin, tint: Long, token: TypeToken): TextStyle = TextStyle(
+    fontFamily = skin.textFamily,
     color = color(tint),
     fontSize = token.sizeSp.sp,
     fontWeight = FontWeight(token.weight),

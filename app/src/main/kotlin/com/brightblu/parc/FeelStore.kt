@@ -13,6 +13,10 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.brightblu.parc.model.ArcFeel
+import com.brightblu.parc.model.Bounce
+import com.brightblu.parc.model.Magnify
+import com.brightblu.parc.model.SpinLimit
 import com.brightblu.parc.ring.FeelPlayer
 import com.brightblu.parc.ring.FeelPrefs
 import com.brightblu.parc.ring.HapticPreset
@@ -26,11 +30,28 @@ import java.io.IOException
 internal val Context.feelDataStore by preferencesDataStore(name = "feel",
     corruptionHandler = com.brightblu.parc.core.data.ParcStoreRescue.handler("feel"))
 
+/** T147: how many arcs the home screen shows. Stored here and exposed only; T155 reads it. */
+internal enum class HomeArcs(val id: String, val count: Int) {
+    Two("two", 2), Four("four", 4);
+
+    companion object {
+        fun fromId(id: String?): HomeArcs = entries.firstOrNull { it.id == id } ?: Four
+    }
+}
+
 /** Pure encode/decode so defaults and bad stored values are testable without a DataStore. */
 internal object FeelPrefsCodec {
     const val HapticKey = "haptic_preset"
     const val SoundKey = "sound_theme"
     const val VolumeKey = "sound_volume"
+    const val SpinLimitKey = "arc_spin_limit"
+    const val BounceKey = "arc_bounce"
+    const val MagnifyKey = "arc_magnify"
+    const val HomeArcsKey = "arc_home_arcs"
+
+    /** Unknown or missing ids give Balanced, Balanced, Subtle. */
+    fun decodeArc(spin: String?, bounce: String?, magnify: String?): ArcFeel =
+        ArcFeel(SpinLimit.fromId(spin), Bounce.fromId(bounce), Magnify.fromId(magnify))
 
     /** Unknown or missing values fall back to the defaults (Crisp, sound Off, volume 60). */
     fun decode(haptic: String?, sound: String?, volume: Int?): FeelPrefs = FeelPrefs(
@@ -50,10 +71,38 @@ internal class FeelStore(context: Context) {
     private val soundKey = stringPreferencesKey(FeelPrefsCodec.SoundKey)
     private val volumeKey = intPreferencesKey(FeelPrefsCodec.VolumeKey)
 
+    private val spinKey = stringPreferencesKey(FeelPrefsCodec.SpinLimitKey)
+    private val bounceKey = stringPreferencesKey(FeelPrefsCodec.BounceKey)
+    private val magnifyKey = stringPreferencesKey(FeelPrefsCodec.MagnifyKey)
+    private val homeArcsKey = stringPreferencesKey(FeelPrefsCodec.HomeArcsKey)
+
     private fun Preferences.toPrefs() = FeelPrefsCodec.decode(this[hapticKey], this[soundKey], this[volumeKey])
 
     val prefs = store.data.map { it.toPrefs() }.catch {
         if (it is IOException) emit(FeelPrefs()) else throw it
+    }
+
+    /** T147: the arc choices; a read error gives the defaults. */
+    val arcFeel = store.data.map { FeelPrefsCodec.decodeArc(it[spinKey], it[bounceKey], it[magnifyKey]) }.catch {
+        if (it is IOException) emit(ArcFeel()) else throw it
+    }
+
+    /** T147: Two or Four home arcs (default Four). */
+    val homeArcs = store.data.map { HomeArcs.fromId(it[homeArcsKey]) }.catch {
+        if (it is IOException) emit(HomeArcs.Four) else throw it
+    }
+
+    suspend fun updateArcFeel(change: (ArcFeel) -> ArcFeel) {
+        store.edit {
+            val next = change(FeelPrefsCodec.decodeArc(it[spinKey], it[bounceKey], it[magnifyKey]))
+            it[spinKey] = next.spinLimit.id
+            it[bounceKey] = next.bounce.id
+            it[magnifyKey] = next.magnify.id
+        }
+    }
+
+    suspend fun setHomeArcs(value: HomeArcs) {
+        store.edit { it[homeArcsKey] = value.id }
     }
 
     suspend fun update(change: (FeelPrefs) -> FeelPrefs) {

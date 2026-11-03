@@ -7,6 +7,9 @@ import com.brightblu.parc.model.Metrics
 internal object HubPanelLayout {
     fun heightDp(size: HubSize, standardHeightDp: Float): Float =
         if (size == HubSize.Compact) minOf(Metrics.hubCompactHeightDp, standardHeightDp) else standardHeightDp
+    /** The panel never reaches past the module card: its bottom stays the gap above the card top. */
+    fun bottomDp(arcBottomDp: Float, cardTopDp: Float): Float =
+        minOf(arcBottomDp, cardTopDp - Metrics.moduleCardPanelGapDp)
     fun visibleTiles(tiles: List<String>, size: HubSize, heightDp: Float, fontScale: Float): List<String> =
         tiles.take(when {
             size == HubSize.Compact -> 1
@@ -27,13 +30,3 @@ internal val LocalHubContentHeight = compositionLocalOf { Metrics.hudCellHeightD
 internal fun hubClockWeight(style: com.brightblu.parc.model.ClockStyle, skin: com.brightblu.parc.model.Skin): Int =
     com.brightblu.parc.model.LookRules.clockWeight(style,
         skin.style.clockWeight.takeIf { it > 0 } ?: skin.typography.clock.weight).coerceIn(1, 1000)
-
-/** Reverse the temporary Tall reflow for menus; storage always uses the original position. */
-internal fun hubSourcePosition(layout: com.brightblu.parc.model.ParcLayout,
-    position: com.brightblu.parc.model.SlotPosition): com.brightblu.parc.model.SlotPosition {
-    if (position.arcId != "A3") return position
-    val start = (layout.arcs.firstOrNull { it.arc.id == "A3" }?.slots?.keys?.maxOrNull() ?: -1) + 1
-    if (position.index < start) return position
-    val source = layout.arcs.firstOrNull { it.arc.id == "A4" }?.slots?.toSortedMap()?.keys?.elementAtOrNull(position.index - start)
-    return if (source == null) position else com.brightblu.parc.model.SlotPosition("A4", source)
-}

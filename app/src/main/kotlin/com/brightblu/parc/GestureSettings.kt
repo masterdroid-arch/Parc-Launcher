@@ -1,10 +1,15 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
+import com.brightblu.parc.model.ParcPage
+import com.brightblu.parc.model.parcBottomInset
+import com.brightblu.parc.model.parcBottomInsetPadding
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import com.brightblu.parc.feature.settings.ui.*
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -52,11 +57,7 @@ internal fun GestureSettingsPage(
     SettingsPageFrame(skin, onBack = {
         if (stage == GestureStage.Actions) onBack() else stage = GestureStage.Actions
     }) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.gridDp.dp * 2),
-        ) {
+        ParcPage(safeTop = false, scroll = false, padBottom = false) {
             BasicText(
                 if (slot == GestureSlot.SwipeUp) "Swipe up" else "Hub long-press",
                 style = gestureStyle(skin, skin.colors.textPrimary, skin.typography.title),
@@ -72,7 +73,8 @@ internal fun GestureSettingsPage(
                 modifier = Modifier.padding(top = Metrics.settingsSubtitleGapDp.dp),
             )
             when (stage) {
-                GestureStage.Actions -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                GestureStage.Actions -> Column(Modifier.fillMaxWidth().padding(top = Metrics.rowGapDp.dp).verticalScroll(rememberScrollState()).parcBottomInset(),
+                    verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
                     gestureRows(slot, current, appLabel).forEach { row ->
                         when (row) {
                             is GestureRow.Pick -> GesturePickRow(skin, row.label, null, row.checked) {
@@ -85,7 +87,8 @@ internal fun GestureSettingsPage(
                         }
                     }
                 }
-                GestureStage.Pages -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                GestureStage.Pages -> Column(Modifier.fillMaxWidth().padding(top = Metrics.rowGapDp.dp).verticalScroll(rememberScrollState()).parcBottomInset(),
+                    verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
                     gesturePageRows(pages, current).forEach { row ->
                         GesturePickRow(skin, row.label, null, row.checked) {
                             onPick(row.action)
@@ -96,11 +99,13 @@ internal fun GestureSettingsPage(
                         BasicText(
                             "Every stats page is hidden",
                             style = gestureStyle(skin, skin.colors.textSecondary, skin.typography.caption),
-                            modifier = Modifier.padding(Metrics.gridDp.dp * 2),
+                            modifier = Modifier.padding(Metrics.sectionHeaderGapDp.dp),
                         )
                     }
                 }
-                GestureStage.Apps -> LazyColumn(Modifier.fillMaxWidth()) {
+                GestureStage.Apps -> LazyColumn(Modifier.fillMaxWidth().padding(top = Metrics.rowGapDp.dp),
+                    contentPadding = parcBottomInsetPadding(),
+                    verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
                     items(gestureAppRows(apps, current), key = { it.action.encode() }) { row ->
                         GesturePickRow(skin, row.label, null, row.checked) {
                             onPick(row.action)
@@ -124,11 +129,12 @@ private fun GesturePickRow(
 ) {
     SettingsCard(skin) {
         SettingRow(label, skin, if (detail != null) SettingKind.Choice else SettingKind.Action,
-            value = detail.orEmpty(), icon = if (checked) "✓" else "○", onClick = onClick)
+            value = detail.orEmpty(), icon = if (checked) "✓" else "○", divider = false, onClick = onClick)
     }
 }
 
 private fun gestureStyle(skin: Skin, tint: Long, token: com.brightblu.parc.model.TypeToken): TextStyle = TextStyle(
+    fontFamily = skin.textFamily,
     color = Color(tint.toInt()),
     fontSize = token.sizeSp.sp,
     fontWeight = FontWeight(token.weight),

@@ -25,7 +25,6 @@ internal fun StatsAlertSettings(repository: StatsAlertRepository, skin: Skin) {
     val config by hubStore.config.collectAsState(initial = HubConfig())
     val undo = rememberEditorUndo()
     EditorScaffold(EditorSpec.Alerts, skin,
-        Modifier.padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.gridDp.dp * 2),
         empty = !enabled || thresholds.none { it.enabled },
         undo = if (undo.action != null) ({ undo.run() }) else null) {
         AlertSwitch("Stats alerts", enabled, skin) { on ->
@@ -64,6 +63,6 @@ internal fun StatsAlertSettings(repository: StatsAlertRepository, skin: Skin) {
 @Composable
 private fun AlertSwitch(label: String, value: Boolean, skin: Skin, onChange: (Boolean) -> Unit) {
     SettingsCard(skin) {
-        SettingRow(label, skin, SettingKind.Toggle, checked = value) { onChange(!value) }
+        SettingRow(label, skin, SettingKind.Toggle, checked = value, divider = false) { onChange(!value) }
     }
 }

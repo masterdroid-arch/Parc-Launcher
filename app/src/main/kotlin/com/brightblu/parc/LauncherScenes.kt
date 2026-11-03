@@ -89,8 +89,9 @@ internal object LauncherScenes {
         if (shell.layer == Layer.Folder) {
             val folder = folders[shell.folderId]
             if (folder != null) {
-                // T35: contents are alphabetical, from UsageRepository.rank (falling back to stored order).
-                val ordered = (rank(folder.id).filter { it in folder.appIds } + folder.appIds).distinct()
+                // T156: folder members pinned on Home lead in pin iteration order; supplied order follows.
+                val ordered = (layout.pins.filter { it in folder.appIds } +
+                    rank(folder.id).filter { it in folder.appIds } + folder.appIds).distinct()
                 val shortcuts = layout.arcs.flatMap { it.slots.values }.filterIsInstance<Slot.Shortcut>()
                     .filter { it.folderId == folder.id }.mapNotNull { shortcutSlot(it, SlotPosition("pending", 0)) }
                 return RingScenes.folder(geometry, folder, ordered.mapNotNull(::appSlot) + shortcuts, rotations)

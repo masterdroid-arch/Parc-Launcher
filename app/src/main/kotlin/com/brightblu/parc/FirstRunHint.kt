@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.ParcCardContent
 import com.brightblu.parc.model.Skin
 
 /** The four gestures the first-run card teaches (T30). Order matches the card's wording. */
@@ -47,12 +49,12 @@ internal fun FirstRunHint(skin: Skin, onDismiss: () -> Unit) {
         Column(
             Modifier
                 .width(Metrics.hintCardWidthDp.dp)
-                .cardSurface(skin)
-                .padding(Metrics.hintCardPaddingDp.dp),
+                .cardSurface(skin),
         ) {
+            ParcCardContent {
             BasicText(
                 "Getting around",
-                style = TextStyle(
+                style = TextStyle(fontFamily = skin.textFamily, 
                     color = Color(skin.colors.textPrimary.toInt()),
                     fontSize = skin.typography.title.sizeSp.sp,
                     fontWeight = FontWeight(skin.typography.title.weight),
@@ -62,7 +64,7 @@ internal fun FirstRunHint(skin: Skin, onDismiss: () -> Unit) {
             HintLines.forEach { line ->
                 BasicText(
                     line,
-                    style = TextStyle(
+                    style = TextStyle(fontFamily = skin.textFamily, 
                         color = Color(skin.colors.textSecondary.toInt()),
                         fontSize = skin.typography.menu.sizeSp.sp,
                         fontWeight = FontWeight(skin.typography.menu.weight),
@@ -79,18 +81,19 @@ internal fun FirstRunHint(skin: Skin, onDismiss: () -> Unit) {
                     Modifier
                         .height(Metrics.menuRowHeightDp.dp)
                         .clickable(onClick = onDismiss)
-                        .padding(horizontal = Metrics.gridDp.dp * 2),
+                        .padding(horizontal = Metrics.itemGapDp.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     BasicText(
                         "Got it",
-                        style = TextStyle(
+                        style = TextStyle(fontFamily = skin.textFamily, 
                             color = Color(skin.colors.accent.toInt()),
                             fontSize = skin.typography.menu.sizeSp.sp,
                             fontWeight = FontWeight(skin.typography.menu.weight),
                         ),
                     )
                 }
+            }
             }
         }
     }

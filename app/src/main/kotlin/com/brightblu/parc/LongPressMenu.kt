@@ -1,11 +1,16 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
+import com.brightblu.parc.ring.module.frostedBackground
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,10 +18,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.graphicsLayer
+import com.brightblu.parc.model.parcPress
+import com.brightblu.parc.ring.module.rememberSheetProgress
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -375,9 +384,20 @@ fun folderNameIssue(draft: String, folders: List<Folder>, folderId: FolderId): S
 @Composable
 private fun menuBody(skin: Skin, content: @Composable () -> Unit) {
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    // T157: a menu grows from 0.92 and fades in on `Springs.sheet`; a system animator scale of 0 shows it at once.
+    val sheet = rememberSheetProgress(open = true, stiffnessScale = 1f / skin.motionScale)
+    // T166: 220 dp is the least; a row whose label and hint need more (large text) widens the menu up to the screen gutters.
     Column(
         Modifier
-            .width(Metrics.menuMinWidthDp.dp)
+            .graphicsLayer {
+                val p = sheet.progress.coerceIn(0f, 1f)
+                alpha = p
+                val grown = Metrics.menuOpenFromScale + (1f - Metrics.menuOpenFromScale) * p
+                scaleX = grown; scaleY = grown
+            }
+            .widthIn(min = Metrics.menuMinWidthDp.dp, max = (screenWidthDp - 2 * Metrics.screenGutterDp).dp)
+            .width(IntrinsicSize.Max)
             .heightIn(max = (screenHeightDp - Metrics.keepOutTopDp - Metrics.keepOutBottomDp).dp)
             .menuSurface(skin)
             .verticalScroll(rememberScrollState()),
@@ -529,25 +549,27 @@ private class MenuPositionProvider(
 
 @Composable
 private fun MenuRow(row: MenuRowModel, skin: Skin, onClick: () -> Unit) {
+    val source = remember { MutableInteractionSource() }
     Row(
         Modifier
             .fillMaxWidth()
             .height(Metrics.menuRowHeightDp.dp)
-            .clickable(onClick = onClick)
+            .parcPress(source)
+            .clickable(interactionSource = source, indication = LocalIndication.current, onClick = onClick)
             .padding(horizontal = Metrics.textGutterDp.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicText(
             row.label,
             style = rowStyle(skin, danger = row.action == MenuAction.Uninstall || row.action == MenuAction.Delete),
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).padding(end = Metrics.rowGapDp.dp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         if (row.showDetail && row.detail.isNotEmpty()) {
             BasicText(
                 row.detail,
-                style = TextStyle(fontFamily = if (skin.typography.fallbackFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+                style = TextStyle(fontFamily = skin.textFamily,
                     color = Color(skin.colors.textSecondary.toInt()),
                     fontSize = skin.typography.caption.sizeSp.sp,
                     fontWeight = FontWeight(skin.typography.caption.weight),
@@ -564,14 +586,14 @@ private fun MenuRow(row: MenuRowModel, skin: Skin, onClick: () -> Unit) {
 @Composable
 private fun PeekRow(line: PeekLine, skin: Skin, onOpen: () -> Unit, onDismiss: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp),
+        Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp).padding(end = Metrics.actionEdgeGapDp.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(
             Modifier
                 .weight(1f)
                 .clickable(onClick = onOpen)
-                .padding(start = Metrics.textGutterDp.dp, top = 6.dp, bottom = 6.dp),
+                .padding(start = Metrics.textGutterDp.dp, top = Metrics.itemGapDp.dp, bottom = Metrics.itemGapDp.dp),
         ) {
             BasicText(
                 line.title,
@@ -612,7 +634,7 @@ private fun CaptionRow(text: String, skin: Skin) {
     ) {
         BasicText(
             text,
-            style = TextStyle(fontFamily = if (skin.typography.fallbackFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+            style = TextStyle(fontFamily = skin.textFamily,
                 color = Color(skin.colors.textSecondary.toInt()),
                 fontSize = skin.typography.caption.sizeSp.sp,
                 fontWeight = FontWeight(skin.typography.caption.weight),
@@ -624,7 +646,7 @@ private fun CaptionRow(text: String, skin: Skin) {
     }
 }
 
-private fun rowStyle(skin: Skin, danger: Boolean): TextStyle = TextStyle(fontFamily = if (skin.typography.fallbackFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+private fun rowStyle(skin: Skin, danger: Boolean): TextStyle = TextStyle(fontFamily = skin.textFamily,
     color = Color((if (danger) skin.colors.danger else skin.colors.textPrimary).toInt()),
     fontSize = skin.typography.menu.sizeSp.sp,
     fontWeight = FontWeight(skin.typography.menu.weight),
@@ -644,6 +666,11 @@ private fun MenuDivider(skin: Skin) {
 
 private fun Modifier.menuSurface(skin: Skin): Modifier {
     val corner = RoundedCornerShape(Metrics.menuCornerDp.dp)
+    // T153: frosted skins draw the pre-rendered frost instead of the translucent tint; other skins are unchanged.
+    if (skin.shape.moduleStyle == com.brightblu.parc.model.ModuleStyle.frosted) {
+        return this.frostedBackground(skin, Metrics.menuCornerDp)
+            .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), corner)
+    }
     return this
         .background(
             Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha),

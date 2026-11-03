@@ -9,31 +9,10 @@ object RingScenes {
         rotations: Map<String, Float> = emptyMap()): RingState =
         RingState(layout.arcs, slots, 0f, clock = clock, rotations = rotations)
 
-    /**
-     * A1/A2/A3 own ranks 0..3/4..9/10..17; every remaining app becomes an item on A4, whose ring
-     * rotates when it holds more than its window (T29 replaces paging with dial rotation).
-     */
+    /** First three supplied apps on the inner arc; all remaining items share the rotating outer arc. */
     fun folder(layout: RingLayout, folder: Folder, ranked: List<RingSlot>,
         rotations: Map<String, Float> = emptyMap()): RingState {
-        val radii = floatArrayOf(Metrics.homeRadius1Dp, Metrics.folderRadius2Dp,
-            Metrics.folderRadius3Dp, Metrics.folderRadius4Dp)
-        val buckets = intArrayOf(4, 6, 8, Int.MAX_VALUE)
-        val arcs = layout.arcs.mapIndexed { index, home ->
-            val radius = radii[index]
-            val far = max(Metrics.keepOutLeftDp,
-                if (layout.options.mirrored) layout.insets.right else layout.insets.left) + Metrics.touchTargetDp / 2f
-            val width = if (layout.options.mirrored) layout.widthDp - layout.originXDp else layout.originXDp
-            val low = acos(((width - far) / radius).coerceIn(0f, 1f))
-            val high = asin(((layout.originYDp - max(Metrics.keepOutTopDp, layout.insets.top)) / radius).coerceIn(0f, 1f))
-            val capacity = if (high < low) 0 else min(buckets[index], floor((high - low) * radius / Metrics.minSlotPitchDp).toInt() + 1)
-            val capped = com.brightblu.parc.model.LayoutCounts(icons = layout.options.iconsPerArc).capacity(capacity)
-            fun degrees(a: Float): Float = if (layout.options.mirrored) 360f - Math.toDegrees(a.toDouble()).toFloat()
-                else 180f + Math.toDegrees(a.toDouble()).toFloat()
-            home.copy(id = "${folder.id.value}/A${index + 1}", radiusDp = radius,
-                startAngle = degrees(low), endAngle = degrees(max(low, high)), slotCapacity = capped,
-                layer = Layer.Folder, folderId = folder.id,
-                slotAngles = List(capped) { degrees(if (capped == 1) (low + high) / 2f else low + it * (high - low) / (capped - 1)) })
-        }
+        val arcs = com.brightblu.parc.ring.module.FolderModuleLayout.arcs(layout, folder.id)
         var cursor = 0
         val slots = arcs.flatMapIndexed { i, arc ->
             val remaining = (ranked.size - cursor).coerceAtLeast(0)

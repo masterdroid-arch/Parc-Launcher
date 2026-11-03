@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import com.brightblu.parc.model.drawingSpec
+import com.brightblu.parc.model.ParcPage
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -61,26 +62,16 @@ object SkinPreviewGeometry {
  */
 @Composable
 fun SkinComparisonScreen(skins: List<Skin>, skin: Skin, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .background(color(skin.colors.bg))
-            .padding(
-                start = Metrics.textGutterDp.dp,
-                end = Metrics.textGutterDp.dp,
-                top = Metrics.keepOutTopDp.dp,
-                bottom = Metrics.keepOutBottomDp.dp,
-            ),
-    ) {
+    ParcPage(modifier.background(color(skin.colors.bg)), scroll = false) {
         BasicText("Skin comparison", style = skinTokenStyle(skin, skin.colors.textPrimary, skin.typography.title))
         BasicText(
             "Same geometry, different tokens",
             style = skinTokenStyle(skin, skin.colors.textSecondary, skin.typography.caption),
-            modifier = Modifier.padding(top = Metrics.gridDp.dp),
+            modifier = Modifier.padding(top = Metrics.lineGapDp.dp),
         )
         Row(
-            Modifier.fillMaxWidth().padding(top = Metrics.gridDp.dp * 3),
-            horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp * 2),
+            Modifier.fillMaxWidth().padding(top = Metrics.rowGapDp.dp),
+            horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp),
         ) {
             skins.take(2).forEach { candidate ->
                 Column(Modifier.weight(1f)) {
@@ -155,8 +146,8 @@ internal fun MiniRing(skin: Skin, modifier: Modifier) {
 @Composable
 private fun Swatches(skin: Skin) {
     Row(
-        Modifier.fillMaxWidth().padding(top = Metrics.gridDp.dp * 2),
-        horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp),
+        Modifier.fillMaxWidth().padding(top = Metrics.itemGapDp.dp),
+        horizontalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp),
     ) {
         listOf(
             skin.colors.lineBase,

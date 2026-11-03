@@ -1,5 +1,6 @@
 package com.brightblu.parc.feature.search
 
+import com.brightblu.parc.model.textFamily
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import com.brightblu.parc.model.AppEntry
 import com.brightblu.parc.model.AppId
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.ParcPage
 import com.brightblu.parc.model.Skin
 import kotlinx.coroutines.launch
 
@@ -39,30 +41,28 @@ fun AbcListScreen(
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    Box(modifier.fillMaxSize().background(Color(skin.colors.bg.toInt())).searchSkinDecoration(skin)) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(
-                    start = Metrics.textGutterDp.dp,
-                    top = Metrics.keepOutTopDp.dp,
-                    bottom = Metrics.keepOutBottomDp.dp,
-                ),
-        ) {
-            index.sections.forEach { section ->
-                item(key = "header-${section.key}") { SectionHeader(section.key, skin) }
-                items(section.apps, key = { it.id.value }) { entry ->
-                    AppRow(entry, skin) { onLaunch(entry.id) }
+    // T166: a page like every other: the gutter, the status bar and the gesture strip are ParcPage's. The letter lane
+    // is a column of its own at the left; the list starts after it, so a letter never sits beside a row's first word.
+    ParcPage(modifier.background(Color(skin.colors.bg.toInt())).searchSkinDecoration(skin), scroll = false) {
+        Row(Modifier.fillMaxSize()) {
+            LetterIndex(
+                keys = index.keys,
+                skin = skin,
+                modifier = Modifier.align(Alignment.CenterVertically),
+            ) { sectionIndex ->
+                scope.launch { listState.animateScrollToItem(index.flatOffsetOf(sectionIndex)) }
+            }
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).fillMaxHeight().padding(start = Metrics.itemGapDp.dp),
+            ) {
+                index.sections.forEach { section ->
+                    item(key = "header-${section.key}") { SectionHeader(section.key, skin) }
+                    items(section.apps, key = { it.id.value }) { entry ->
+                        AppRow(entry, skin) { onLaunch(entry.id) }
+                    }
                 }
             }
-        }
-        LetterIndex(
-            keys = index.keys,
-            skin = skin,
-            modifier = Modifier.align(Alignment.CenterStart),
-        ) { sectionIndex ->
-            scope.launch { listState.animateScrollToItem(index.flatOffsetOf(sectionIndex)) }
         }
     }
 }
@@ -78,7 +78,7 @@ private fun SectionHeader(key: Char, skin: Skin) {
         BasicText(
             key.toString(),
             style = TextStyle(
-                fontFamily = if (skin.style.annotationFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+                fontFamily = if (skin.style.annotationFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else skin.textFamily,
                 color = Color(skin.colors.textSecondary.toInt()),
                 fontSize = skin.typography.caption.sizeSp.sp,
                 fontWeight = FontWeight(skin.typography.caption.weight),
@@ -100,7 +100,7 @@ private fun AppRow(entry: AppEntry, skin: Skin, onClick: () -> Unit) {
         BasicText(
             entry.label,
             style = TextStyle(
-                fontFamily = if (skin.style.annotationFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+                fontFamily = if (skin.style.annotationFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else skin.textFamily,
                 color = Color(skin.colors.textPrimary.toInt()),
                 fontSize = skin.typography.menu.sizeSp.sp,
                 fontWeight = FontWeight(skin.typography.menu.weight),
@@ -118,7 +118,7 @@ private fun LetterIndex(
     onLetter: (Int) -> Unit,
 ) {
     Column(
-        modifier.padding(horizontal = Metrics.gridDp.dp / 2),
+        modifier,
         verticalArrangement = Arrangement.Center,
     ) {
         keys.forEachIndexed { position, key ->
@@ -131,7 +131,7 @@ private fun LetterIndex(
                 BasicText(
                     key.toString(),
                     style = TextStyle(
-                fontFamily = if (skin.style.annotationFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else null,
+                fontFamily = if (skin.style.annotationFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else skin.textFamily,
                         color = Color(skin.colors.textSecondary.toInt()),
                         fontSize = skin.typography.caption.sizeSp.sp,
                     ),
@@ -141,5 +141,5 @@ private fun LetterIndex(
     }
 }
 
-/** Width and height of one index letter; the lane is kept inside [Metrics.textGutterDp]. */
+/** Width and height of one index letter: a lane of one gutter, beside the list. */
 private const val LetterGrid = 5f

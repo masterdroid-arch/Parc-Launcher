@@ -1,5 +1,8 @@
 package com.brightblu.parc.feature.settings.backup
 
+import com.brightblu.parc.model.textFamily
+import com.brightblu.parc.model.ParcPage
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.runtime.getValue
 import com.brightblu.parc.feature.settings.ui.*
 
@@ -65,25 +68,16 @@ fun LayoutBackupContent(
     onCancelRestore: () -> Unit = {},
     topPaddingDp: Float = Metrics.keepOutTopDp,
 ) {
-    Column(
-        modifier
-            .fillMaxSize()
-            .background(color(skin.colors.bg))
-            .verticalScroll(rememberScrollState())
-            .padding(
-                start = Metrics.textGutterDp.dp,
-                end = Metrics.textGutterDp.dp,
-                top = topPaddingDp.dp,
-                bottom = Metrics.keepOutBottomDp.dp,
-            ),
+    ParcPage(
+        modifier.background(color(skin.colors.bg)).padding(top = topPaddingDp.dp),
+        safeTop = false,
+        blockGapDp = Metrics.rowGapDp,
     ) {
-        BasicText("Backup", style = style(skin.colors.textPrimary, skin.typography.title))
+        BasicText("Backup", style = style(skin, skin.colors.textPrimary, skin.typography.title))
         BasicText(
             "The backup is one JSON file with your layout and settings. Export it before a reinstall, then restore it on the new install.",
-            style = style(skin.colors.textSecondary, skin.typography.caption),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = Metrics.gridDp.dp * 2, bottom = Metrics.gridDp.dp * 2),
+            style = style(skin, skin.colors.textSecondary, skin.typography.caption),
+            modifier = Modifier.fillMaxWidth(),
         )
         ActionRow(
             label = "Export backup",
@@ -103,8 +97,7 @@ fun LayoutBackupContent(
         if (pending != null) {
             BasicText(
                 "Replace your current layout and settings with " + pending.describe() + "?",
-                style = style(skin.colors.textPrimary, skin.typography.caption),
-                modifier = Modifier.padding(top = Metrics.gridDp.dp * 2),
+                style = style(skin, skin.colors.textPrimary, skin.typography.caption),
             )
             ActionRow("Replace", "", true, skin, onConfirmRestore)
             ActionRow("Cancel", "", true, skin, onCancelRestore)
@@ -113,8 +106,7 @@ fun LayoutBackupContent(
         if (message != null) {
             BasicText(
                 message,
-                style = style(skin.colors.textSecondary, skin.typography.caption),
-                modifier = Modifier.padding(vertical = Metrics.gridDp.dp * 2),
+                style = style(skin, skin.colors.textSecondary, skin.typography.caption),
             )
         }
     }
@@ -130,13 +122,14 @@ private fun ActionRow(
 ) {
     SettingsCard(skin) {
         SettingRow(label, skin, SettingKind.Action, description = detail, enabled = enabled,
-            destructive = label == "Restore layout", icon = if (label == "Restore layout") "↓" else "↑", onClick = onClick)
+            destructive = label == "Restore layout", icon = if (label == "Restore layout") "↓" else "↑", divider = false, onClick = onClick)
     }
 }
 
 private fun color(argb: Long): Color = Color(argb.toInt())
 
-private fun style(tint: Long, token: TypeToken): TextStyle = TextStyle(
+private fun style(skin: com.brightblu.parc.model.Skin, tint: Long, token: TypeToken): TextStyle = TextStyle(
+    fontFamily = skin.textFamily,
     color = color(tint),
     fontSize = token.sizeSp.sp,
     fontWeight = FontWeight(token.weight),

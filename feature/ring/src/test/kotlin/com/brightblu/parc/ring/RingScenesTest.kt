@@ -8,21 +8,16 @@ import kotlin.math.*
 class RingScenesTest {
     private val layout = RingLayout(384f, 853f)
     private fun apps(count: Int) = List(count) { RingSlot(SlotPosition("source", it), Slot.App(AppId("app/$it")), "App $it") }
-    @Test fun folderBucketsAndOuterRingKeepRankOrder() {
-        val ranked = apps(40)
-        val folder = Folder(FolderId("social"), "Social")
-        val state = RingScenes.folder(layout, folder, ranked)
-        assertEquals(listOf(4, 6, 8), state.arcs.take(3).map { it.slotCapacity })
-        // A1/A2/A3 hold the first 18 in order; A4 becomes a rotating ring of every remaining app.
-        assertEquals(ranked.take(18).map { it.slot }, state.slots.filter { it.position.arcId.endsWith("A1") || it.position.arcId.endsWith("A2") || it.position.arcId.endsWith("A3") }.map { it.slot })
-        assertEquals(ranked.drop(18).map { it.slot }, state.slots.filter { it.position.arcId.endsWith("A4") }.map { it.slot })
-        // A4 item indices are 0..rest-1 (item indices, not window indices), and A4 rotates.
-        val a4 = state.arcs.last()
-        val a4Items = state.slots.filter { it.position.arcId == a4.id }
-        assertEquals((0 until a4Items.size).toList(), a4Items.map { it.position.index })
-        assertTrue(com.brightblu.parc.ring.RingRotation.rotates(a4Items.size, a4.slotCapacity))
-        for (arc in state.arcs) for (i in 1 until arc.slotCapacity) {
-            assertTrue(abs(arc.slotAngle(i) - arc.slotAngle(i - 1)) * PI / 180 * arc.radiusDp >= Metrics.minSlotPitchDp - 0.001)
+    @Test fun folderUsesTwoWindowsAndKeepsAllItemsInOrder() {
+        for (count in 0..20) {
+            val ranked = apps(count)
+            val state = RingScenes.folder(layout, Folder(FolderId("social"), "Social"), ranked)
+            assertEquals(listOf(3, 5), state.arcs.map { it.slotCapacity })
+            assertEquals(ranked.map { it.slot }, state.slots.map { it.slot })
+            assertEquals(minOf(3, count), state.slots.count { it.position.arcId.endsWith("A1") })
+            val outer = state.slots.filter { it.position.arcId.endsWith("A2") }
+            assertEquals((0 until outer.size).toList(), outer.map { it.position.index })
+            assertEquals(count > 8, RingRotation.rotates(outer.size, 5))
         }
     }
 

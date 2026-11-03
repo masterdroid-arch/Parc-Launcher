@@ -1,5 +1,8 @@
 package com.brightblu.parc.feature.settings.hidden
 
+import com.brightblu.parc.model.textFamily
+import com.brightblu.parc.model.ParcPage
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import com.brightblu.parc.feature.settings.ui.*
@@ -60,26 +63,15 @@ fun HiddenAppsScreen(
     topPaddingDp: Float = Metrics.keepOutTopDp,
 ) {
     val undo = rememberEditorUndo()
-    Column(
-        modifier
-            .fillMaxSize()
-            .background(color(skin.colors.bg))
-            .padding(
-                start = Metrics.textGutterDp.dp,
-                end = Metrics.textGutterDp.dp,
-                top = topPaddingDp.dp,
-                bottom = Metrics.keepOutBottomDp.dp,
-            ),
-    ) {
+    ParcPage(modifier.background(color(skin.colors.bg)).padding(top = topPaddingDp.dp), safeTop = false, scroll = false) {
         EditorScaffold(EditorSpec.HiddenApps, skin, scroll = false, empty = state.rows.isEmpty(),
             undo = if (undo.action != null) ({ undo.run() }) else null) {
         BasicText(
             if (state.hiddenCount == 1) "1 app hidden" else "${state.hiddenCount} apps hidden",
-            style = style(skin.colors.textSecondary, skin.typography.caption),
-            modifier = Modifier.padding(top = Metrics.gridDp.dp * 2),
+            style = style(skin, skin.colors.textSecondary, skin.typography.caption),
         )
         QueryField(state.query, skin, onQuery)
-        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+        LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
             items(state.rows, key = { it.appId.value }) { row ->
                 AppRow(row, skin) { id, hidden ->
                     onSetHidden(id, hidden)
@@ -97,15 +89,15 @@ private fun QueryField(query: String, skin: Skin, onQuery: (String) -> Unit) {
         value = query,
         onValueChange = onQuery,
         singleLine = true,
-        textStyle = style(skin.colors.textPrimary, skin.typography.menu),
+        textStyle = style(skin, skin.colors.textPrimary, skin.typography.menu),
         cursorBrush = SolidColor(color(skin.colors.accent)),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = Metrics.gridDp.dp * 2),
+            .padding(vertical = Metrics.sectionHeaderGapDp.dp),
         decorationBox = { inner ->
             if (query.isEmpty()) {
-                BasicText("Search apps", style = style(skin.colors.textSecondary, skin.typography.menu))
+                BasicText("Search apps", style = style(skin, skin.colors.textSecondary, skin.typography.menu))
             }
             inner()
         },
@@ -115,7 +107,7 @@ private fun QueryField(query: String, skin: Skin, onQuery: (String) -> Unit) {
 @Composable
 private fun AppRow(row: HiddenAppRow, skin: Skin, onSetHidden: (AppId, Boolean) -> Unit) {
     SettingsCard(skin) {
-        SettingRow(row.label, skin, SettingKind.Toggle, description = "Hide this app", checked = row.hidden) {
+        SettingRow(row.label, skin, SettingKind.Toggle, description = "Hide this app", checked = row.hidden, divider = false) {
             onSetHidden(row.appId, !row.hidden)
         }
     }
@@ -123,7 +115,8 @@ private fun AppRow(row: HiddenAppRow, skin: Skin, onSetHidden: (AppId, Boolean) 
 
 private fun color(argb: Long): Color = Color(argb.toInt())
 
-private fun style(tint: Long, token: TypeToken): TextStyle = TextStyle(
+private fun style(skin: com.brightblu.parc.model.Skin, tint: Long, token: TypeToken): TextStyle = TextStyle(
+    fontFamily = skin.textFamily,
     color = color(tint),
     fontSize = token.sizeSp.sp,
     fontWeight = FontWeight(token.weight),

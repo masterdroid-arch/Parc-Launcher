@@ -36,6 +36,7 @@ import com.brightblu.parc.feature.settings.ui.SettingsSection
 import com.brightblu.parc.feature.settings.ui.settingsText
 import com.brightblu.parc.model.Metrics
 import com.brightblu.parc.model.Skin
+import com.brightblu.parc.model.parcRowPadding
 
 /** Reads each permission from the platform; null when a source cannot answer. No permission is needed to ask. */
 object AndroidPermissionReader {
@@ -138,7 +139,7 @@ fun PermissionsContent(skin: Skin) {
 
     Column {
         BasicText("Every permission here is optional. Parc works without them, and each feature that needs one says so.",
-            Modifier.padding(vertical = Metrics.gridDp.dp * 2), style = settingsText(skin, skin.colors.textSecondary, true))
+            Modifier.padding(vertical = Metrics.sectionHeaderGapDp.dp), style = settingsText(skin, skin.colors.textSecondary, true))
         SettingsSection(PermissionRules.summary(rows), skin)
         SettingsCard(skin) {
             rows.forEach { row ->
@@ -166,7 +167,8 @@ fun PermissionsContent(skin: Skin) {
         if (!personal) {
             SettingsSection("Temperatures", skin)
             BasicText("This build uses readings Android makes available. Extra temperature diagnostics through a computer are available in the personal build.",
-                Modifier.padding(Metrics.gridDp.dp * 4), style = settingsText(skin, skin.colors.textSecondary, true))
+                Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp, vertical = Metrics.sectionHeaderGapDp.dp),
+                style = settingsText(skin, skin.colors.textSecondary, true))
         }
         if (personal) {
             SettingsSection("Advanced: temperatures", skin)
@@ -176,9 +178,9 @@ fun PermissionsContent(skin: Skin) {
                     "CPU and GPU readings need one permission that Android only lets a computer grant. " +
                         "Status: ${when (dump) { true -> "allowed"; false -> "not allowed"; null -> "can't tell" }}. " +
                         "Connect the phone over USB or wireless debugging and run:",
-                    Modifier.padding(Metrics.gridDp.dp * 4), style = settingsText(skin, skin.colors.textSecondary, true))
-                BasicText(command, Modifier.padding(horizontal = Metrics.gridDp.dp * 4), style = settingsText(skin, skin.colors.accent, true))
-                SettingRow("Copy the command", skin, SettingKind.Action, icon = "⧉") { clipboard.setText(AnnotatedString(command)) }
+                    Modifier.parcRowPadding(), style = settingsText(skin, skin.colors.textSecondary, true))
+                BasicText(command, Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp), style = settingsText(skin, skin.colors.accent, true))
+                SettingRow("Copy the command", skin, SettingKind.Action, icon = "⧉", divider = false) { clipboard.setText(AnnotatedString(command)) }
             }
         }
     }

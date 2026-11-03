@@ -111,13 +111,13 @@ class SkinCatalogTest {
             .map { it.name }
             .sorted()
 
-        assertEquals(listOf("cyber.json", "dusk.json", "field-atlas-dark.json", "field-atlas-light.json", "midnight.json", "phosphor.json"), names)
+        assertEquals(listOf("cyber.json", "dusk.json", "field-atlas-dark.json", "field-atlas-light.json", "glass.json", "graphite.json", "midnight.json", "moss.json", "phosphor.json"), names)
 
         val catalog = SkinCatalogLoader.parse(
             names.map { SkinAsset(it, File(directory, it).readText()) },
         )
 
-        assertEquals(listOf("midnight", "cyber", "dusk", "field-atlas-dark", "field-atlas-light", "phosphor"), catalog.ids)
+        assertEquals(listOf("midnight", "dusk", "moss", "graphite", "glass", "cyber", "field-atlas-dark", "field-atlas-light", "phosphor"), catalog.ids)
         assertEquals(Skin.Midnight, catalog.default)
         assertEquals(Skin.Midnight, catalog.byId("midnight"))
         assertEquals(Skin.Dusk, catalog.byId("dusk"))

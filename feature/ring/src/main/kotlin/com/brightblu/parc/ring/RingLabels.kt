@@ -55,30 +55,93 @@ internal class RingLabels(
     }
 }
 
-/** Folder captions use the real raster bounds; solve once, never in draw. */
-internal class FolderLabels(
-    xs: FloatArray, ys: FloatArray, widths: FloatArray, heights: FloatArray,
-    folders: BooleanArray, screenWidth: Float, screenHeight: Float,
-    iconSizeDp: Float = Metrics.iconDp,
-) {
-    val x = FloatArray(xs.size)
-    val y = FloatArray(xs.size)
-    init {
-        val margin = Metrics.folderLabelScreenMarginDp
-        val offset = iconSizeDp / 2f + Metrics.folderLabelGapDp
-        // The clamp never falls below the margin, so a caption wider than the safe band still gets a
-        // valid position instead of an empty range. A user-chosen aligned layout can place a folder
-        // where the old strict assertion failed; clamping keeps the app alive and the caption visible.
-        val maxX = max(margin, screenWidth - margin)
-        val maxY = max(margin, screenHeight - margin)
-        for (i in folders.indices) {
-            if (!folders[i]) continue
-            x[i] = min(max(xs[i] - widths[i] / 2f, margin), max(margin, maxX - widths[i]))
-            val below = ys[i] + offset
-            val chosen = if (below + heights[i] <= screenHeight - margin) below
-                else ys[i] - offset - heights[i]
-            y[i] = min(max(chosen, margin), max(margin, maxY - heights[i]))
+/**
+ * T170: folder captions. Each caption tries below the folder icon, above it, then right and left,
+ * and takes the first spot that is inside the bounds (the card with its inset) and touches no other
+ * visible icon rect and no caption already placed. Below/above shift sideways to stay inside; right/left
+ * shift up or down. If every spot collides, the one with the least overlap wins. Allocation-free after
+ * construction so the draw loop can call [solve] with live slot centres.
+ */
+internal class FolderLabelPlacer(capacity: Int) {
+    val x = FloatArray(capacity)
+    val y = FloatArray(capacity)
+    private var candX = 0f
+    private var candY = 0f
+
+    /**
+     * Centres, caption sizes and bounds are in dp. [folder] marks slots that carry a caption, [visible]
+     * the slots that are drawn (obstacles). The bounds are the area the whole caption must stay inside.
+     */
+    fun solve(cx: FloatArray, cy: FloatArray, w: FloatArray, h: FloatArray,
+        folder: BooleanArray, visible: BooleanArray, n: Int, iconDp: Float,
+        left: Float, top: Float, right: Float, bottom: Float) {
+        val offset = iconDp / 2f + Metrics.folderLabelGapDp
+        val maxX = max(left, right)
+        val maxY = max(top, bottom)
+        for (i in 0 until n) {
+            if (!folder[i]) continue
+            var bestSide = -1
+            var bestOverlap = Float.MAX_VALUE
+            var bestX = 0f
+            var bestY = 0f
+            // Level 0 is centred on the icon; each further level slides the caption along its edge, both ways.
+            var step = 0
+            while (step < SHIFT_STEPS * 2 - 1 && bestOverlap > 0f) {
+                val shift = if (step == 0) 0f else (if (step % 2 == 1) 1f else -1f) * ((step + 1) / 2) * SHIFT_DP
+                var side = 0
+                while (side < 4 && bestOverlap > 0f) {
+                    if (candidate(i, side, shift, cx, cy, w, h, offset, left, top, maxX, maxY)) {
+                        val overlap = overlap(i, candX, candY, cx, cy, w, h, folder, visible, n, iconDp)
+                        if (overlap < bestOverlap) { bestOverlap = overlap; bestSide = side; bestX = candX; bestY = candY }
+                    }
+                    side++
+                }
+                step++
+            }
+            if (bestSide < 0) {
+                // No side fits the bounds at all: pin below, clamped, so the caption stays visible.
+                x[i] = min(max(cx[i] - w[i] / 2f, left), max(left, maxX - w[i]))
+                y[i] = min(max(cy[i] + offset, top), max(top, maxY - h[i]))
+            } else { x[i] = bestX; y[i] = bestY }
         }
+    }
+
+    /** Fills [candX]/[candY] for [side]; false when the caption cannot sit inside the bounds there. */
+    private fun candidate(i: Int, side: Int, shift: Float, cx: FloatArray, cy: FloatArray, w: FloatArray, h: FloatArray,
+        offset: Float, left: Float, top: Float, maxX: Float, maxY: Float): Boolean {
+        if (side < 2) {
+            candX = min(max(cx[i] - w[i] / 2f + shift, left), max(left, maxX - w[i]))
+            candY = if (side == 0) cy[i] + offset else cy[i] - offset - h[i]
+        } else {
+            candY = min(max(cy[i] - h[i] / 2f + shift, top), max(top, maxY - h[i]))
+            candX = if (side == 2) cx[i] + offset else cx[i] - offset - w[i]
+        }
+        return candX >= left - EPS && candX + w[i] <= maxX + EPS && candY >= top - EPS && candY + h[i] <= maxY + EPS
+    }
+
+    /** Overlap area of caption [i] at ([px], [py]) with other visible icons and earlier captions. */
+    private fun overlap(i: Int, px: Float, py: Float, cx: FloatArray, cy: FloatArray, w: FloatArray, h: FloatArray,
+        folder: BooleanArray, visible: BooleanArray, n: Int, iconDp: Float): Float {
+        var area = 0f
+        val half = iconDp / 2f
+        for (j in 0 until n) {
+            if (j == i) continue
+            if (visible[j]) area += intersection(px, py, px + w[i], py + h[i], cx[j] - half, cy[j] - half, cx[j] + half, cy[j] + half)
+            if (j < i && folder[j]) area += intersection(px, py, px + w[i], py + h[i], x[j], y[j], x[j] + w[j], y[j] + h[j])
+        }
+        return area
+    }
+
+    private fun intersection(l1: Float, t1: Float, r1: Float, b1: Float, l2: Float, t2: Float, r2: Float, b2: Float): Float {
+        val dx = min(r1, r2) - max(l1, l2)
+        val dy = min(b1, b2) - max(t1, t2)
+        return if (dx > 0f && dy > 0f) dx * dy else 0f
+    }
+
+    private companion object {
+        const val EPS = 0.001f
+        const val SHIFT_DP = 10f
+        const val SHIFT_STEPS = 5
     }
 }
 

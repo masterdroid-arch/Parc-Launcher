@@ -227,21 +227,6 @@ class T97Test {
 
     // ---- settings and backup -------------------------------------------------------------
 
-    @Test fun theTwoSettingsAreTogglesInTheNotificationsSectionAndDefaultOn() {
-        for (id in listOf(SettingsRowId.MenuNotifications, SettingsRowId.MenuNotificationText)) {
-            val spec = settingsRowSpec(id)
-            assertEquals(SettingKind.Toggle, spec.kind)
-            assertEquals(SettingsSectionId.Notifications, spec.section)
-        }
-        val rows = settingsRootRows("Midnight", false, true, false, true)
-        assertEquals(true, rows.single { it.id == SettingsRowId.MenuNotifications }.checked)
-        assertEquals(true, rows.single { it.id == SettingsRowId.MenuNotificationText }.checked)
-        assertEquals("Notifications in menus", rows.single { it.id == SettingsRowId.MenuNotifications }.label)
-        assertEquals("Show message text", rows.single { it.id == SettingsRowId.MenuNotificationText }.label)
-        val off = settingsRootRows("Midnight", false, true, false, true, menuNotifications = false, menuNotificationText = false)
-        assertEquals(false, off.single { it.id == SettingsRowId.MenuNotifications }.checked)
-        assertTrue(off.none { it.id == SettingsRowId.MenuNotificationText })
-    }
 
     @Test fun theTwoSettingsTravelInTheBackup() {
         val names = BackupSpecs.uiPrefs.keys.map { it.name }.toSet()

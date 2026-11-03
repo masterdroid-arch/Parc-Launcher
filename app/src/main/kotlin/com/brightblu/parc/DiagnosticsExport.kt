@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -137,18 +139,18 @@ private suspend fun copyReport(
 internal fun DiagnosticsExport(skin: Skin, exporter: DiagnosticsExporter, modifier: Modifier = Modifier) {
     val status by exporter.status
     val busy = status == DiagnosticsStatus.Working
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
         BasicText(
             DiagnosticsEntry.Default.description,
-            style = diagStyle(skin.colors.textSecondary, skin.typography.caption),
+            style = diagStyle(skin, skin.colors.textSecondary, skin.typography.caption),
         )
         DiagnosticsAction(DiagnosticsEntry.Default.title, FileHint, !busy, skin, exporter.export)
         DiagnosticsAction("Copy", "", !busy, skin, exporter.copy)
         if (status.text.isNotEmpty()) {
             BasicText(
                 status.text,
-                style = diagStyle(skin.colors.textSecondary, skin.typography.caption),
-                modifier = Modifier.padding(top = Metrics.gridDp.dp),
+                style = diagStyle(skin, skin.colors.textSecondary, skin.typography.caption),
+                modifier = Modifier.padding(top = Metrics.lineGapDp.dp),
             )
         }
     }
@@ -161,7 +163,7 @@ private fun DiagnosticsAction(label: String, detail: String, enabled: Boolean, s
     Row(
         Modifier
             .fillMaxWidth()
-            .height(Metrics.touchTargetDp.dp)
+            .heightIn(min = Metrics.touchTargetDp.dp)
             .background(Color(skin.colors.surface.toInt()), RoundedCornerShape(Metrics.menuCornerDp.dp))
             .border(
                 skin.shape.surfaceBorderDp.dp,
@@ -169,22 +171,23 @@ private fun DiagnosticsAction(label: String, detail: String, enabled: Boolean, s
                 RoundedCornerShape(Metrics.menuCornerDp.dp),
             )
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = Metrics.gridDp.dp * 2),
+            .padding(horizontal = Metrics.settingsRowInsetDp.dp, vertical = Metrics.cardInsetDp.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         BasicText(
             label,
-            style = diagStyle(if (enabled) skin.colors.textPrimary else skin.colors.textSecondary, skin.typography.menu),
+            style = diagStyle(skin, if (enabled) skin.colors.textPrimary else skin.colors.textSecondary, skin.typography.menu),
             modifier = Modifier.weight(1f),
         )
         if (detail.isNotEmpty()) {
-            BasicText(detail, style = diagStyle(skin.colors.textSecondary, skin.typography.caption))
+            BasicText(detail, style = diagStyle(skin, skin.colors.textSecondary, skin.typography.caption))
         }
     }
 }
 
-private fun diagStyle(tint: Long, token: TypeToken): TextStyle = TextStyle(
+private fun diagStyle(skin: com.brightblu.parc.model.Skin, tint: Long, token: TypeToken): TextStyle = TextStyle(
+    fontFamily = skin.textFamily,
     color = Color(tint.toInt()),
     fontSize = token.sizeSp.sp,
     fontWeight = FontWeight(token.weight),

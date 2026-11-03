@@ -19,6 +19,7 @@ coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", ve
 junit = { module = "junit:junit", version.ref = "junit" }
 compose-foundation = { module = "androidx.compose.foundation:foundation" }
 compose-ui = { module = "androidx.compose.ui:ui" }
+compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 compose-animation-core = { module = "androidx.compose.animation:animation-core" }
 activity-compose = { module = "androidx.activity:activity-compose", version = "1.9.3" }
 room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }

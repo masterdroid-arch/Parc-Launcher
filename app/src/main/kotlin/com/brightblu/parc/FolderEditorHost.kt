@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -129,7 +130,7 @@ internal fun FolderEditorHost(services: LauncherServices, skin: Skin, create: Bo
                     gate.authenticateFolder(event.id) { commit(FolderEditorMachine.reduce(state, event)) }
                 } else commit(FolderEditorMachine.reduce(state, event))
             }
-        }, Modifier.weight(1f), topPaddingDp = if (settingsHost) Metrics.gridDp * 2 else Metrics.keepOutTopDp)
+        }, Modifier.weight(1f), topPaddingDp = if (settingsHost) 0f else rememberPageInsets().topDp)
         if (confirmDelete) {
             EditorAction("Remove ${state.openFolder?.name}? Its apps go to New.", skin) {}
             Row {
@@ -154,6 +155,7 @@ internal fun FolderEditorHost(services: LauncherServices, skin: Skin, create: Bo
 @Composable
 internal fun EditorAction(label: String, skin: Skin, modifier: Modifier = Modifier, onClick: () -> Unit) {
     BasicText((if (label.startsWith("Remove")) "×  " else "+  ") + label, modifier.heightIn(min = Metrics.touchTargetDp.dp).clickable(onClick = onClick)
-        .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.gridDp.dp * 2),
-        style = TextStyle(color = Color((if (label.startsWith("Remove")) skin.colors.warn else skin.colors.accent).toInt()), fontSize = skin.typography.menu.sizeSp.sp))
+        .parcMinTouch().wrapContentSize(androidx.compose.ui.Alignment.CenterStart)
+        .padding(horizontal = Metrics.textGutterDp.dp),
+        style = TextStyle(fontFamily = skin.textFamily, color = Color((if (label.startsWith("Remove")) skin.colors.warn else skin.colors.accent).toInt()), fontSize = skin.typography.menu.sizeSp.sp))
 }

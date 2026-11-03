@@ -78,7 +78,4 @@ class T79Test {
         assertEquals(listOf(70.0, 80.0), historyWindow(points, now).map { it.value })
         assertTrue(historyWindow(emptyList(), now).isEmpty())
     }
-    @Test fun alertSettingsHaveAnEntryOnParcSettings() {
-        assertTrue(settingsRootRows("Test", false, true, false, false).any { it.id == SettingsRowId.StatsAlerts })
-    }
 }

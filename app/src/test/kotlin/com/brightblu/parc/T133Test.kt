@@ -134,20 +134,6 @@ class T133Test {
         assertEquals(Layer.Home, h.navigation.state.value.layer)
     }
 
-    @Test fun editHomeEntersEditModeAndTheOtherRowsOpenSettings() {
-        val h = Harness()
-        h.session.onEmptyLongPress(1f, 1f)
-        h.session.homeMenuAction(HomeMenuRow.EditHome)
-        assertEquals(1, h.edits)
-        assertNull(h.session.homeMenu.value)
-
-        listOf(HomeMenuRow.Look, HomeMenuRow.HubPages, HomeMenuRow.Settings).forEach { row ->
-            h.session.onEmptyLongPress(1f, 1f)
-            h.session.homeMenuAction(row)
-        }
-        assertEquals(listOf(SettingsTarget(SettingsPage.Root, SettingsSectionId.Appearance),
-            SettingsTarget(SettingsPage.HubPages), SettingsTarget(SettingsPage.Root)), h.opened)
-    }
 
     @Test fun aRowWithoutAnOpenMenuDoesNothing() {
         val h = Harness()
@@ -181,34 +167,10 @@ class T133Test {
             com.brightblu.parc.core.data.backup.BackupSpecs.gestures.keys.map { it.name }.toSet())
     }
 
-    @Test fun theRootRowShowsAllAppsForANewUser() {
-        assertEquals("All apps", settingsRootRows("Midnight", false, true, false, true)
-            .single { it.id == SettingsRowId.SwipeUp }.detail)
-    }
 
     // ---- Parc settings in search -------------------------------------------------------------
 
-    @Test fun parcSettingsAndItsPagesAreFindable() {
-        val entries = SettingsSearchEntries.all
-        assertEquals(SettingsSearchEntries.RootKey, ParcSettingsRanking.rank("parc settings", entries).first().key)
-        assertEquals(SettingsTarget(SettingsPage.Wallpaper),
-            SettingsSearchEntries.target(ParcSettingsRanking.rank("wallpaper", entries).first().key))
-        assertEquals(SettingsTarget(SettingsPage.HubPages),
-            SettingsSearchEntries.target(ParcSettingsRanking.rank("hub pages", entries).first().key))
-        assertEquals(SettingsTarget(SettingsPage.Root, SettingsSectionId.Appearance),
-            SettingsSearchEntries.target(ParcSettingsRanking.rank("look", entries).first().key))
-    }
 
-    @Test fun everyEntryOpensSomewhereAndUsesTheSettingsWords() {
-        val rootLabels = settingsRootRows("", false, true, false, true).map { it.label }.toSet() +
-            SettingsSectionId.entries.map { it.title } + "Parc settings"
-        SettingsSearchEntries.all.forEach { entry ->
-            assertNotNull(entry.key, SettingsSearchEntries.target(entry.key))
-            assertTrue(entry.title, entry.title in rootLabels)
-        }
-        assertNull(SettingsSearchEntries.target("page:Nope"))
-        assertNull(SettingsSearchEntries.target("other"))
-    }
 
     @Test fun searchNeverListsSwitchesOrSetupReset() {
         val keys = SettingsSearchEntries.all.map { it.key }

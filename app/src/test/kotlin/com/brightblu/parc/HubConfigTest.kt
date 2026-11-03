@@ -5,7 +5,8 @@ import org.junit.Test
 
 class HubConfigTest {
     @Test fun defaultsIncludeFivePagesAndSevenSystemTiles() {
-        assertEquals(HubCatalog.pages - HubCatalog.defaultHiddenPages, HubConfig().pages)
+        assertEquals(listOf("clock", "power", "focus", "notes"), HubConfig().pages) // T158: a new user's four tabs
+        assertEquals(HubCatalog.pages - HubCatalog.defaultHiddenPages, legacyHubConfig().pages)
         assertEquals(HubCatalog.systemTiles, HubConfig().tiles("system"))
     }
     @Test fun reorderClampsAndKeepsEveryTileOnce() {

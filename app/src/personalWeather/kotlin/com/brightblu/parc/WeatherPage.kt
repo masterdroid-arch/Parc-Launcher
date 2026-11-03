@@ -34,6 +34,7 @@ import com.brightblu.parc.feature.settings.ui.SettingRow
 import com.brightblu.parc.feature.settings.ui.SettingsCard
 import com.brightblu.parc.feature.settings.ui.settingsText
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.parcRowPadding
 import com.brightblu.parc.model.Skin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -194,7 +195,7 @@ private fun WeatherBody(
     val updatedLine = "$placeName · $updated" + if (old) " · old forecast" else ""
     val timeFormat = remember(hour24, locale) { DateTimeFormatter.ofPattern(if (hour24) "HH:mm" else "h:mm a", locale) }
     val hourFormat = remember(hour24, locale) { DateTimeFormatter.ofPattern(if (hour24) "HH" else "h a", locale) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberHubScrollState()), verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
+    Column(Modifier.fillMaxSize().hubPageScroll(), verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
         Row(Modifier.semantics(mergeDescendants = true) { contentDescription = "$temp, $condition. High $high, low $low. $updatedLine" },
             verticalAlignment = Alignment.CenterVertically) {
             WeatherIcon(kind, view.isDay, if (size == HubSize.Compact) 36f else 56f, skin)
@@ -251,7 +252,7 @@ private fun DayRow(day: WeatherDay, unit: TempUnit, locale: Locale, skin: Skin) 
     }, verticalAlignment = Alignment.CenterVertically) {
         BasicText(name, Modifier.weight(1f), style = hudValueStyle(skin), maxLines = 1)
         WeatherIcon(WeatherCodes.kind(day.code), true, 24f, skin)
-        BasicText(WeatherUnits.percent(day.rainPercent), Modifier.weight(1f).padding(start = Metrics.gridDp.dp * 2), style = hudLabelStyle(skin), maxLines = 1)
+        BasicText(WeatherUnits.percent(day.rainPercent), Modifier.weight(1f).padding(start = Metrics.itemGapDp.dp), style = hudLabelStyle(skin), maxLines = 1)
         BasicText("${WeatherUnits.degrees(day.minC, unit)} / ${WeatherUnits.degrees(day.maxC, unit)}", style = hudValueStyle(skin), maxLines = 1)
     }
 }
@@ -267,7 +268,7 @@ private fun WeatherOptions(skin: Skin) {
     SettingsCard(skin) {
         SettingRow("City", skin, SettingKind.Page, description = "Type a city name once. No location permission is used.",
             value = saved.place?.let { it.name } ?: "Not set") { searching = true }
-        BasicText("Units", Modifier.padding(Metrics.gridDp.dp * 2), style = settingsText(skin))
+        BasicText("Units", Modifier.parcRowPadding(), style = settingsText(skin))
         UnitChoice.entries.forEach { choice ->
             SettingRow(choice.label, skin, SettingKind.Toggle, checked = saved.units == choice) {
                 scope.launch { store.setUnits(choice) }
@@ -278,7 +279,7 @@ private fun WeatherOptions(skin: Skin) {
             scope.launch { store.forget() }
         }
         BasicText("Parc sends only the city's coordinates (rounded to about 1 km) to Open-Meteo, at most every 30 minutes and only while this page is on screen. " +
-            "The name you type is sent once to Open-Meteo's city search.", Modifier.padding(Metrics.gridDp.dp * 4), style = settingsText(skin, caption = true))
+            "The name you type is sent once to Open-Meteo's city search.", Modifier.parcRowPadding(), style = settingsText(skin, caption = true))
     }
     if (searching) CitySearchDialog(skin, onDismiss = { searching = false }) { place ->
         scope.launch { store.setPlace(place) }
@@ -315,7 +316,7 @@ private fun CitySearchDialog(skin: Skin, onDismiss: () -> Unit, onPick: (Weather
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { search() }))
             SettingRow(if (busy) "Searching…" else "Search", skin, SettingKind.Action, enabled = !busy && query.isNotBlank(), icon = "›") { search() }
-            message?.let { BasicText(it, Modifier.padding(Metrics.gridDp.dp * 2), style = settingsText(skin, skin.colors.warn)) }
+            message?.let { BasicText(it, Modifier.padding(Metrics.sectionHeaderGapDp.dp), style = settingsText(skin, skin.colors.warn)) }
             results.forEach { place ->
                 SettingRow(place.name, skin, SettingKind.Action, description = place.detail, icon = "+") { onPick(place) }
             }

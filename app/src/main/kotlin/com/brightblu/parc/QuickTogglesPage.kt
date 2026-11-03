@@ -246,7 +246,7 @@ internal fun QuickTogglesHubPage(tiles: List<String>, active: Boolean, skin: Ski
     val gap = Metrics.hudCellGapDp
     val room = LocalHubContentHeight.current - (if (size == HubSize.Tall) TallNoteRoomDp else 0f)
     val tileHeight = ((room - gap * (rows - 1)) / rows).coerceIn(Metrics.touchTargetDp, TileMaxHeightDp)
-    Column(Modifier.fillMaxSize().verticalScroll(rememberHubScrollState()), verticalArrangement = Arrangement.spacedBy(gap.dp)) {
+    Column(Modifier.fillMaxSize().hubPageScroll(), verticalArrangement = Arrangement.spacedBy(gap.dp)) {
         shown.chunked(columns).forEach { row ->
             Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(gap.dp)) {
                 row.forEach { tile ->
@@ -268,7 +268,7 @@ private fun QuickTileCell(tile: QuickTile, skin: Skin, size: HubSize, modifier: 
     }
     HudCell(tileSkin, modifier
         .semantics(mergeDescendants = true) { contentDescription = tile.description; role = Role.Button }
-        .clickable(onClick = onTap)) {
+        .clickable(onClick = onTap), narrow = true) {
         Column {
             BasicText(tile.label, style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
             BasicText(tile.state, style = hudValueStyle(skin, if (tile.on == true) skin.colors.accent else null),

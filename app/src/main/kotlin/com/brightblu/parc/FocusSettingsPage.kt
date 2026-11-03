@@ -125,11 +125,12 @@ internal fun FocusSettingsPage(
     BackHandler { back() }
     exit?.let { FocusExitDialog(repository, it, skin, onDismiss = { exit = null }) }
     SettingsPageFrame(skin, ::back) {
-        Box(Modifier.fillMaxSize()) {
         key(editing != null, page, presets) {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                .padding(horizontal = Metrics.textGutterDp.dp).padding(bottom = Metrics.keepOutBottomDp.dp),
-                verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
+            ParcPage(safeTop = false, blockGapDp = Metrics.rowGapDp, overlay = {
+                if (undoVisible) Box(Modifier.align(Alignment.BottomCenter)) {
+                    FocusRow("Undo", "Restore the last change", false, skin, SettingKind.Action) { timing.undo(); undoVisible = false }
+                }
+            }) {
                 val mode = editing
                 if (issue.isNotEmpty()) FocusCopy(issue, skin)
                 // OPUS6 (audit F4): say so when saved modes could not be read; they are kept as they are.
@@ -173,12 +174,12 @@ internal fun FocusSettingsPage(
                         "Name and colour" -> {
                             FocusText(name, skin, "Mode name") { if (!focus.strictSession) { name = it.take(FocusDisplay.MaxNameLength); update(mode) } }
                             FocusCopy("Choose a symbol", skin)
-                            FocusGlyphs.chunked(3).forEach { choices -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
+                            FocusGlyphs.chunked(3).forEach { choices -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
                                 choices.forEach { (glyph, label) -> FocusChoice("$glyph $label", mode.glyph == glyph, skin, Modifier.weight(1f)) { update(mode.copy(glyph = glyph)) } }
                             } }
                             FocusCopy("Choose a colour", skin)
                             FocusRow("Match my skin", "Follows your Home colours", mode.accent == null, skin, SettingKind.Choice) { update(mode.copy(accent = null)) }
-                            FocusColours.chunked(4).forEach { choices -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
+                            FocusColours.chunked(4).forEach { choices -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
                                 choices.forEach { (label, colour) -> Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                                     Box(Modifier.size(Metrics.focusControlDp.dp).background(Color(colour.toInt()), CircleShape)
                                         .border((if (mode.accent == colour) skin.lineWidths.activeDp * 2 else skin.lineWidths.baseDp).dp, Color(skin.colors.textPrimary.toInt()), CircleShape)
@@ -236,7 +237,7 @@ internal fun FocusSettingsPage(
                             if (scheduled) FocusPolicies.schedules(mode).forEachIndexed { index, time ->
                                 fun change(next: FocusSchedule) = update(if (index == 0) mode.copy(schedule = next) else mode.copy(extraSchedules = mode.extraSchedules.mapIndexed { i, old -> if (i == index - 1) next else old }))
                                 FocusRow("Time ${index + 1}", if (time.overnight) "Ends the next day" else "Starts and ends the same day", time.enabled, skin, SettingKind.Toggle) { change(time.copy(enabled = !time.enabled)) }
-                                FocusDay.entries.chunked(4).forEach { days -> Row(horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) { days.forEach { day ->
+                                FocusDay.entries.chunked(4).forEach { days -> Row(horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) { days.forEach { day ->
                                     FocusChoice(day.label, day in time.days, skin) { change(time.copy(days = toggle(time.days, day))) }
                                 } } }
                                 FocusRow("Start time", time.startLabel, false, skin, SettingKind.Action) {
@@ -322,16 +323,18 @@ internal fun FocusSettingsPage(
                                                 if (delta != 0) move(item, delta)
                                             }
                                         })
-                                }) {
+                                }, verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
                                 SettingsCard(skin) {
                                     Column(Modifier.fillMaxWidth().clickable(role = Role.Button) { open(item) }) {
                                         FocusModeChip(item, skins.firstOrNull { it.id == item.skinId } ?: skin, if (focus.activeName == item.name) FocusDisplay.clockLine(focus) else "${item.glyph} ${item.name}")
-                                        Box(Modifier.padding(horizontal = Metrics.textGutterDp.dp)) { FocusCopy(focusModeSentence(item, apps, folders), skin) }
+                                        Box(Modifier.padding(start = Metrics.settingsRowInsetDp.dp, end = Metrics.settingsRowInsetDp.dp, bottom = Metrics.rowGapDp.dp)) {
+                                            FocusCopy(focusModeSentence(item, apps, folders), skin)
+                                        }
                                     }
                                 }
                                 FocusRow("Enable ${item.name}", "Schedules and Start are available when enabled", item.enabled, skin, SettingKind.Toggle) { scope.focusAction({ issue = it }) { repository.save(item.copy(enabled = !item.enabled)) } }
                                 FocusControls(item, focus, skin, start = { scope.focusAction({ issue = it }) { repository.quickStart(item.name) } }, pause = { exit = FocusExit.Pass }, end = { exit = FocusExit.End })
-                                if (reordering) Row {
+                                if (reordering) Row(horizontalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
                                     if (index > 0) Box(Modifier.weight(1f)) { FocusRow("Move up", "${item.name}", false, skin, SettingKind.Action) { move(item, -1) } }
                                     if (index < ordered.lastIndex) Box(Modifier.weight(1f)) { FocusRow("Move down", "${item.name}", false, skin, SettingKind.Action) { move(item, 1) } }
                                 }
@@ -343,10 +346,6 @@ internal fun FocusSettingsPage(
                 }
             }
         }
-        if (undoVisible) Box(Modifier.align(Alignment.BottomCenter).padding(Metrics.textGutterDp.dp)) {
-            FocusRow("Undo", "Restore the last change", false, skin, SettingKind.Action) { timing.undo(); undoVisible = false }
-        }
-        }
     }
 }
 
@@ -357,14 +356,14 @@ private fun <T> toggle(values: Set<T>, value: T): Set<T> = if (value in values) 
         cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
         modifier = Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp)
             .background(Color(skin.colors.surface.toInt()), RoundedCornerShape(Metrics.menuCornerDp.dp))
-            .padding(Metrics.gridDp.dp * 2).semantics { contentDescription = description })
+            .parcSettingsPadding().semantics { contentDescription = description })
 }
 @Composable private fun FocusCopy(text: String, skin: Skin, title: Boolean = false) {
     BasicText(text, style = settingsText(skin, if (title) skin.colors.textPrimary else skin.colors.textSecondary),
-        modifier = Modifier.fillMaxWidth().padding(vertical = Metrics.gridDp.dp * 2).then(if (title) Modifier.semantics { heading() } else Modifier))
+        modifier = Modifier.fillMaxWidth().then(if (title) Modifier.semantics { heading() } else Modifier))
 }
 @Composable private fun FocusRow(label: String, detail: String, selected: Boolean, skin: Skin, kind: SettingKind = SettingKind.Page, click: () -> Unit) {
-    SettingsCard(skin) { SettingRow(label, skin, kind, description = detail, checked = selected, value = if (selected && kind == SettingKind.Choice) "Selected" else "", descriptionMaxLines = Int.MAX_VALUE, onClick = click) }
+    SettingsCard(skin) { SettingRow(label, skin, kind, description = detail, checked = selected, value = if (selected && kind == SettingKind.Choice) "Selected" else "", descriptionMaxLines = Int.MAX_VALUE, divider = false, onClick = click) }
 }
 @Composable private fun FocusChoice(label: String, chosen: Boolean, skin: Skin, modifier: Modifier = Modifier, click: () -> Unit) {
     Box(modifier.heightIn(min = Metrics.focusControlDp.dp).widthIn(min = Metrics.focusControlDp.dp)
@@ -372,7 +371,7 @@ private fun <T> toggle(values: Set<T>, value: T): Set<T> = if (value in values) 
         .border((if (chosen) skin.lineWidths.activeDp * 2 else skin.lineWidths.baseDp).dp,
             Color((if (chosen) skin.colors.textPrimary else skin.colors.lineBase).toInt()), RoundedCornerShape(Metrics.menuCornerDp.dp))
         .semantics { contentDescription = label; selected = chosen; role = Role.RadioButton }.clickable(onClick = click)
-        .padding(Metrics.gridDp.dp), contentAlignment = Alignment.Center) {
+        .padding(Metrics.itemGapDp.dp), contentAlignment = Alignment.Center) {
         BasicText(label, style = settingsText(skin, if (chosen) skin.colors.bg else skin.colors.textPrimary))
     }
 }
@@ -387,15 +386,15 @@ private fun <T> toggle(values: Set<T>, value: T): Set<T> = if (value in values) 
     FocusModeChip(mode, skin, "${mode.glyph} ${mode.name} · until 14:07")
 }
 @Composable internal fun FocusModeChip(mode: FocusMode, skin: Skin, text: String) {
-    Box(Modifier.fillMaxWidth().background(Color(skin.colors.surface.toInt()), RoundedCornerShape(Metrics.menuCornerDp.dp)).padding(Metrics.textGutterDp.dp)) {
+    Box(Modifier.fillMaxWidth().background(Color(skin.colors.surface.toInt()), RoundedCornerShape(Metrics.menuCornerDp.dp)).parcSettingsPadding()) {
         val tint = com.brightblu.parc.core.data.skins.ColorMath.ensureContrast(mode.accent ?: skin.colors.accent,
             listOf(skin.colors.surface), com.brightblu.parc.core.data.skins.ColorMath.TextContrast, skin.colors.textPrimary)
         BasicText(text, style = settingsText(skin, tint))
     }
 }
 @Composable private fun FocusHomePreview(mode: FocusMode, skin: Skin) {
-    SettingsCard(skin) {
-      Column(Modifier.padding(Metrics.gridDp.dp * 2)) {
+    SettingsPanel(skin) {
+      Column {
         FocusCopy("Home preview · ${focusLookValue(mode)}", skin)
         FocusPreviewChip(mode, skin)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {

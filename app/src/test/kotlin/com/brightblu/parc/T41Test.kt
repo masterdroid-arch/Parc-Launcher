@@ -62,10 +62,4 @@ class T41Test {
         assertEquals(initial, repository.layout.value)
     }
 
-    @Test fun folderNamesStillHaveEightCharacterLimitAndSettingsHasFolders() {
-        assertNull(FolderNames.issue("12345678"))
-        assertNotNull(FolderNames.issue("abcdefghi"))
-        assertEquals("Folders", settingsRootRows("Dusk", true, true, false, true)
-            .single { it.id == SettingsRowId.Folders }.label)
-    }
 }

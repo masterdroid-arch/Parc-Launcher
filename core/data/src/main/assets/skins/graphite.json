@@ -1,0 +1,34 @@
+{
+  "id": "graphite",
+  "name": "Graphite",
+  "colors": {
+    "bg": 4278190080,
+    "lineBase": 4281545523,
+    "lineActive": 4285229931,
+    "accent": 4293411615,
+    "glow": 1206403871,
+    "textPrimary": 4293190884,
+    "textSecondary": 4287795858,
+    "pulse": 4293950044,
+    "danger": 4293227371,
+    "scrim": 3087007744,
+    "surface": 4280953386,
+    "moduleSurface": 4282006074,
+    "moduleGuide": 4288322202,
+    "moduleInk": 4294111986
+  },
+  "iconStyle": "plain",
+  "glowRadiusDp": 48.0,
+  "lineWidths": {
+    "baseDp": 1.0,
+    "activeDp": 1.5
+  },
+  "motionScale": 1.0,
+  "breatheAmount": 0.04,
+  "typography": {
+    "numeralFamily": "Doto"
+  },
+  "shape": {
+    "moduleStyle": "solid"
+  }
+}

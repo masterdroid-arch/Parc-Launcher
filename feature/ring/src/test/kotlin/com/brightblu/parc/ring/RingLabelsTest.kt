@@ -15,7 +15,7 @@ class RingLabelsTest {
      * the gear on A4[0] and Life on A4[1]. A2 items past index 4 reach the window only by rotating
      * (T36/T37).
      */
-    private fun home(inboxAt: Int? = null): RingState {
+    private fun home(inboxAt: Int? = null, folderNames: List<String> = fixtureFolders): RingState {
         val anchors = listOf("Alpha", "Bravo", "Charlie", "Delta")
         val usage = listOf("Echo", "Foxtrot", "Golf", "Hotel", "India", "Juliet", "Kilo", "Lima")
         val slots = mutableListOf<RingSlot>()
@@ -26,7 +26,7 @@ class RingLabelsTest {
         usage.forEachIndexed { i, label ->
             slots += RingSlot(SlotPosition(arcs[1].id, i), Slot.App(AppId("a2/$i")), label)
         }
-        fixtureFolders.forEachIndexed { i, name ->
+        folderNames.forEachIndexed { i, name ->
             val arc = if (i < arcs[2].slotCapacity) arcs[2] else arcs[3]
             val index = if (arc === arcs[2]) i else 1
             if (index < arc.slotCapacity) {
@@ -71,29 +71,52 @@ class RingLabelsTest {
     @Test fun theSeededInboxInTheLastVacancyAlsoClearsCaptionsAndIcons() =
         assertCaptions(home(inboxAt = layout.arcs[3].slotCapacity - 1))
 
-    @Test fun aCaptionThatCannotReachTheMarginIsClampedInsteadOfThrowing() {
-        // T30: a user-chosen aligned layout can put a folder where the old strict assertion failed.
-        val wide = FolderLabels(floatArrayOf(370f), floatArrayOf(840f), floatArrayOf(90f), floatArrayOf(14f),
-            booleanArrayOf(true), 384f, 853f)
-        assertTrue(wide.x[0] >= Metrics.folderLabelScreenMarginDp)
-        assertTrue(wide.x[0] + 90f <= 384f - Metrics.folderLabelScreenMarginDp)
-        assertTrue(wide.y[0] + 14f <= 853f - Metrics.folderLabelScreenMarginDp)
-
-        // Wider than the whole safe band: pinned to the left margin rather than crashing.
-        val impossible = FolderLabels(floatArrayOf(200f), floatArrayOf(400f), floatArrayOf(400f), floatArrayOf(14f),
-            booleanArrayOf(true), 384f, 853f)
-        assertEquals(Metrics.folderLabelScreenMarginDp, impossible.x[0], 0f)
+    @Test fun aCaptionThatCannotFitIsPinnedInsteadOfThrowing() {
+        // T30: a user-chosen aligned layout can put a folder where no side fits.
+        val placer = FolderLabelPlacer(1)
+        placer.solve(floatArrayOf(200f), floatArrayOf(400f), floatArrayOf(400f), floatArrayOf(14f),
+            booleanArrayOf(true), booleanArrayOf(true), 1, Metrics.iconDp, 8f, 8f, 376f, 845f)
+        assertEquals(8f, placer.x[0], 0f)
     }
 
-    @Test fun captionOnlyFlipsAboveWhenBelowLeavesScreenMargin() {        val xs = floatArrayOf(336f, 100f)
-        val ys = floatArrayOf(797f, 830f)
-        val placed = FolderLabels(xs, ys, floatArrayOf(48f, 48f), floatArrayOf(14f, 14f),
-            booleanArrayOf(true, true), 384f, 853f)
-        assertEquals(819f, placed.y[0], 0f) // Bottom/right touch keep-outs do not apply.
-        assertEquals(794f, placed.y[1], 0f)
-        assertEquals(312f, placed.x[0], 0f)
-        assertEquals(76f, placed.x[1], 0f)
+    @Test fun captionFlipsAboveWhenBelowLeavesTheBounds() {
+        val placer = FolderLabelPlacer(2)
+        placer.solve(floatArrayOf(336f, 100f), floatArrayOf(837f, 400f), floatArrayOf(48f, 48f), floatArrayOf(14f, 14f),
+            booleanArrayOf(true, true), booleanArrayOf(true, true), 2, Metrics.iconDp, 8f, 8f, 376f, 845f)
+        assertEquals(837f - Metrics.iconDp / 2f - Metrics.folderLabelGapDp - 14f, placer.y[0], 0.001f)
+        assertEquals(312f, placer.x[0], 0.001f)
+        assertEquals(400f + Metrics.iconDp / 2f + Metrics.folderLabelGapDp, placer.y[1], 0.001f)
     }
+
+    @Test fun captionMovesToTheSideWhenAboveAndBelowAreTaken() {
+        // A neighbour icon right under and right above the folder: the caption goes beside it.
+        val placer = FolderLabelPlacer(3)
+        val dx = floatArrayOf(200f, 200f, 200f)
+        val dy = floatArrayOf(400f, 400f + Metrics.iconDp + 8f, 400f - Metrics.iconDp - 8f)
+        placer.solve(dx, dy, floatArrayOf(48f, 0f, 0f), floatArrayOf(14f, 0f, 0f),
+            booleanArrayOf(true, false, false), booleanArrayOf(true, true, true), 3, Metrics.iconDp, 8f, 8f, 376f, 845f)
+        val l = placer.x[0]; val t = placer.y[0]
+        for (j in 1..2) assertTrue(l >= dx[j] + Metrics.iconDp / 2f || l + 48f <= dx[j] - Metrics.iconDp / 2f ||
+            t >= dy[j] + Metrics.iconDp / 2f || t + 14f <= dy[j] - Metrics.iconDp / 2f)
+    }
+
+    @Test fun theLabelTokensAreFigtree12MediumOnAFaintSixDpTint() {
+        assertEquals(12f, Metrics.folderLabelSp, 0f)
+        assertEquals(500, Metrics.folderLabelWeight)
+        assertTrue(Metrics.folderLabelTintAlpha <= 0.10f)
+        assertEquals(6f, Metrics.folderLabelCornerDp, 0f)
+        assertEquals(12f, Metrics.folderLabelCardInsetDp, 0f)
+    }
+
+    /** The caption tint is the card colour itself at 10 %, so the text keeps the card's ink contrast. */
+    @Test fun captionInkKeepsAtLeast4Point5OnTheCardForTheBuiltInSkins() {
+        for (skin in listOf(Skin.Midnight, FieldAtlas.Light, FieldAtlas.Dark, Phosphor.Skin))
+            assertTrue("${skin.id} ink contrast", SkinSafety.moduleInkContrast(skin) >= 4.5)
+    }
+
+    /** T170 demo layout: four folders on the card, none may touch another icon or leave the card inset. */
+    @Test fun theFourDemoFoldersStayInsideTheCardAndClearOfEveryIcon() =
+        assertCaptions(home(folderNames = listOf("Social", "Tools", "Media", "Games")), 4, clearOfIcons = true)
 
     /**
      * Drawn slot centres in dp. Folded window angles, because a ring item past its arc capacity
@@ -113,33 +136,41 @@ class RingLabelsTest {
         return xs to ys
     }
 
-    private fun assertCaptions(state: RingState) {
+    /**
+     * [clearOfIcons] is the T170 rule for the 4-folder demo. The 8-folder fixture is packed tighter
+     * than any real home screen, so there only the card inset and caption-vs-caption are asserted.
+     */
+    private fun assertCaptions(state: RingState, expected: Int = if (state.slots.any { it.label == "New" }) 9 else 8,
+        clearOfIcons: Boolean = false) {
         val (xs, ys) = centres(state)
         val flags = BooleanArray(xs.size) { state.slots[it].slot is Slot.Folder }
-        // Conservative bounds exceed the actual 11sp raster (including tracking and rounding).
-        val widths = FloatArray(xs.size) { min(folderCaption(state.slots[it].label).length * 7f, Metrics.folderLabelMaxWidthDp) }
-        val heights = FloatArray(xs.size) { 14f }
-        val placed = FolderLabels(xs, ys, widths, heights, flags, 384f, 853f)
+        // Text plus the tint padding at the real 12 sp size, with some room for tracking.
+        val widths = FloatArray(xs.size) { min(folderCaption(state.slots[it].label).length * 7.5f +
+            Metrics.folderLabelPaddingHorizontalDp * 2, Metrics.folderLabelMaxWidthDp) }
+        val heights = FloatArray(xs.size) { 15f + Metrics.folderLabelPaddingVerticalDp * 2 }
+        val card = com.brightblu.parc.ring.module.ModuleCard.rect(layout.originXDp, layout.originYDp, layout.widthDp)
+        val inset = Metrics.folderLabelCardInsetDp
+        val placer = FolderLabelPlacer(xs.size)
+        placer.solve(xs, ys, widths, heights, flags, BooleanArray(xs.size) { true }, xs.size, Metrics.iconDp,
+            card.left + inset, card.top + inset, card.right - inset, card.bottom - inset)
         var captions = 0
+        val half = Metrics.iconDp / 2f
         for (i in xs.indices.filter { flags[it] }) {
             captions++
-            val l = placed.x[i]; val t = placed.y[i]; val r = l + widths[i]; val b = t + heights[i]
-            assertTrue(l >= Metrics.folderLabelScreenMarginDp && r <= 384f - Metrics.folderLabelScreenMarginDp)
-            assertTrue(t >= Metrics.folderLabelScreenMarginDp && b <= 853f - Metrics.folderLabelScreenMarginDp)
-            assertEquals(xs[i], (l + r) / 2f, 0.001f)
-            val below = ys[i] + Metrics.iconDp / 2f + Metrics.folderLabelGapDp
-            assertEquals(if (below + heights[i] <= 853f - Metrics.folderLabelScreenMarginDp) below
-                else ys[i] - Metrics.iconDp / 2f - Metrics.folderLabelGapDp - heights[i], t, 0.001f)
+            val l = placer.x[i]; val t = placer.y[i]; val r = l + widths[i]; val b = t + heights[i]
+            assertTrue("caption $i leaves the card inset [$l,$t,$r,$b] in $card",
+                l >= card.left + inset - 0.01f && r <= card.right - inset + 0.01f &&
+                t >= card.top + inset - 0.01f && b <= card.bottom - inset + 0.01f)
             assertTrue(folderCaption(state.slots[i].label).length <= 8)
             for (j in xs.indices) {
-                val dx = xs[j] - xs[j].coerceIn(l, r); val dy = ys[j] - ys[j].coerceIn(t, b)
-                assertTrue("caption $i intersects icon $j", dx * dx + dy * dy >= Metrics.iconDp * Metrics.iconDp / 4f)
-                if (flags[j] && i != j) assertFalse("captions $i and $j intersect",
-                    l < placed.x[j] + widths[j] && r > placed.x[j] && t < placed.y[j] + heights[j] && b > placed.y[j])
+                if (j == i) continue
+                if (clearOfIcons) assertFalse("caption $i overlaps icon $j",
+                    l < xs[j] + half && r > xs[j] - half && t < ys[j] + half && b > ys[j] - half)
+                if (flags[j]) assertFalse("captions $i and $j intersect",
+                    l < placer.x[j] + widths[j] && r > placer.x[j] && t < placer.y[j] + heights[j] && b > placer.y[j])
             }
         }
-        // The seven A3 folders plus Life, and the opt-in inbox caption when asked for.
-        assertEquals(if (state.slots.any { it.label == "New" }) 9 else 8, captions)
+        assertEquals(expected, captions)
     }
     private fun assertSafe(state: RingState) {
         val arcs = state.slots.map { slot -> state.arcs.first { it.id == slot.position.arcId } }

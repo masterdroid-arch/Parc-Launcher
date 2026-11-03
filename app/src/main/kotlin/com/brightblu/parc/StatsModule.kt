@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -59,6 +60,7 @@ import com.brightblu.parc.core.data.stats.StatsFormat
 import com.brightblu.parc.core.data.stats.StatsHistory
 import com.brightblu.parc.core.data.demo.DemoStatsStore
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.ParcSpacing
 import com.brightblu.parc.model.StatsFrame
 import com.brightblu.parc.model.Skin
 import java.io.File
@@ -164,12 +166,12 @@ internal fun StatsHud(
     onToggleFocus: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val look = LocalHubLook.current
-    val wallpaper = look.wallpaper in setOf(com.brightblu.parc.model.WallpaperStyle.System, com.brightblu.parc.model.WallpaperStyle.Image)
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(skin.shape.surfaceCornerDp.dp)
-    val surfaceModifier = remember(skin, look) { Modifier.hubSurface(skin, look) }
-    val panel = if (wallpaper) modifier.then(surfaceModifier)
-        .then(Modifier.clip(shape)).padding(Metrics.panelInsetDp.dp) else modifier
+    // T158: the hub is always the card (DESIGN 3.4): 32 dp corners, 16 dp inside on every side. T176: drawn like the arc card.
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(skin.shape.moduleCornerDp.dp)
+    val surfaceModifier = remember(skin) { Modifier.hubSurface(skin) }
+    val inset = ParcSpacing.hubCard()
+    val panel = modifier.then(surfaceModifier).then(Modifier.clip(shape))
+        .padding(start = inset.startDp.dp, top = inset.topDp.dp, end = inset.endDp.dp, bottom = inset.bottomDp.dp)
     // T121: the demo store resolves under T120a/T120b's namespace because this context is the
     // application context (ParcApplication delegates storage to the wrapped base). Never built
     // when demo is off.
@@ -208,13 +210,13 @@ internal fun StatsHud(
                     else -> CellLabel("${page.replaceFirstChar { it.uppercase() }} · coming soon", skin)
                 }
             }) { tiles ->
-            Column(Modifier.verticalScroll(rememberHubScrollState()), verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
+            Column(Modifier.hubPageScroll(), verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
                 alertState.banner?.let { metric ->
                     Row(Modifier.fillMaxWidth().heightIn(min = Metrics.touchTargetDp.dp), verticalAlignment = Alignment.CenterVertically) {
                         BasicText("! ${metric.alertLabel()}", Modifier.weight(1f), style = hudValueStyle(skin, skin.colors.warn), maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         Box(Modifier.height(Metrics.touchTargetDp.dp).clickable { onDismissAlert(metric) }
-                            .padding(horizontal = Metrics.gridDp.dp), contentAlignment = Alignment.Center) {
+                            .padding(horizontal = Metrics.lineGapDp.dp), contentAlignment = Alignment.Center) {
                             BasicText("Dismiss", style = hudLabelStyle(skin))
                         }
                     }
@@ -260,8 +262,9 @@ internal fun StatsHud(
 // --- Frames --------------------------------------------------------------------------------
 
 @Composable
-internal fun HudCell(skin: Skin, modifier: Modifier = Modifier, compact: Boolean = false, warning: Boolean = false, content: @Composable BoxScope.() -> Unit) {
-    HudFrame(skin, modifier.heightIn(min = Metrics.hudCellHeightDp.dp)) {
+internal fun HudCell(skin: Skin, modifier: Modifier = Modifier, compact: Boolean = false, warning: Boolean = false,
+    narrow: Boolean = false, content: @Composable BoxScope.() -> Unit) {
+    HudFrame(skin, modifier.heightIn(min = Metrics.hudCellHeightDp.dp), narrow) {
         content()
         if (warning) BasicText("!", Modifier.align(Alignment.TopEnd), style = hudValueStyle(skin, skin.colors.warn))
     }
@@ -269,9 +272,9 @@ internal fun HudCell(skin: Skin, modifier: Modifier = Modifier, compact: Boolean
 
 /** A corner-bracketed frame with a faint surface tint. Brackets use the HUD skin tokens. */
 @Composable
-private fun HudFrame(skin: Skin, modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+private fun HudFrame(skin: Skin, modifier: Modifier = Modifier, narrow: Boolean = false, content: @Composable BoxScope.() -> Unit) {
     Box(
-        modifier.hudFrame(skin).padding(Metrics.hudCellGapDp.dp),
+        modifier.hudFrame(skin).padding(horizontal = ParcSpacing.cellHorizontalInsetDp(narrow).dp, vertical = ParcSpacing.cellVerticalInsetDp(narrow).dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         content()
@@ -461,15 +464,17 @@ private fun Sparkline(rx: List<Long>, tx: List<Long>, skin: Skin) {
     }
 }
 
+/** Round caps reach half a stroke past the ends of a line, so the series starts that far inside the canvas (T166). */
 private fun DrawScope.drawSeries(values: FloatArray, max: Float, color: Color, stroke: Float) {
     if (values.size < 2) return
-    val step = size.width / (values.size - 1)
-    val h = size.height
+    val inset = stroke / 2f
+    val step = (size.width - 2 * inset) / (values.size - 1)
+    val h = size.height - 2 * inset
     for (i in 0 until values.size - 1) {
-        val x0 = i * step
-        val y0 = h - (values[i].toFloat() / max * h).coerceIn(0f, h)
-        val x1 = (i + 1) * step
-        val y1 = h - (values[i + 1].toFloat() / max * h).coerceIn(0f, h)
+        val x0 = inset + i * step
+        val y0 = inset + h - (values[i].toFloat() / max * h).coerceIn(0f, h)
+        val x1 = inset + (i + 1) * step
+        val y1 = inset + h - (values[i + 1].toFloat() / max * h).coerceIn(0f, h)
         drawLine(color, Offset(x0, y0), Offset(x1, y1), stroke, StrokeCap.Round)
     }
 }
@@ -592,7 +597,7 @@ internal fun hudLabelStyle(skin: Skin): TextStyle = TextStyle(
     fontSize = skin.typography.caption.sizeSp.sp,
     fontWeight = FontWeight(skin.typography.caption.weight),
     letterSpacing = skin.typography.caption.trackingSp.sp,
-    fontFamily = if (skin.style.terminalStats || skin.style.annotationFamily == "monospace") FontFamily.Monospace else FontFamily.SansSerif,
+    fontFamily = if (skin.style.terminalStats || skin.style.annotationFamily == "monospace") FontFamily.Monospace else skin.textFamily ?: FontFamily.SansSerif,
 )
 
 internal fun hudValueStyle(skin: Skin, color: Long? = null): TextStyle = TextStyle(
@@ -600,7 +605,7 @@ internal fun hudValueStyle(skin: Skin, color: Long? = null): TextStyle = TextSty
     fontSize = Metrics.hubLineSp.sp,
     fontWeight = FontWeight(skin.typography.caption.weight),
     letterSpacing = skin.typography.caption.trackingSp.sp,
-    fontFamily = if (skin.style.terminalStats) FontFamily.Monospace else FontFamily.SansSerif,
+    fontFamily = if (skin.style.terminalStats) FontFamily.Monospace else skin.textFamily ?: FontFamily.SansSerif,
     fontFeatureSettings = "tnum",
 )
 

@@ -186,7 +186,7 @@ private fun StopwatchTile(sw: Stopwatch, now: Long, skin: Skin, onToggle: () -> 
             val index = sw.laps.lastIndex - offset
             Row(Modifier.fillMaxWidth()) {
                 BasicText(TimerFormat.lapName(index), Modifier.weight(1f), style = hudLabelStyle(skin))
-                BasicText("+" + TimerFormat.stopwatch(sw.split(index)), Modifier.padding(end = Metrics.gridDp.dp * 3), style = hudLabelStyle(skin))
+                BasicText("+" + TimerFormat.stopwatch(sw.split(index)), Modifier.padding(end = Metrics.rowGapDp.dp), style = hudLabelStyle(skin))
                 BasicText(TimerFormat.stopwatch(sw.laps[index]), style = hudValueStyle(skin))
             }
         }
@@ -212,7 +212,7 @@ private fun TimerCountdownRing(fraction: Float, skin: Skin) {
 private fun TimerAction(text: String, skin: Skin, description: String = text, enabled: Boolean = true, click: () -> Unit) {
     Box(Modifier.heightIn(min = Metrics.touchTargetDp.dp).widthIn(min = Metrics.menuRowHeightDp.dp)
         .semantics { contentDescription = description }.clickable(enabled = enabled, onClick = click)
-        .padding(horizontal = Metrics.gridDp.dp), contentAlignment = Alignment.Center) {
+        .padding(horizontal = Metrics.lineGapDp.dp), contentAlignment = Alignment.Center) {
         BasicText(text, style = hudValueStyle(skin, if (enabled) skin.colors.accent else skin.colors.lineActive))
     }
 }
@@ -232,7 +232,7 @@ private fun CustomTimerDialog(skin: Skin, onDismiss: () -> Unit, onStart: (Long)
             Stepper("Hours", hours, 23, skin) { hours = it }
             Stepper("Minutes", minutes, 59, skin) { minutes = it }
             Stepper("Seconds", seconds, 59, skin) { seconds = it }
-            BasicText(if (zero) "Pick a time" else TimerFormat.duration(ms), Modifier.padding(top = Metrics.gridDp.dp * 2),
+            BasicText(if (zero) "Pick a time" else TimerFormat.duration(ms), Modifier.padding(top = Metrics.sectionHeaderGapDp.dp),
                 style = settingsText(skin, skin.colors.textSecondary, true))
         } },
         confirmButton = { androidx.compose.material3.TextButton(onClick = { onStart(ms) }, enabled = !zero) {

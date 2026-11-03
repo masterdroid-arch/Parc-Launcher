@@ -6,6 +6,10 @@ internal object HubCatalog {
     val pages = listOf("clock") + (if (WeatherVariant.Available) listOf(WeatherVariant.PageId) else emptyList()) + listOf("system", "power", "network", "apps", "sound", QuickToggleCatalog.PageId, "timers", "agenda", "media", "focus", "notes", "comms")
     /** Pages that start hidden, for new users and when an older saved config first meets them. */
     val defaultHiddenPages = setOf("notes", QuickToggleCatalog.PageId, WeatherVariant.PageId)
+    /** T158: the tabs a user with no saved choice sees, in this order; every other page starts hidden, after them. */
+    val defaultTabs = listOf("clock", "power", "focus", "notes")
+    val newUserHiddenPages: Set<String> = (pages - defaultTabs.toSet()).toSet()
+    val newUserOrder: List<String> = defaultTabs.filter { it in pages } + pages.filterNot { it in defaultTabs }
     val systemHistoryTiles = linkedMapOf(
         "ram history" to com.brightblu.parc.core.data.stats.StatsArchiveMetric.RamPercent,
         "storage history" to com.brightblu.parc.core.data.stats.StatsArchiveMetric.StorageUsedPercent,
@@ -42,8 +46,8 @@ internal object HubCatalog {
 internal data class HubConfig(
     val size: HubSize = HubSize.Standard,
     val clock: ClockOptions = ClockOptions(),
-    val hiddenPages: Set<String> = HubCatalog.defaultHiddenPages,
-    val pageOrder: List<String> = HubCatalog.pages,
+    val hiddenPages: Set<String> = HubCatalog.newUserHiddenPages,
+    val pageOrder: List<String> = HubCatalog.newUserOrder,
     val tileOrder: Map<String, List<String>> = emptyMap(),
     val hiddenTiles: Map<String, Set<String>> = HubCatalog.defaultHidden,
 ) {
@@ -99,9 +103,12 @@ internal data class HubConfig(
         fun decode(raw: String): HubConfig {
             val savedOrder = raw.split(';').map { it.split(':') }
                 .filter { it.size == 4 && it[0] in HubCatalog.pages }.map { it[0] }.distinct()
+            // T158: no saved choice (never written, empty or unreadable) gets the four default tabs. A document
+            // with any saved row keeps exactly its pages, order and hidden flags; only pages it has never met are added.
+            if (savedOrder.isEmpty()) return HubConfig()
             // Pre-clock documents gain Clock first, without un-hiding any saved page.
             val order = if ("clock" !in savedOrder) HubCatalog.pages else withNewPages(savedOrder)
-            var result = HubConfig(pageOrder = order.distinct())
+            var result = HubConfig(pageOrder = order.distinct(), hiddenPages = HubCatalog.defaultHiddenPages)
             raw.split(';').forEach { row ->
                 val parts = row.split(':')
                 if (parts.size != 4 || parts[0] !in HubCatalog.pages) return@forEach
@@ -144,3 +151,26 @@ internal enum class HubSize(val id: String) {
     companion object { fun decode(raw: String?) = entries.firstOrNull { it.id == raw } ?: Standard }
 }
 internal val LocalHubSize = androidx.compose.runtime.compositionLocalOf { HubSize.Standard }
+
+/**
+ * T158: the pure side of the tab strip. The visible pages are the tabs, in the saved order. The four default tabs
+ * lead for a new user; a page an older config enabled (Timers, Agenda, Comms ...) is an extra tab that stays where
+ * the user saved it.
+ */
+internal object HubTabs {
+    /** A pill's selected fill: `surface` with a share of `accent` mixed in, opaque. Colours are 0xAARRGGBB. */
+    fun selectedFill(surface: Long, accent: Long, mix: Float = com.brightblu.parc.model.Metrics.hubTabSelectedMix): Long {
+        fun channel(shift: Int): Long {
+            val a = (surface shr shift) and 0xff
+            val b = (accent shr shift) and 0xff
+            return (a + (b - a) * mix).toLong().coerceIn(0L, 255L)
+        }
+        return 0xFF000000L or (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
+    }
+    /** Where the tab strip scrolls to (px from its start) so the selected pill is fully visible. */
+    fun scrollTarget(pillStart: Float, pillWidth: Float, viewStart: Float, viewWidth: Float): Float = when {
+        pillStart < viewStart -> pillStart
+        pillStart + pillWidth > viewStart + viewWidth -> pillStart + pillWidth - viewWidth
+        else -> viewStart
+    }.coerceAtLeast(0f)
+}

@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
@@ -12,6 +13,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.*
@@ -31,10 +33,16 @@ import com.brightblu.parc.feature.search.*
 import com.brightblu.parc.model.*
 import com.brightblu.parc.ring.*
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
+import com.brightblu.parc.ring.module.leanAway
+import com.brightblu.parc.ring.module.rememberSheetProgress
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -58,6 +66,16 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     val focus by services.focus.state.collectAsState()
     val focusModes by services.focus.modes.collectAsState()
     val hubStore = remember(context) { HubConfigStore(context) }
+    val hubAppearanceStore = remember(context) { HubAppearanceStore(context) }
+    val hubAppearance by hubAppearanceStore.appearance.collectAsState(initial = HubAppearance())
+    // T177: "Panel opacity" is gone; a value the user had moved becomes each hub's own opacity (idempotent, also after a restore).
+    LaunchedEffect(lookStore) {
+        lookStore.look.collect { stored ->
+            val current = hubAppearanceStore.appearance.first()
+            if (HubOpacity.migratePanel(current, stored.panelOpacityPercent) != current)
+                hubAppearanceStore.update { HubOpacity.migratePanel(it, stored.panelOpacityPercent) }
+        }
+    }
     val hubConfig by hubStore.config.collectAsState(initial = HubConfig())
     val appActions = remember(context) { LauncherAppActions(context) }
     val searchFirstSeen = remember(uiPrefs) { uiPrefs.searchFirstSeen() }
@@ -70,7 +88,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     var showSettings by remember { mutableStateOf(false) }
     var settingsInitialPage by remember { mutableStateOf(SettingsPage.Root) }
     // OPUS8 (T133): a group of the Settings root to open at once (Home menu "Wallpaper and look").
-    var settingsInitialSection by remember { mutableStateOf<SettingsSectionId?>(null) }
+    var settingsInitialRow by remember { mutableStateOf<String?>(null) }
     var showFolderCreate by remember { mutableStateOf(false) }
     var showAddApp by remember { mutableStateOf(false) }
     var hintSeen by remember { mutableStateOf(uiPrefs.hintSeen()) }
@@ -88,6 +106,8 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     val settings by services.prefs.settings.collectAsState(initial = ParcSettings())
     val haptics by rememberUpdatedState(settings.haptics != HapticsLevel.Off)
     val feel = rememberFeelPlayer()
+    val arcFeelStore = remember { FeelStore(context) }
+    val arcFeel by rememberUpdatedState(arcFeelStore.arcFeel.collectAsState(initial = com.brightblu.parc.model.ArcFeel()).value)
     val edit = remember(services.layout, scope) { RingEditSession(services.layout, scope) }
     val rotations = remember(uiPrefs) { uiPrefs.rotations() }
     // T83: the HUD bound follows the settled live offsets, not only the cold-start snapshot.
@@ -156,7 +176,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             menuNotifications = ListenerMenuNotifications(uiPrefs, blocked = { services.lockedPackages.value }),
             lockGate = lockGate,
             openSettingsAt = { target ->
-                settingsInitialPage = target.page; settingsInitialSection = target.section; showSettings = true
+                settingsInitialPage = target.page; settingsInitialRow = target.row; showSettings = true
             },
             hubPages = { hubConfig.pages },
             hubPage = { page ->
@@ -222,7 +242,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     val homePresses by session.homePresses.collectAsState()
     LaunchedEffect(homePresses) {
         if (homePresses == 0) return@LaunchedEffect
-        showSettings = false; settingsInitialPage = SettingsPage.Root; settingsInitialSection = null
+        showSettings = false; settingsInitialPage = SettingsPage.Root; settingsInitialRow = null
         showFolderCreate = false; showAddApp = false; edit.emptyPosition = null
         pendingFocusLaunch = null; approvedFocusLaunch = null; pendingFocusExit = null
         // The hub goes back to its first page, also when Home was already clean.
@@ -247,6 +267,8 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
         }
     }
     val density = LocalDensity.current
+    // T166: the folder title and the clock start below the status bar and any cutout, like every page.
+    val statusTopDp = WindowInsets.statusBars.union(WindowInsets.displayCutout).getTop(density) / density.density
     val homeFocus = androidx.compose.ui.platform.LocalFocusManager.current
     val homeKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val imeBottom = WindowInsets.ime.getBottom(density)
@@ -302,11 +324,9 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             services.layout.updateLayout { LayoutCounts.migrate(it, counts.arcs) }
         }
     }
-    val visibleArcCount = if (hubConfig.size == HubSize.Tall && settings.statsVisible && shell.layer == Layer.Home && !edit.enabled) minOf(counts.arcs, 3) else counts.arcs
-    val displayLayout = remember(layout, visibleArcCount) { if (visibleArcCount < counts.arcs) LayoutCounts.migrate(layout, visibleArcCount) else layout }
-    val sceneGeometry = remember(geometry, aligned, counts, visibleArcCount) {
+    val sceneGeometry = remember(geometry, aligned, counts) {
         RingLayout(geometry.widthDp, geometry.heightDp, geometry.insets,
-            geometry.options.copy(alignAcrossArcs = aligned, arcsShown = visibleArcCount, iconsPerArc = counts.icons))
+            geometry.options.copy(alignAcrossArcs = aligned, arcsShown = counts.arcs, iconsPerArc = counts.icons))
     }
     val shortcutVisuals by produceState<Map<Slot.Shortcut, PinnedShortcutVisual>>(emptyMap(), layout, resumed, revision) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -318,6 +338,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     val iconSizeDp = LookRules.effectiveIconSizeDp(look.iconSizeDp, tightestPitchDp)
     val renderLook = remember(look, iconSizeDp) { look.copy(iconSizeDp = iconSizeDp.toInt()) }
     val latestRenderLook by rememberUpdatedState(renderLook)
+    val latestRefraction by rememberUpdatedState(hubAppearance.refraction)
     // T122/T130: demo placeholders have no installed icon, so demo mode draws a generic code icon
     // from the fixed table. Real ids and demo-off keep the existing app-index path unchanged.
     val sceneIcon: (AppId) -> android.graphics.Bitmap? = remember(services) {
@@ -337,8 +358,8 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             }
         }
     }
-    val scene = remember(focusHidden, lockedPackages, shortcutVisuals, previews, sceneGeometry, displayLayout, visibleApps, shell.layer, shell.folderId, revision, rotations, profiles, markWorkApps, iconTreatment, lockedFolders, hideLockedName) {
-        LauncherScenes.build(sceneGeometry, displayLayout, visibleApps, shell,
+    val scene = remember(focusHidden, lockedPackages, shortcutVisuals, previews, sceneGeometry, layout, visibleApps, shell.layer, shell.folderId, revision, rotations, profiles, markWorkApps, iconTreatment, lockedFolders, hideLockedName) {
+        LauncherScenes.build(sceneGeometry, layout, visibleApps, shell,
             "", previews, rotations, services.usage::rank,
             profiles = profiles, markWorkApps = markWorkApps,
             lockedFolders = lockedFolders, hideLockedName = hideLockedName, shortcutVisuals = shortcutVisuals,
@@ -365,7 +386,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     LaunchedEffect(inputBlocked, edit.enabled, showSettings) {
         if (inputBlocked || edit.enabled || showSettings) session.cancelHubTap()
     }
-    val target = remember(scene, ui, unread, visibleApps, layout, menu, folderMenu, homeMenu, liveReady, edit.enabled, searchHint, swapPulse, inputBlocked, badgesEnabled, badgesInAllApps, focus.silenceBadges, lockedFolders) {
+    val target = remember(scene, ui, unread, visibleApps, layout, menu, folderMenu, homeMenu, liveReady, edit.enabled, searchHint, swapPulse, inputBlocked, badgesEnabled, badgesInAllApps, focus.silenceBadges, lockedFolders, statusTopDp) {
         LauncherScenes.withUnread(scene, layout, visibleApps, unread,
             FocusFilter.badgesVisible(badgesEnabled, focus), badgesInAllApps, lockedFolders).copy(searchOpen = ui.isOpen || inputBlocked,
             searchHint = searchHint,
@@ -373,7 +394,9 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             accessibilityHidden = shortcutMenu != null || menu != null || folderMenu != null || homeMenu != null || edit.enabled ||
                 showSettings || !liveReady,
             highlight = search.highlight(),
-            pulse = emptySet())
+            hostDimsModule = ui.isOpen,
+            pulse = emptySet(),
+            chromeTopDp = ParcSpacing.pageTopDp(statusTopDp))
     }
     SideEffect { edit.scene = target }
     LaunchedEffect(shell.layer, shell.folderId, ui.isOpen) { edit.close() }
@@ -407,7 +430,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
         if (!warmInputs.wanted) return@LaunchedEffect
         delay(AllAppsWarmUp.StartDelayMs + AllAppsWarmUp.QuietMs)
         warmAllApps = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            LauncherScenes.build(sceneGeometry, displayLayout, visibleApps, ShellState(layer = Layer.AllApps), "",
+            LauncherScenes.build(sceneGeometry, layout, visibleApps, ShellState(layer = Layer.AllApps), "",
                 rotations = rotations, profiles = profiles, markWorkApps = markWorkApps,
                 shortcutHiddenPackages = focusHidden + lockedPackages) { sceneIcon(it) }
         }
@@ -416,32 +439,67 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     val steer = remember { com.brightblu.parc.ring.RingSteer() }
     // OPUS5: read by the renderer at touch-down; written once the letter arc is placed below.
     val latestLetterArcRef = remember { mutableStateOf<LetterArc.Arc?>(null) }
+    val hubModule = remember { com.brightblu.parc.ring.module.HubModuleState() }
     val renderer = remember(edit) {
-        CanvasRingRenderer(detectSearchSwipe = false, editing = edit, steer = steer,
+        CanvasRingRenderer(module = hubModule, detectSearchSwipe = false, editing = edit, steer = steer,
             ignoreDown = { x, y -> latestLetterArcRef.value?.let { LetterArc.inZone(it, x, y) } == true },
-            hapticsEnabled = { haptics }, feel = feel, joystickEnabled = { joystick },
+            hapticsEnabled = { haptics }, feel = feel, arcFeel = { arcFeel }, joystickEnabled = { joystick },
             hubHold = { sessionRef.value.onHubLongPress() },
             look = { latestRenderLook }, clockDetail = { latestClockDetail },
             onSceneError = { SceneDiagnostics.record(it) },
             warmScene = { warmAllApps },
-            emptyHold = { x, y -> sessionRef.value.onEmptyLongPress(x, y) })
+            emptyHold = { x, y -> sessionRef.value.onEmptyLongPress(x, y) }, cardAlphaIsOpacity = true,
+            refraction = { latestRefraction })
     }
     val swipe = remember { SearchSwipe() }
     val swipeUp = remember { SearchSwipeDetector(upward = true) }
     val pull = remember { PullState() }
     val hubScroll = remember { HubScrollGate() }
     val pullProgress = remember { mutableFloatStateOf(0f) }
+    // T157: the search sheet and the module's dim share one spring (`Springs.sheet`); a touch mid-motion catches it.
+    val sheet = rememberSheetProgress(ui.isOpen, 1f / skin.motionScale)
+    val searchOpenNow by rememberUpdatedState(ui.isOpen)
+    val sheetShown by remember { derivedStateOf { searchOpenNow || sheet.progress > 0f } }
     var pullReturn by remember { mutableStateOf<Job?>(null) }
     LaunchedEffect(ui.isOpen) {
         if (!ui.isOpen) { pullReturn?.cancel(); pullProgress.floatValue = 0f; pull.cancel() }
     }
-    val arcBottom = RingHudBounds.bottomDp(scene,
+    val cardTopDp = sceneGeometry.originYDp - Metrics.moduleCardAboveOriginDp
+    val arcBottom = HubPanelLayout.bottomDp(RingHudBounds.bottomDp(scene,
         (skin.typography.label.sizeSp + Metrics.labelPaddingVerticalDp * 2) * density.fontScale,
-        iconSizeDp, liveRotations)
+        iconSizeDp, liveRotations), cardTopDp)
     val statusInset = androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(density) / density.density
     val hubTop = HubPanelLayout.topDp(statusInset)
     val hubBottom = hubTop + HubPanelLayout.heightDp(hubConfig.size, arcBottom - hubTop)
     val latestHubEligible by rememberUpdatedState(statsEligible(settings.statsVisible, shell.layer, ui.isOpen))
+    // T171: each hub has its own opacity; a hub without one of its own follows the old single panel opacity.
+    // T172: in glass the range and default differ, and "Keep text readable" picks each card's ink from the picture behind it.
+    val glassNow = hubAppearance.glassEnabled(skin)
+    val glassStage = com.brightblu.parc.ring.module.GlassWallpaperStage.current
+    val measuring = glassNow && HubCards.keepReadable(look) && glassStage != null
+    val screenWidthPx = (geometry.widthDp * density.density).toInt()
+    val screenHeightPx = (geometry.heightDp * density.density).toInt()
+    val arcBackdrop = remember(measuring, glassStage?.id, sceneGeometry.originXDp, sceneGeometry.originYDp, screenWidthPx, screenHeightPx) {
+        if (!measuring || glassStage == null) null else {
+            val r = com.brightblu.parc.ring.module.ModuleCard.rect(sceneGeometry.originXDp, sceneGeometry.originYDp, geometry.widthDp)
+            val d = density.density
+            com.brightblu.parc.ring.module.BackdropProbe.measure(glassStage.bitmap, screenWidthPx, screenHeightPx,
+                (r.left * d).toInt(), (r.top * d).toInt(), (r.width * d).toInt(), (r.height * d).toInt())
+        }
+    }
+    val statsBackdrop = remember(measuring, glassStage?.id, hubTop, hubBottom, screenWidthPx, screenHeightPx) {
+        if (!measuring || glassStage == null) null else {
+            val d = density.density
+            com.brightblu.parc.ring.module.BackdropProbe.measure(glassStage.bitmap, screenWidthPx, screenHeightPx,
+                (Metrics.panelGutterDp * d).toInt(), (hubTop * d).toInt(), ((geometry.widthDp - 2 * Metrics.panelGutterDp) * d).toInt(), ((hubBottom - hubTop) * d).toInt())
+        }
+    }
+    // T176: both card skins come from HubCards, the one place that also feeds the Settings previews and the skin gallery.
+    val hubCards = remember(skin, hubAppearance, look.wallpaper, look.wallpaperReadability, arcBackdrop, statsBackdrop) {
+        HubCards.of(skin, look, hubAppearance, arcBackdrop, statsBackdrop)
+    }
+    val arcSkin = hubCards.arc
+    val statsSkin = hubCards.stats
     val swipeBlocked by rememberUpdatedState(inputBlocked || edit.enabled ||
         menu != null || folderMenu != null || homeMenu != null || shell.layer == Layer.Folder || !liveReady || !resumed)
     val latestSearch by rememberUpdatedState(ui.isOpen)
@@ -483,6 +541,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 val downX = down.position.x / density.density
                 val downY = down.position.y / density.density
                 val searchAtStart = latestSearch
+                if (sheet.moving) sheet.catchIt()
                 pullReturn?.cancel()
                 val fromHub = latestHubEligible && downY in hubTop..hubBottom &&
                     downX in Metrics.textGutterDp..(sceneGeometry.widthDp - Metrics.textGutterDp)
@@ -500,7 +559,9 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     gestureConfig.swipeUp, swipeBlocked || searchAtStart, onControlStart, inHubPanel))
                 if (!searchAtStart) pullProgress.floatValue = 0f
                 swipe.start(downX, downY, fromHub = kotlin.math.hypot(
-                    downX - sceneGeometry.originXDp, downY - sceneGeometry.originYDp) <= Metrics.hubTouchDp / 2f)
+                    downX - sceneGeometry.originXDp, downY - sceneGeometry.originYDp) <= Metrics.hubTouchDp / 2f,
+                    anywhere = searchAtStart)
+                val tracker = VelocityTracker()
                 var moved = false
                 var dismissed = false
                 var opened = false
@@ -512,8 +573,12 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     if ((change.position - down.position).getDistance() > Metrics.gridDp * 2 * density.density) moved = true
                     val dx = (change.position.x - down.position.x) / density.density
                     val dy = (change.position.y - down.position.y) / density.density
+                    // T157: a swipe up never dismisses, and neither does a swipe down that scrolls the list (the list
+                    // consumes it); the dismiss rule lives in SheetDismissRule and also sees the nested scroll above.
+                    if (searchAtStart) tracker.addPointerInputChange(change)
                     if (searchAtStart && !dismissed && !latestSettings && latestSearch && !latestAbc &&
-                        (dy >= Metrics.searchSwipeDp && dy > kotlin.math.abs(dx) ||
+                        (swipe.move(change.position.x / density.density, change.position.y / density.density, change.isConsumed,
+                            tracker.calculateVelocity().y / density.density) ||
                             !change.pressed && !moved && !change.isConsumed)) {
                         session.dismissSearch()
                         dismissed = true
@@ -547,31 +612,39 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                         pull.cancel()
                         val from = pullProgress.floatValue
                         pullReturn = scope.launch {
-                            animate(from, 0f, animationSpec = tween(Metrics.searchPullCancelMs)) { value, _ ->
-                                pullProgress.floatValue = value
+                            animate(from, 0f, animationSpec = spring(Springs.sheet.damping, Springs.sheet.stiffness)) { value, _ ->
+                                pullProgress.floatValue = value.coerceAtLeast(0f)
                             }
                         }
                     }
                     swipeUp.cancel()
+                    if (!dismissed && sheet.caught) sheet.resume()
                 }
             }
         }) {
-            val fieldCallbacks = remember(session, layout, visibleArcCount, counts.arcs) {
-                object : RingCallbacks by session {
-                    override fun onLongPress(hit: SlotHit) {
-                        val source = if (visibleArcCount < counts.arcs) hubSourcePosition(layout, hit.position) else hit.position
-                        session.onLongPress(hit.copy(position = source))
-                    }
-                }
+            Box(Modifier.fillMaxSize()) {
+                com.brightblu.parc.ring.module.HubModule(renderer, target, arcSkin, session, hubModule)
+                // T157: the module dims to 35 % on the sheet spring. A layer alpha cannot be used: the module is one
+                // Canvas of overlapping draws and the platform ignores the layer alpha for it. A cover in the background
+                // colour with 65 % opacity gives the same picture, costs one rectangle and only while the sheet is up.
+                val cover = Color(skin.colors.bg.toInt())
+                Box(Modifier.fillMaxSize().drawBehind {
+                    val p = sheet.progress.coerceIn(0f, 1f)
+                    if (p > 0f) drawRect(cover, alpha = (1f - Metrics.searchModuleAlpha) * p)
+                })
             }
-            renderer.Field(target, skin, fieldCallbacks)
             letterArc?.let { AllAppsLetterArc(it, stripLabels, steer, skin, haptics, feel) }
             if (edit.enabled) {
-                Row(Modifier.align(Alignment.TopStart).padding(start = Metrics.textGutterDp.dp,
-                    top = hubTop.dp),
-                    horizontalArrangement = Arrangement.spacedBy((Metrics.gridDp * 4).dp)) {
-                    val style = TextStyle(color = Color(skin.colors.accent.toInt()), fontSize = skin.typography.menu.sizeSp.sp)
-                    BasicText("Done", Modifier.sizeIn(minWidth = Metrics.menuRowHeightDp.dp, minHeight = Metrics.menuRowHeightDp.dp).clickable { edit.close() }, style = style)
+                // T166: below the status bar and any cutout like every page, the touch area one action edge gap from
+                // the screen edge and the word itself on the screen gutter.
+                Row(Modifier.align(Alignment.TopStart).padding(start = Metrics.actionEdgeGapDp.dp,
+                    top = ParcSpacing.pageTopDp(statusInset).dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    val style = TextStyle(fontFamily = skin.textFamily, color = Color(skin.colors.accent.toInt()), fontSize = skin.typography.menu.sizeSp.sp)
+                    Box(Modifier.sizeIn(minWidth = Metrics.minTouchDp.dp, minHeight = Metrics.minTouchDp.dp).clickable { edit.close() }
+                        .padding(horizontal = Metrics.itemGapDp.dp), contentAlignment = Alignment.Center) {
+                        BasicText("Done", style = style)
+                    }
                     BasicText(if (edit.busy) "Saving…" else "", style = style)
                 }
             }
@@ -583,16 +656,28 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             if (edit.notice.isNotEmpty()) BasicText(edit.notice, Modifier.align(Alignment.BottomCenter)
                 .padding(bottom = Metrics.snackbarBottomDp.dp)
                 .background(Color(skin.colors.surface.toInt()), RoundedCornerShape(Metrics.snackbarCornerDp.dp))
-                .padding(horizontal = Metrics.textGutterDp.dp, vertical = (Metrics.gridDp * 2).dp),
-                style = TextStyle(color = Color(skin.colors.textSecondary.toInt()), fontSize = skin.typography.caption.sizeSp.sp))
+                .padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
+                style = TextStyle(fontFamily = skin.textFamily, color = Color(skin.colors.textSecondary.toInt()), fontSize = skin.typography.caption.sizeSp.sp))
             val statsEligibleNow = statsEligible(settings.statsVisible, shell.layer, ui.isOpen)
+            val lean = com.brightblu.parc.ring.module.rememberLeanProgress(hubModule)
             androidx.compose.runtime.CompositionLocalProvider(LocalFocusRepository provides services.focus,
                 LocalLockedPackages provides lockedPackages, LocalHiddenPackages provides (lockedPackages + focusHidden),
                 LocalHubLook provides look,
+                com.brightblu.parc.ring.module.LocalGlassRefraction provides hubCards.refraction,
                 LocalFocusSentence provides { mode -> focusModeSentence(mode, services.unlockedApps.value, layout.folders) },
                 LocalHubSettings provides { destination -> settingsInitialPage = destination; showSettings = true },
                 LocalHomePresses provides homePresses,
                 LocalEditFocus provides { settingsInitialPage = SettingsPage.Focus; showSettings = true }) {
+            Box(Modifier.fillMaxSize().leanAway(lean)) {
+            // T155: the standalone clock exists only while the stats panel is turned off; with the panel on, its
+            // own Clock page keeps the job. It follows the pull-down search fade like the panel does.
+            if (ClockFaces.standaloneVisible(settings.statsVisible, settings.clockVisible, shell.layer == Layer.Home,
+                    ui.isOpen, edit.enabled || showSettings)) {
+                HomeClock(skin, look, hubConfig.clock, clockDetailWithFocus, hubTop,
+                    Modifier.align(Alignment.TopStart).graphicsLayer {
+                        alpha = 1f - (1f - Metrics.searchPullMinHubAlpha) * pullProgress.floatValue
+                    })
+            }
             StatsModule(
                 source = services.stats,
                 alertState = services.statsAlertUi.state.collectAsState().value,
@@ -605,7 +690,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 appStorage = services.appStorage, volume = services.volume, comms = services.comms,
                 entries = services.unlockedApps.collectAsState().value,
                 onLaunch = session::launch,
-                skin = skin,
+                skin = statsSkin,
                 eligible = statsEligibleNow && !edit.enabled && !showSettings,
                 resumed = resumed,
                 expanded = settings.statsExpanded,
@@ -614,7 +699,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 },
                 pullProgress = { pullProgress.floatValue },
                 hubTopDp = hubTop,
-                clock = { ClockHubPage(skin, look, clock, clockDetailWithFocus, settings.clockVisible) },
+                clock = { ClockHubPage(statsSkin, look, clock, clockDetailWithFocus, settings.clockVisible) },
                 focusActiveName = focus.activeName,
                 focusAvailable = focusModes.isNotEmpty(),
                 onToggleFocus = {
@@ -625,6 +710,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     }
                 },
             )
+            }
             }
             if (edit.undoAvailable) {
                 UndoSnackbar(skin, message = edit.notice.ifEmpty { "Moved" }, onUndo = { edit.undo() },
@@ -655,7 +741,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 showFolderCreate = false; edit.close(); navigation.emit(ShellEvent.ResetToBase)
             }
             if (showSettings) {
-                ParcSettings(services = services, skin = skin, initialPage = settingsInitialPage, reviewSection = settingsInitialSection,
+                ParcSettings(services = services, skin = skin, initialPage = settingsInitialPage, initialRow = settingsInitialRow,
                     alignedArcs = aligned, joystick = joystick,
                     hubDoubleTap = hubDoubleTap,
                     onSetHubDoubleTap = { hubDoubleTap = it; uiPrefs.setHubDoubleTap(it); session.setHubDoubleTap(it) },
@@ -671,14 +757,14 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     onAndroidSettings = openAndroidSettings,
                     look = look,
                     onChangeLook = { change -> scope.launch { lookStore.update(change) } },
-                    onClose = { showSettings = false; settingsInitialPage = SettingsPage.Root; settingsInitialSection = null })
+                    onClose = { showSettings = false; settingsInitialPage = SettingsPage.Root; settingsInitialRow = null })
             }
-            if (ui.isOpen) {
-                if (ui.abcListOpen) {
+            if (sheetShown) {
+                if (ui.isOpen && ui.abcListOpen) {
                     val index = remember(visibleApps, layout.hidden) { AbcIndex.of(visibleApps, layout.hidden) }
                     AbcListScreen(index, skin, session::launch)
                     AllAppsJoystick(sceneGeometry, skin, session::dismissSearch)
-                } else SearchSheet(search, sheetSkin, onLaunch = { id ->
+                } else if (!ui.abcListOpen) SearchSheet(search, sheetSkin, progress = { sheet.progress }, closing = !ui.isOpen, onLaunch = { id ->
                     // A successful search clears the T35 discoverability hint.
                     uiPrefs.markSearchSucceeded(); searchSucceeded = true; session.launch(id)
                 }, hiddenLabels = hiddenLabels, modifier = Modifier.fillMaxSize().navigationBarsPadding().imePadding(),
@@ -687,13 +773,15 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     onOpenParcSetting = { key ->
                         SettingsSearchEntries.target(key)?.let { goal ->
                             session.dismissSearch()
-                            settingsInitialPage = goal.page; settingsInitialSection = goal.section; showSettings = true
+                            settingsInitialPage = goal.page; settingsInitialRow = goal.row; showSettings = true
                         }
                     })
             }
+            Box(Modifier.fillMaxWidth().leanAway(lean)) {
             PullSearchBar(skin, progress = { if (ui.abcListOpen) 0f else pullProgress.floatValue },
                 committed = ui.isOpen && !ui.abcListOpen,
                 query = ui.query, onQueryChange = search::onQueryChange)
+            }
             // Menus are the top-most layer: the name sheet is a full-screen sibling, so it must be
             // declared after the hub, which paints its own background.
             menu?.let {
@@ -759,14 +847,14 @@ private fun UndoSnackbar(skin: Skin, message: String, onUndo: () -> Unit, modifi
             Modifier
                 .background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha),
                     RoundedCornerShape(Metrics.snackbarCornerDp.dp))
-                .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.gridDp.dp * 2),
+                .padding(start = Metrics.cardInsetDp.dp, end = Metrics.actionEdgeGapDp.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp * 4),
+            horizontalArrangement = Arrangement.spacedBy(Metrics.cardInsetDp.dp),
         ) {
-            BasicText(message, style = TextStyle(color = Color(skin.colors.textPrimary.toInt()),
+            BasicText(message, style = TextStyle(fontFamily = skin.textFamily, color = Color(skin.colors.textPrimary.toInt()),
                 fontSize = skin.typography.menu.sizeSp.sp))
-            Box(Modifier.clickable(onClick = onUndo).padding(horizontal = Metrics.gridDp.dp * 2)) {
-                BasicText("Undo", style = TextStyle(color = Color(skin.colors.accent.toInt()),
+            Box(Modifier.clickable(onClick = onUndo).parcMinTouch().padding(horizontal = Metrics.itemGapDp.dp), contentAlignment = Alignment.Center) {
+                BasicText("Undo", style = TextStyle(fontFamily = skin.textFamily, color = Color(skin.colors.accent.toInt()),
                     fontSize = skin.typography.menu.sizeSp.sp))
             }
         }

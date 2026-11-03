@@ -1,5 +1,6 @@
 package com.brightblu.parc.feature.settings.folders
 
+import com.brightblu.parc.model.textFamily
 import com.brightblu.parc.feature.settings.ui.*
 
 import androidx.compose.foundation.background
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,7 +47,11 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.parcSettingsPadding
+import com.brightblu.parc.model.ParcPage
 import com.brightblu.parc.model.Skin
+import com.brightblu.parc.model.parcCardPadding
+import com.brightblu.parc.model.parcMinTouch
 import com.brightblu.parc.model.TypeToken
 
 /**
@@ -71,17 +77,7 @@ fun FolderEditorScreen(
     modifier: Modifier = Modifier,
     topPaddingDp: Float = Metrics.keepOutTopDp,
 ) {
-    Column(
-        modifier
-            .fillMaxSize()
-            .background(color(skin.colors.bg))
-            .padding(
-                start = Metrics.textGutterDp.dp,
-                end = Metrics.textGutterDp.dp,
-                top = topPaddingDp.dp,
-                bottom = Metrics.keepOutBottomDp.dp,
-            ),
-    ) {
+    ParcPage(modifier.background(color(skin.colors.bg)).padding(top = topPaddingDp.dp), safeTop = false, scroll = false) {
         EditorScaffold(EditorSpec.Folders, skin, scroll = false,
             title = if (ui.page == EditorPage.Folders) EditorSpec.Folders.title else "Folder: ${ui.title}",
             instruction = when (ui.page) {
@@ -107,13 +103,13 @@ private fun Header(ui: FolderEditorUi, skin: Skin, onEvent: (FolderEditorEvent) 
     if (ui.page != EditorPage.Folders) {
         ActionText("Back to folders", skin, skin.colors.textSecondary) { onEvent(FolderEditorEvent.CloseFolder) }
     }
-    ui.notice?.let { BasicText(it, style = style(skin.colors.textSecondary, skin.typography.caption)) }
+    ui.notice?.let { BasicText(it, style = style(skin, skin.colors.textSecondary, skin.typography.caption)) }
 
 }
 
 @Composable
 private fun ColumnScope.FolderList(ui: FolderEditorUi, skin: Skin, onEvent: (FolderEditorEvent) -> Unit) {
-    LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+    LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
         item(key = "new-folder") {
             ListRow(
                 label = "Add folder",
@@ -127,8 +123,8 @@ private fun ColumnScope.FolderList(ui: FolderEditorUi, skin: Skin, onEvent: (Fol
             item(key = "empty") {
                 BasicText(
                     "No folders yet",
-                    style = style(skin.colors.textSecondary, skin.typography.caption),
-                    modifier = Modifier.padding(vertical = Metrics.gridDp.dp),
+                    style = style(skin, skin.colors.textSecondary, skin.typography.caption),
+                    modifier = Modifier.padding(vertical = Metrics.lineGapDp.dp),
                 )
             }
         }
@@ -149,7 +145,7 @@ private fun ColumnScope.SlotList(ui: FolderEditorUi, skin: Skin, onEvent: (Folde
     val density = LocalDensity.current
     val rowHeightPx = with(density) { RowHeightDp.dp.toPx() }
     val centers = remember { mutableMapOf<Int, Float>() }
-    LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+    LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
         item(key = "rename") {
             ListRow("Rename folder", "", skin, accent = false) { onEvent(FolderEditorEvent.BeginRename) }
         }
@@ -189,7 +185,6 @@ private fun SlotRow(
             .fillMaxWidth()
             .heightIn(min = RowHeightDp.dp)
             .onGloballyPositioned { centers[row.slot] = it.positionInRoot().y + it.size.height / 2f }
-            .padding(vertical = Metrics.gridDp.dp / 2f)
             .background(
                 color(if (row.dropTarget) skin.colors.surface else skin.colors.bg),
                 RoundedCornerShape(Metrics.menuCornerDp.dp),
@@ -224,13 +219,13 @@ private fun SlotRow(
                     Modifier
                 },
             )
-            .padding(horizontal = Metrics.gridDp.dp * 2),
+            .padding(start = Metrics.settingsRowInsetDp.dp, end = Metrics.actionEdgeGapDp.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicText(
             label(row),
             style = style(
-                when {
+                skin, when {
                     row.appId == null -> skin.colors.textSecondary
                     row.suspended -> skin.colors.textSecondary
                     else -> skin.colors.textPrimary
@@ -240,7 +235,7 @@ private fun SlotRow(
             modifier = Modifier.weight(1f),
         )
         if (row.pinned) {
-            BasicText("pin", style = style(skin.colors.accent, skin.typography.caption))
+            BasicText("pin", style = style(skin, skin.colors.accent, skin.typography.caption))
         }
         if (row.appId != null) {
             ActionText("Remove", skin, skin.colors.textSecondary) {
@@ -252,7 +247,7 @@ private fun SlotRow(
 
 @Composable
 private fun ColumnScope.AppPicker(ui: FolderEditorUi, skin: Skin, onEvent: (FolderEditorEvent) -> Unit) {
-    LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+    LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
         items(ui.picker, key = { it.appId.value }) { app ->
             ListRow(
                 label = app.label,
@@ -279,7 +274,7 @@ private fun ListRow(
 ) {
     SettingsCard(skin) {
         SettingRow(label, skin, if (accent) SettingKind.Action else SettingKind.Page,
-            description = detail, icon = "+", onClick = onClick)
+            description = detail, icon = "+", divider = false, onClick = onClick)
     }
 }
 
@@ -287,10 +282,12 @@ private fun ListRow(
 private fun ActionText(text: String, skin: Skin, tint: Long, onClick: () -> Unit) {
     BasicText(
         text,
-        style = style(tint, skin.typography.caption),
+        style = style(skin, tint, skin.typography.caption),
         modifier = Modifier
             .clickable(onClick = onClick)
-            .padding(horizontal = Metrics.gridDp.dp * 2, vertical = Metrics.gridDp.dp),
+            .parcMinTouch()
+            .wrapContentSize(Alignment.Center)
+            .padding(horizontal = Metrics.itemGapDp.dp),
     )
 }
 
@@ -314,27 +311,27 @@ private fun NameField(ui: FolderEditorUi, skin: Skin, onEvent: (FolderEditorEven
                 color(skin.colors.lineBase),
                 RoundedCornerShape(Metrics.menuCornerDp.dp),
             )
-            .padding(Metrics.gridDp.dp * 2),
+            .parcSettingsPadding(),
     ) {
-        BasicText(prompt.title, style = style(skin.colors.textSecondary, skin.typography.caption))
+        BasicText(prompt.title, style = style(skin, skin.colors.textSecondary, skin.typography.caption))
         BasicTextField(
             value = prompt.draft,
             onValueChange = { onEvent(FolderEditorEvent.NameChanged(it)) },
             singleLine = true,
-            textStyle = style(skin.colors.textPrimary, skin.typography.menu),
+            textStyle = style(skin, skin.colors.textPrimary, skin.typography.menu),
             cursorBrush = SolidColor(color(skin.colors.accent)),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { onEvent(FolderEditorEvent.ConfirmName) }),
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(focus)
-                .padding(vertical = Metrics.gridDp.dp),
+                .padding(vertical = Metrics.lineGapDp.dp),
         )
         val issue = prompt.issue
         BasicText(
             issue ?: "Up to ${Metrics.folderLabelMaxChars} characters",
             style = style(
-                if (issue == null) skin.colors.textSecondary else skin.colors.danger,
+                skin, if (issue == null) skin.colors.textSecondary else skin.colors.danger,
                 skin.typography.caption,
             ),
         )
@@ -356,7 +353,8 @@ private fun label(row: FolderSlotRow): String = when {
 
 private fun color(argb: Long): Color = Color(argb.toInt())
 
-private fun style(tint: Long, token: TypeToken): TextStyle = TextStyle(
+private fun style(skin: com.brightblu.parc.model.Skin, tint: Long, token: TypeToken): TextStyle = TextStyle(
+    fontFamily = skin.textFamily,
     color = color(tint),
     fontSize = token.sizeSp.sp,
     fontWeight = FontWeight(token.weight),

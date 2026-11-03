@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import android.app.NotificationManager
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.verticalScroll
@@ -54,13 +55,13 @@ internal fun FocusHubPage(skin: Skin) {
                 SettingRow(label, skin, SettingKind.Action) { action { repository.quickStart(name, minutes); starting = null } }
             } } }, confirmButton = { TextButton(onClick = { starting = null }) { SettingsSection("Cancel", skin) } })
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberHubScrollState()), verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
+    Column(Modifier.fillMaxSize().hubPageScroll(), verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
         HudCell(skin, Modifier.fillMaxWidth()) { Column {
             val active = state.active
             HubHero(if (active != null) focusRemaining(state.copy(evaluatedAtMillis = maxOf(now, state.evaluatedAtMillis)))
                 else if (state.breakUntilMillis != null) "Paused" else "Ready", active?.name ?: model.status, skin)
             active?.accent?.let { accent ->
-                androidx.compose.foundation.text.BasicText("●", style = androidx.compose.ui.text.TextStyle(
+                androidx.compose.foundation.text.BasicText("●", style = androidx.compose.ui.text.TextStyle(fontFamily = skin.textFamily, 
                     color = Color(accent.toInt()), fontSize = skin.typography.menu.sizeSp.sp))
             }
             if (LocalHubSize.current != HubSize.Compact) active?.let { androidx.compose.foundation.text.BasicText(sentence(it), style = hudValueStyle(skin)) }

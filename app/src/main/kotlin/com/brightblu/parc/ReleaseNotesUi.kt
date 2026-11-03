@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.model.textFamily
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,8 +22,8 @@ import com.brightblu.parc.model.*
 @Composable
 internal fun ReleaseText(skin: Skin, text: String, heading: Boolean = false) {
     val token = if (heading) skin.typography.title else skin.typography.menu
-    BasicText(text, Modifier.padding(vertical = Metrics.textGutterDp.dp / 4)
-        .semantics { if (heading) heading() }, style = TextStyle(color = Color(skin.colors.textPrimary.toInt()),
+    BasicText(text, Modifier.padding(vertical = Metrics.lineGapDp.dp)
+        .semantics { if (heading) heading() }, style = TextStyle(fontFamily = skin.textFamily, color = Color(skin.colors.textPrimary.toInt()),
         fontSize = token.sizeSp.sp, fontWeight = if (heading) FontWeight.Bold else FontWeight(token.weight)))
 }
 @Composable
@@ -43,7 +44,7 @@ internal fun ReleaseEntry(skin: Skin, entry: ReleaseNotes) {
 internal fun WhatsNewSheet(skin: Skin, entry: ReleaseNotes, dismiss: () -> Unit) {
     Dialog(onDismissRequest = dismiss) {
         Column(Modifier.fillMaxWidth().heightIn(max = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * Metrics.releaseNotesMaxHeightFraction)
-            .background(Color(skin.colors.surface.toInt())).padding(Metrics.textGutterDp.dp)) {
+            .background(Color(skin.colors.surface.toInt())).parcCardPadding()) {
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                 ReleaseText(skin, "What's new", true)
                 ReleaseEntry(skin, entry)

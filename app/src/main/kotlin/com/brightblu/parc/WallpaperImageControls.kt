@@ -52,7 +52,7 @@ internal fun WallpaperImageControls(skin: Skin, look: LookSettings, onChange: ((
             .onFailure { message = "The image picker is unavailable." }
     }
     if (showOptions) {
-    // OPUS1: picture actions sit in one group; the dim slider is the shared visual choice.
+    // OPUS1: picture actions sit in one group.
     SettingsGroup("Picture", skin) {
     SettingRow("Crop", skin, SettingKind.Action, "Adjust the saved picture’s framing", icon = "⤢") {
         scope.launch {
@@ -66,10 +66,7 @@ internal fun WallpaperImageControls(skin: Skin, look: LookSettings, onChange: ((
         if (!busy) runCatching { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
             .onFailure { message = "The image picker is unavailable." }
     }
-    SettingsVisualChoice("Dim", LookRules.DimSteps.indexOf(look.wallpaperDimPercent).coerceAtLeast(0),
-        LookRules.DimSteps.map { "$it%" }, skin, "Darkens the picture so icons stand out") { index ->
-        onChange { it.copy(wallpaperDimPercent = LookRules.DimSteps[index]) }
-    }
+    // T175: Dim is a registry row of its own (Look > Wallpaper), shown for the picture and the phone wallpaper alike.
     SettingRow("Remove picture", skin, SettingKind.Action, "Go back to the skin’s colour", icon = "×", divider = false) {
         scope.launch {
             withContext(Dispatchers.IO) { store.remove() }
@@ -90,7 +87,7 @@ internal fun WallpaperImageControls(skin: Skin, look: LookSettings, onChange: ((
         var y by rememberSaveable { mutableFloatStateOf(0f) }
         Box(Modifier.fillMaxSize().background(Color(skin.colors.bg.toInt()))) {
         SettingsPageFrame(skin, onBack = { if (!busy) { cropping = false; store.cancel() } }) {
-            Column(Modifier.fillMaxSize().padding(Metrics.panelGutterDp.dp)) {
+            ParcPage(safeTop = false, scroll = false, blockGapDp = Metrics.itemGapDp) {
                 BasicText("Crop for Home", style = settingsText(skin))
                 BasicText("Pinch to zoom · Drag to move\nShaded edges mark the Home safe areas", style = settingsText(skin, caption = true))
                 bitmap?.let { image ->
@@ -132,7 +129,7 @@ internal fun WallpaperImageControls(skin: Skin, look: LookSettings, onChange: ((
                             drawRect(accent, style = stroke)
                         }
                     }) {}
-                    SettingRow(if (busy) "Saving…" else "Use image", skin, SettingKind.Action) {
+                    SettingsCard(skin) { SettingRow(if (busy) "Saving…" else "Use image", skin, SettingKind.Action, divider = false) {
                         if (!busy) scope.launch {
                             busy = true
                             val bright = withContext(Dispatchers.IO) { wallpaperBrightness(image, aspect, zoom, x, y) > Metrics.wallpaperBrightThreshold }
@@ -144,7 +141,7 @@ internal fun WallpaperImageControls(skin: Skin, look: LookSettings, onChange: ((
                                 cropping = false
                             } else message = "Could not save this image (maximum 2 MB)."
                         }
-                    }
+                    } }
                 } ?: BasicText("Image unavailable. Go back and choose another picture.", style = settingsText(skin))
                 if (message.isNotEmpty()) BasicText(message, style = settingsText(skin))
             }

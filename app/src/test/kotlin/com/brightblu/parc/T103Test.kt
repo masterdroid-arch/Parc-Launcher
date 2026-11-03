@@ -121,14 +121,4 @@ class T103Test {
         assertTrue(focusHidden.slots.isEmpty())
     }
 
-    @Test fun settingsChoicesAreReachableAndBackedUpWithIntegerTypes() {
-        val counts = LayoutCounts(3, 3)
-        val rows = settingsRootRows("Midnight", false, true, false, true, layoutCounts = counts)
-        for (id in listOf(SettingsRowId.ArcsShown, SettingsRowId.IconsPerArc)) {
-            assertEquals(SettingsSectionId.Layout, rows.single { it.id == id }.section)
-            assertEquals(SettingKind.Choice, settingsRowSpec(id).kind)
-            assertEquals("3", rows.single { it.id == id }.detail)
-        }
-        for (key in listOf("arcs_shown", "icons_per_arc")) assertEquals(BackupValueType.Int, AppBackup.LayoutCountsSpec.key(key)?.type)
-    }
 }

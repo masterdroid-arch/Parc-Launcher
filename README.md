@@ -1,6 +1,6 @@
 # Parc Launcher
 
-<img src="docs/media/hero.svg" alt="Parc, a calm home screen for Android" width="100%">
+<img src="docs/media/launch/hero-launch.svg" alt="Parc, a calm home screen for Android: a phone with the Glass skin, seen from above at an angle" width="100%">
 
 A calm home screen for Android. Your apps sit on arcs that sweep up from the
 bottom-right corner, under your thumb. Aim with the joystick, release to open.
@@ -9,6 +9,24 @@ weather build adds that one permission for the Weather page; see below).
 
 Parc is a personal project, shared as open source. It is designed for a phone
 held in the right hand, in portrait, at about 384 x 853 dp.
+
+<img src="docs/media/launch/keynote.svg" alt="A one-minute film of Parc: the arc home screen, glass hubs, per-hub opacity, the stats hub pages, the nine skins and the privacy promise" width="100%">
+
+## See it in motion
+
+<table>
+<tr>
+<td width="50%"><img src="docs/media/launch/glass-closeup.svg" alt="Close-up of the frosted glass hubs" width="100%"><br><b>Glass that feels like glass.</b><br>Frosted hubs over your own picture, each with its own opacity.</td>
+<td width="50%"><img src="docs/media/launch/arc-orbit.svg" alt="The arcs seen from above" width="100%"><br><b>Apps on arcs.</b><br>Aim from the hub, release over an app, it opens.</td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/media/launch/stats-flip.svg" alt="The stats hub pages flipping past" width="100%"><br><b>The stats hub.</b><br>Clock, Power, Focus, Notes and more, one swipe apart.</td>
+<td width="50%"><img src="docs/media/launch/skins-wipe.svg" alt="The nine skins wiping across the screen" width="100%"><br><b>Nine skins.</b><br>From Midnight to Phosphor, glass on or off.</td>
+</tr>
+<tr>
+<td colspan="2"><img src="docs/media/launch/privacy-vault.svg" alt="No internet, no tracking, nothing leaves your phone" width="100%"><br><b>Private by design.</b> No internet permission, no accounts, no ads, no analytics.</td>
+</tr>
+</table>
 
 <img src="docs/media/how-it-works.svg" alt="Aim from the hub, release over an app, it opens" width="100%">
 
@@ -30,9 +48,9 @@ held in the right hand, in portrait, at about 384 x 853 dp.
   add it) switches the torch and Do Not Disturb and opens the Wi-Fi, Bluetooth,
   mobile data, airplane mode, auto-rotate, battery saver and screen timeout
   screens, because Android does not let apps switch those directly.
-- **Skins.** Midnight (default), Dusk, Cyber, Field Atlas Light, Field Atlas
-  Dark and Phosphor. A wallpaper skin follows the system wallpaper colours, and
-  the skin editor lets you make and keep your own.
+- **Skins.** Nine skins: Midnight (default), Dusk, Moss, Glass, Graphite, Cyber,
+  Field Atlas Light, Field Atlas Dark and Phosphor. A wallpaper skin follows the
+  system wallpaper colours, and the skin editor lets you make and keep your own.
 - **Notification badges.** Unread dots on icons, if you turn them on.
 - **Messages page.** Read and dismiss messages from the hub, with optional quick
   replies, when you grant notification access.
@@ -96,7 +114,7 @@ Install JDK 21 and the Android SDK, then point Gradle at the SDK with the
 
 ```sh
 git clone https://github.com/masterdroid-arch/Parc-Launcher
-cd parc
+cd Parc-Launcher
 ./gradlew assemblePersonalDebug
 ```
 

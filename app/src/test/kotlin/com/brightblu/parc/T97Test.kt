@@ -44,12 +44,12 @@ class T97Test {
     // ---- composition ---------------------------------------------------------------------
 
     @Test fun withoutNotificationsTheMenuIsUnchangedAndHasNoEmptySection() {
-        assertEquals(listOf("---", "Pin", "Move to folder", "Hide from Parc", "App info", "Uninstall"),
+        assertEquals(listOf("---", "Pin", "Move to folder", "Remove from arc", "Hide from Parc", "App info", "Uninstall"),
             labels(appMenuRootItems(menu())))
     }
 
     @Test fun oneNotificationLeadsTheMenuWithoutClearAll() {
-        assertEquals(listOf("peek:a", "---", "Pin", "Move to folder", "Hide from Parc", "App info", "Uninstall"),
+        assertEquals(listOf("peek:a", "---", "Pin", "Move to folder", "Remove from arc", "Hide from Parc", "App info", "Uninstall"),
             labels(appMenuRootItems(menu(line("a")))))
     }
 
@@ -82,7 +82,7 @@ class T97Test {
         val first = folderMenuRootItems(menu).first() as MenuItem.Row
         assertEquals(MenuAction.LaunchApp, first.row.action)
         assertEquals(other.value, first.row.detail)
-        assertEquals(listOf("Rename", "Add apps", "Sort A to Z", "Move earlier", "Move later", "Delete"),
+        assertEquals(listOf("Rename", "Add apps", "Sort A to Z", "Move earlier", "Move later", "Hide folder", "Delete"),
             labels(folderMenuRootItems(menu.copy(notices = emptyList()))))
     }
 

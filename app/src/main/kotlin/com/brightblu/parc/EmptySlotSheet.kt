@@ -45,8 +45,8 @@ internal fun EmptySlotSheet(title: String, apps: List<AppEntry>, skin: Skin, pic
                 RoundedCornerShape(topStart = Metrics.menuCornerDp.dp, topEnd = Metrics.menuCornerDp.dp)))
             // Taps inside the sheet never reach the scrim.
             .clickable(remember { MutableInteractionSource() }, indication = null) {}
-            .navigationBarsPadding()
-            .padding(bottom = Metrics.itemGapDp.dp)) {
+            // T230: clear the whole navigation/gesture area plus a gap, not just the navigation bar.
+            .padding(bottom = rememberPageInsets().bottomDp.dp)) {
             Row(Modifier.fillMaxWidth().heightIn(min = Metrics.touchTargetDp.dp)
                 .padding(start = Metrics.screenGutterDp.dp, end = Metrics.actionEdgeGapDp.dp), verticalAlignment = Alignment.CenterVertically) {
                 BasicText(if (picking) EditModeText.AddApp else title, Modifier.weight(1f).semantics { heading() },
@@ -67,16 +67,28 @@ internal fun EmptySlotSheet(title: String, apps: List<AppEntry>, skin: Skin, pic
     }
 }
 
-/** OPUS8 (T133): the edit-mode instruction bar. Display only: touches pass through to the ring. */
+/**
+ * OPUS8 (T133): the edit-mode instruction bar. T245 adds Undo for the whole session; the bar itself
+ * still takes no touches, so drags and the + spots around it work.
+ */
 @Composable
-internal fun EditModeBar(skin: Skin, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth().navigationBarsPadding()
+internal fun EditModeBar(skin: Skin, modifier: Modifier = Modifier, onUndo: (() -> Unit)? = null) {
+    Box(modifier.fillMaxWidth().padding(bottom = rememberPageInsets().bottomDp.dp)
         .padding(horizontal = Metrics.screenGutterDp.dp, vertical = Metrics.lineGapDp.dp), contentAlignment = Alignment.Center) {
-        BasicText(EditModeText.Instructions,
-            Modifier.background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha),
-                RoundedCornerShape(Metrics.snackbarCornerDp.dp))
-                .padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
-            style = sheetStyle(skin, skin.colors.textPrimary).copy(fontSize = skin.typography.caption.sizeSp.sp))
+        Row(Modifier.background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha),
+            RoundedCornerShape(Metrics.snackbarCornerDp.dp))
+            .padding(start = Metrics.cardInsetDp.dp, end = Metrics.itemGapDp.dp, top = Metrics.rowGapDp.dp,
+                bottom = Metrics.rowGapDp.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            BasicText(EditModeText.Instructions, Modifier.weight(1f, fill = false),
+                style = sheetStyle(skin, skin.colors.textPrimary).copy(fontSize = skin.typography.caption.sizeSp.sp))
+            if (onUndo != null) {
+                Box(Modifier.clickable(onClick = onUndo).parcMinTouch().padding(horizontal = Metrics.itemGapDp.dp),
+                    contentAlignment = Alignment.Center) {
+                    BasicText("Undo", style = sheetStyle(skin, skin.colors.accent).copy(fontSize = skin.typography.caption.sizeSp.sp))
+                }
+            }
+        }
     }
 }
 

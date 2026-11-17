@@ -47,7 +47,9 @@ class SettingsRegistryTest {
         "searchPhoneSettings" to { s -> s.searchPhoneSettings }, "searchFiles" to { s -> s.searchFiles },
         "searchEvents" to { s -> s.searchEvents }, "badges" to { s -> s.badges }, "badgesInAllApps" to { s -> s.badgesInAllApps },
         "menuNotifications" to { s -> s.menuNotifications }, "menuNotificationText" to { s -> s.menuNotificationText },
-        "markWorkApps" to { s -> s.markWorkApps }, "wallpaperMode" to { s -> s.wallpaperMode }, "wallpaperLook" to { s -> s.wallpaperLook },
+        "markWorkApps" to { s -> s.markWorkApps }, "layoutLocked" to { s -> s.layoutLocked }, "leftHand" to { s -> s.leftHand },
+        "wallpaperMode" to { s -> s.wallpaperMode }, "wallpaperLook" to { s -> s.wallpaperLook },
+        "commsEnabled" to { s -> s.commsEnabled }, "commsRecordHistory" to { s -> s.commsRecordHistory },
     )
 
     /** Where each value lives in a backup: store id and key. The keys are the stores' own, unchanged by T175. */
@@ -61,35 +63,46 @@ class SettingsRegistryTest {
         "searchEvents" to ("search" to "source_events"), "badges" to ("ui_prefs" to "notification_badges"),
         "badgesInAllApps" to ("ui_prefs" to "badges_in_all_apps"), "menuNotifications" to ("ui_prefs" to "menu_notifications"),
         "menuNotificationText" to ("ui_prefs" to "menu_notification_text"), "markWorkApps" to ("ui_prefs" to "mark_work_apps"),
+        "layoutLocked" to ("ui_prefs" to "lock_layout"), "leftHand" to ("ui_prefs" to "left_hand"),
         "wallpaperMode" to ("settings" to "wallpaper_skin_mode"), "wallpaperLook" to ("settings" to "wallpaper_skin_look"),
+        "commsEnabled" to ("settings" to "comms_enabled"), "commsRecordHistory" to ("settings" to "comms_keep_history"),
     )
 
     private fun changedFields(a: SettingsSnapshot, b: SettingsSnapshot) = fields.filter { (_, get) -> get(a) != get(b) }.map { it.first }
 
-    @Test fun idsAreUniqueAndEveryPageHasRows() {
+    @Test fun idsAreUniqueAndEveryGroupHasThreeOrFourSubPages() {
         val ids = SettingsRegistry.all.map { it.id }
         assertEquals(ids.size, ids.toSet().size)
-        SettingsHome.entries.forEach { assertTrue(it.title, SettingsRegistry.on(it).isNotEmpty()) }
-        assertEquals(listOf("Look", "Hubs", "Layout", "Gestures and feel", "Stats hub pages", "Search and notifications", "Backup and about"),
-            SettingsHome.entries.map { it.title })
+        assertEquals(listOf("Home", "Appearance", "Gestures & search", "Notifications & Focus", "Data & about"),
+            SettingsGroup.entries.map { it.title })
+        SettingsGroup.entries.forEach { group ->
+            val pages = SettingsPage.entries.filter { it.group == group && it.parent == null }
+            assertTrue("${group.title} has ${pages.size} sub-pages", pages.size in 3..4)
+        }
+        assertEquals(17, SettingsPage.entries.count { it.group != null && it.parent == null })
     }
 
-    @Test fun pageRowsOpenAnEditorAndEveryEditorIsReachable() {
-        SettingsRegistry.all.filter { it.control == SettingControl.Page }.forEach { def ->
-            assertNotNull(def.id, def.opens); assertNull(def.id, def.opens!!.home)
-            assertEquals(def.id, def.page.settingsPage, settingsParent(def.opens!!).let { if (it == SettingsPage.Comms) def.page.settingsPage else it })
+    @Test fun pageRowsOpenAnEditorAndEveryPageIsReachable() {
+        SettingsRegistry.all.filter { it.control == SettingControl.Page && it.id !in SettingsRegistry.selfEntryIds }.forEach { def ->
+            assertNotNull(def.id, def.opens)
+            assertEquals(def.id, def.page, def.opens!!.parent)
         }
         val opened = SettingsRegistry.all.mapNotNull { it.opens }.toSet() +
-            setOf(SettingsPage.HubOptions, SettingsPage.CommsApps, SettingsPage.QuickReplies, SettingsPage.Onboarding, SettingsPage.Root)
-        val unreachable = SettingsPage.entries.filter { it.home == null && it !in opened }
+            SettingsPage.entries.filter { it.group != null && it.parent == null }.toSet() +
+            setOf(SettingsPage.HubOptions, SettingsPage.Onboarding)
+        val unreachable = SettingsPage.entries.filter { it != SettingsPage.Root && it !in opened }
         assertEquals(emptyList<SettingsPage>(), unreachable)
-        SettingsHome.entries.forEach { assertEquals(SettingsPage.Root, settingsParent(it.settingsPage)) }
+        SettingsGroup.entries.forEach {
+            assertEquals(SettingsScreen.Root, settingsParent(SettingsScreen.Group(it)))
+        }
     }
 
     @Test fun everyValueRoundTripsAndIsSavedByTheWriter() {
         val persisted = setOf("look", "hub", "skinId", "counts", "aligned", "joystick", "hubDoubleTap", "haptics", "feel", "arcFeel",
             "clockVisible", "iconPack", "statsVisible", "hubSize", "searchPhoneSettings", "searchFiles", "searchEvents",
-            "badges", "badgesInAllApps", "menuNotifications", "menuNotificationText", "markWorkApps", "wallpaperMode", "wallpaperLook")
+            "badges", "badgesInAllApps", "menuNotifications", "menuNotificationText", "markWorkApps", "layoutLocked", "leftHand",
+            "wallpaperMode", "wallpaperLook",
+            "commsEnabled", "commsRecordHistory")
         val values = SettingsRegistry.all.filter { it.read != null || it.write != null }
         assertTrue(values.size >= 40)
         for (def in values) {
@@ -149,7 +162,17 @@ class SettingsRegistryTest {
         val picture = SettingsSnapshot(skins = skins, look = LookSettings(wallpaper = WallpaperStyle.Image))
         assertTrue(SettingsRegistry.byId.getValue("WallpaperReadability").shown(picture))
         assertTrue(SettingsRegistry.byId.getValue("WallpaperDim").shown(picture))
-        assertTrue(SettingsRegistry.shown(SettingsHome.Look, picture).any { it.id == "WallpaperReadability" })
+        assertTrue(SettingsRegistry.shown(SettingsPage.AppearanceWallpaper, picture).any { it.id == "WallpaperReadability" })
+    }
+
+    @Test fun hiddenRowsKeepTheirIdsAndLiveUnderHiddenLocked() {
+        assertEquals(SettingsPage.Hidden, SettingsRegistry.byId.getValue("HiddenApps").opens)
+        assertEquals(SettingsPage.HiddenFolders, SettingsRegistry.byId.getValue("HiddenFolders").opens)
+        assertEquals(SettingsPage.LockedFolders, SettingsRegistry.byId.getValue("LockedFolders").opens)
+        assertNull(SettingsRegistry.byId["HiddenLocked"])
+        SettingsRegistry.hiddenLockedRowIds.forEach { assertEquals(SettingsPage.HiddenLocked, SettingsRegistry.byId.getValue(it).page) }
+        assertEquals("None", SettingsRegistry.byId.getValue("HiddenFolders").value(SettingsSnapshot()))
+        assertEquals("2 folders", SettingsRegistry.byId.getValue("HiddenFolders").value(SettingsSnapshot(hiddenFoldersSummary = "2 folders")))
     }
 
     @Test fun searchFindsEverySettingAndOpensItsPageAndRow() {
@@ -157,7 +180,8 @@ class SettingsRegistryTest {
             assertTrue(def.id, SettingsRegistry.search(def.title).contains(def))
             val key = "setting:${def.id}"
             assertTrue(def.id, SettingsSearchEntries.all.any { it.key == key })
-            assertEquals(SettingsTarget(def.page.settingsPage, def.id), SettingsSearchEntries.target(key))
+            assertEquals(SettingsTarget(def.page, if (def.id in SettingsRegistry.selfEntryIds) null else def.id),
+                SettingsSearchEntries.target(key))
         }
         assertTrue(SettingsRegistry.search("glass").any { it.id == "GlassEffect" })
         assertTrue(SettingsRegistry.search("dim").any { it.id == "WallpaperDim" })
@@ -168,12 +192,12 @@ class SettingsRegistryTest {
 
     @Test fun hubsPageHasTheSameBlockForBothHubs() {
         val s = SettingsSnapshot(skins = skins, hub = HubAppearance(glass = true))
-        val rows = SettingsRegistry.shown(SettingsHome.Hubs, s)
-        val arc = rows.filter { it.group == "Arc hub" }.map { it.title to it.control }
-        val stats = rows.filter { it.group == "Stats hub" }.map { it.title to it.control }
+        val rows = SettingsRegistry.shown(SettingsPage.Hubs, s)
+        val arc = rows.filter { it.card == "Arc hub" }.map { it.title to it.control }
+        val stats = rows.filter { it.card == "Stats hub" }.map { it.title to it.control }.take(2)
         assertEquals(listOf("Colour" to SettingControl.Colour, "Opacity" to SettingControl.Slider), arc)
         assertEquals(arc, stats)
-        assertEquals(listOf("GlassEffect", "GlassRefraction"), rows.filter { it.group == "Glass, both hubs" }.map { it.id })
+        assertEquals(listOf("GlassEffect", "GlassRefraction"), rows.filter { it.card == "Both hubs" }.map { it.id })
     }
 
     @Test fun defaultsDrawTheSameCardsAsBefore() {

@@ -73,6 +73,7 @@ internal fun FolderEditorHost(services: LauncherServices, skin: Skin, create: Bo
     val scope = rememberCoroutineScope()
     val layout by services.layout.layout.collectAsState()
     val apps by services.unlockedApps.collectAsState()
+    val focus by services.focus.state.collectAsState()
     val windows by services.folderLock.windows.collectAsState()
     val gate = rememberFolderLockGate(services)
     var state by remember {
@@ -121,9 +122,20 @@ internal fun FolderEditorHost(services: LauncherServices, skin: Skin, create: Bo
     BackHandler { back() }
     val body: @Composable () -> Unit = {
     Column(Modifier.fillMaxSize().background(Color(skin.colors.bg.toInt())).imePadding()) {
-        val projection = state.toUi(apps).let { ui -> ui.copy(folders = ui.folders.map { row ->
-            if (gate.isFolderLockedNow(row.id)) row.copy(name = if (gate.hideName()) "Locked" else row.name, appCount = 0) else row
-        }) }
+        val projection = state.toUi(apps).let { ui ->
+            val focusHidden = focusBlockedPackages(focus.active, apps, layout)
+            val hiddenFolderIds = layout.folders.filter { it.hidden }
+                .flatMapTo(mutableSetOf()) { it.appIds }
+            val hiddenIds = layout.hidden + hiddenFolderIds + apps.filter { it.packageName in focusHidden }.map { it.id }
+            ui.copy(
+                folders = ui.folders.map { row ->
+                    if (gate.isFolderLockedNow(row.id)) row.copy(name = if (gate.hideName()) "Locked" else row.name, appCount = 0) else row
+                },
+                // T217: the picker never offers an app that every surface is hiding; slots still
+                // keep the membership and a hidden app can be removed from the folder.
+                picker = ui.picker.filterNot { it.appId in hiddenIds },
+            )
+        }
         FolderEditorScreen(projection, skin, { event ->
             if (!busy) {
                 if (event is FolderEditorEvent.OpenFolder && gate.isFolderLockedNow(event.id)) {
@@ -131,22 +143,26 @@ internal fun FolderEditorHost(services: LauncherServices, skin: Skin, create: Bo
                 } else commit(FolderEditorMachine.reduce(state, event))
             }
         }, Modifier.weight(1f), topPaddingDp = if (settingsHost) 0f else rememberPageInsets().topDp)
-        if (confirmDelete) {
-            EditorAction("Remove ${state.openFolder?.name}? Its apps go to New.", skin) {}
-            Row {
-                EditorAction("Cancel", skin) { confirmDelete = false }
-                EditorAction("Remove", skin) {
-                    val folder = state.openFolder ?: return@EditorAction
-                    confirmDelete = false
-                    commit(state.copy(document = state.document.copy(folders = state.document.folders.filterNot { it.id == folder.id }),
-                        page = EditorPage.Folders, openFolderId = null, prompt = null, notice = "Folder deleted",
-                        undo = emptyList()))
+        // T230: the editor's own action rows sit outside FolderEditorScreen's ParcPage, so they need
+        // the same bottom safe area as the page or the last row would fall behind the navigation bar.
+        Column(Modifier.fillMaxWidth().padding(bottom = rememberPageInsets().bottomDp.dp)) {
+            if (confirmDelete) {
+                EditorAction("Remove ${state.openFolder?.name}? Its apps go to New.", skin) {}
+                Row {
+                    EditorAction("Cancel", skin) { confirmDelete = false }
+                    EditorAction("Remove", skin) {
+                        val folder = state.openFolder ?: return@EditorAction
+                        confirmDelete = false
+                        commit(state.copy(document = state.document.copy(folders = state.document.folders.filterNot { it.id == folder.id }),
+                            page = EditorPage.Folders, openFolderId = null, prompt = null, notice = "Folder deleted",
+                            undo = emptyList()))
+                    }
                 }
+            } else if (state.openFolder != null && state.openFolderId != FolderId(NewFolderKey) && state.prompt == null) {
+                EditorAction("Remove folder", skin) { if (!busy) confirmDelete = true }
             }
-        } else if (state.openFolder != null && state.openFolderId != FolderId(NewFolderKey) && state.prompt == null) {
-            EditorAction("Remove folder", skin) { if (!busy) confirmDelete = true }
+            if (!settingsHost) EditorAction(if (busy) "Saving…" else "←  Back", skin) { back() }
         }
-        if (!settingsHost) EditorAction(if (busy) "Saving…" else "←  Back", skin, Modifier.navigationBarsPadding()) { back() }
     }
     }
     if (settingsHost) SettingsPageFrame(skin, onBack = ::back, content = body) else body()

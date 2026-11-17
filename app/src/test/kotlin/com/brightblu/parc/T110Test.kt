@@ -24,6 +24,21 @@ class T110Test {
         assertFalse(claimUpdate(store, 10000)); assertEquals(10100, store.lastSeen)
         assertFalse(claimUpdate(store, 10100)); assertTrue(claimUpdate(store, 10200))
     }
+    @Test fun currentReleaseHasTheCurrentVersionAndPlainWords() {
+        assertEquals("1.5.1", BuildConfig.VERSION_NAME)
+        assertEquals(10501, BuildConfig.VERSION_CODE)
+        val entries = javaClass.classLoader!!.getResourceAsStream("changelog.json")!!
+            .bufferedReader().use { parseChangelog(it.readText()) }
+        val current = entries.last()
+        assertEquals(BuildConfig.VERSION_CODE, current.versionCode)
+        assertTrue(current.items.isNotEmpty())
+        val words = current.items.joinToString(" ") { it.headline + " " + it.text }
+        assertTrue("Current release must say what is easier to read", words.contains("read", ignoreCase = true))
+        listOf("arcade").forEach { word ->
+            assertFalse("Current release must not mention $word", words.contains(word, ignoreCase = true))
+        }
+    }
+
     @Test fun changelogContractAndVersionFormula() {
         val entries = javaClass.classLoader!!.getResourceAsStream("changelog.json")!!.bufferedReader().use { parseChangelog(it.readText()) }
         assertTrue(entries.isNotEmpty())

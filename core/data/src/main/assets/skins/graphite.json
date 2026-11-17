@@ -15,7 +15,9 @@
     "surface": 4280953386,
     "moduleSurface": 4282006074,
     "moduleGuide": 4288322202,
-    "moduleInk": 4294111986
+    "moduleInk": 4294111986,
+    "paper": 4289768353,
+    "ink": 4280426783
   },
   "iconStyle": "plain",
   "glowRadiusDp": 48.0,

@@ -2,15 +2,23 @@ package com.brightblu.parc.model
 
 /** Thread-safe immutable dp tokens from DESIGN §2.3; no nullable values. */
 object Metrics {
+    // T191: a quiet book page and its editor.
+    const val todayRefreshMs = 30_000L
+    const val quoteTextSp = 20f
+    const val quoteLineSp = 31f
+    const val quoteCreditLineSp = 18f
+    const val quoteInsetDp = 20f
+    const val quoteCreditGapDp = 24f
+    const val quoteSwipeDp = 48f
+    const val quoteSheetFraction = 0.94f
+    const val quoteFieldsWeight = 1f
+    const val quoteDayCheckMs = 30_000L
+
     const val hubGlassTintAlpha = 179 // 70 percent; cached frost only.
     const val hubCardMinContrast = 4.5 // T171: ink on a hub card at the lowest opacity the user may pick
-    // Settings gallery and swipe-back arbitration (all distances in dp).
+    // Settings gallery (all distances in dp).
     const val settingsCardWidthDp = 272f
     const val settingsCardHeightDp = 440f
-    const val settingsEdgeZoneDp = 112f
-    const val settingsExitTravelDp = 48f
-    const val settingsExitVelocityDp = 700f
-    const val settingsAxisRatio = 1.5f
     const val settingsParallaxDp = 12f
     const val settingsSpringDamping = 0.8f
     const val settingsSpringStiffness = 400f
@@ -30,13 +38,25 @@ object Metrics {
     const val settingsPreviewHeightDp = 236f
     const val settingsClockPreviewHeightDp = 132f
     const val settingsSampleDp = 40f
+    const val settingsIconDp = 24f
+    const val glyphStrokeDp = 1.5f
+    const val focusGlyphDp = 18f
     const val settingsValueMaxWidthDp = 140f
     const val settingsChipMinWidthDp = 76f
     const val settingsPreviewDebounceMs = 120L
+    /** T229: page options settle in from this scale on Springs.sheet; no tween, no blur. */
+    const val pageOptionsSettleScale = 0.985f
 
     const val noteSaveDebounceMs = 400L
     const val noteUndoMs = 8_000L
     const val notePreviewLines = 3
+    /** All notes together, as stored text. Raised from 1,000,000 in 1.2.0 (T182). */
+    const val notesMaxChars = 5_000_000
+    const val noteHeadingScale = 1.35f
+    const val noteToolbarGapDp = 4f
+    /** T183: the bell drawn beside a note's reminder (size and line width). */
+    const val noteBellDp = 18f
+    const val noteBellStrokeDp = 1.5f
 
     const val wallpaperMaxSide = 1440
     const val wallpaperMaxBytes = 2 * 1024 * 1024
@@ -57,6 +77,9 @@ object Metrics {
     const val focusSaveDebounceMs = 400L
     const val focusUndoMs = 8_000L
     const val focusControlDp = 48f
+    // T219: the hub grip's Focus chip. The 32 dp chip sits inside the 48 dp touch row; its dot is drawn, not a glyph.
+    const val focusChipHeightDp = 32f
+    const val focusChipDotDp = 8f
     const val focusFirmDelayMs = 5_000L
     const val focusFirstDelayMs = 30_000L
     const val focusSecondDelayMs = 120_000L
@@ -71,8 +94,19 @@ object Metrics {
     const val commsPromptLines = 1
     const val commsRecentMessages = 3
     const val commsHeaderSp = 11f
+    const val commsHeaderTitleSp = 18f
     const val commsMessageSp = 13f
     const val commsMessageGapDp = 16f
+    // T233: the compact Messages header, its inline text tabs and the card layout model. The
+    // header is one row; the footer is one quiet line and scrolls as the last list item.
+    const val commsHeaderRowDp = 48f
+    const val commsFooterDp = 20f
+    const val commsSectionGapDp = 8f
+    const val commsTabUnderlineDp = 2f
+    const val commsCardHeaderDp = 24f
+    const val commsCardInnerGapDp = 4f
+    const val commsMessageLineDp = 18f
+    const val commsCountLineDp = 16f
     const val commsActionDp = 48f // T166: raised from 40 to the minimum touch target
     const val commsNoticeMs = 2_000L
     const val commsImageDp = 64f
@@ -104,18 +138,133 @@ object Metrics {
     const val hubNoteSp = 12f
     const val hubDotsHeightDp = 48f
     const val hubFadeHeightDp = 12f
+    /** 1.5.1: the drawn fade is taller, so the "More below" sign sits in the faded part and never over text. It shows only while content is below. */
+    const val hubFadeDrawDp = 44f
+    const val hubFadeClearFraction = 0.55f // the fade is fully clear this far down, so nothing shows behind the sign
+    // 1.5.1 hub type scale: one figure (the skin's countDot numeral, 28 sp), one title (17 sp, used where a row has words
+    // instead of a number), one body line (hubLineSp, 15 sp) and one caption (the skin's caption, 11 sp). Rows are 56 dp.
+    const val hubTitleSp = 17f
+    // 1.5.1: kept passages on the Commonplace page: smaller than Today's quote card so several are visible.
+    const val commonplaceTextSp = 16f
+    const val commonplaceLineSp = 23f
+    const val commonplaceCaptionSp = 12f
+    const val commonplaceInsetDp = 14f
+    const val commonplaceGapDp = 8f
+    const val commonplaceMaxLines = 6
+    const val hubStatRowDp = 52f
+    const val hubStatRowPadDp = 6f
+    const val hubStatSideMaxDp = 140f
+    const val hubMutedMix = 0.4f // share of textPrimary mixed into textSecondary for labels, so they stay readable on glass
+    const val hubSectionGapDp = 4f
+    const val hubBaselineNudgeDp = 2f // lifts a right-hand caption onto the figure's baseline
+    const val hubSearchInsetDp = 12f
+    const val hubSearchHeightDp = 36f
+    const val hubIconButtonDp = 40f
+    const val hubSortGlyphDp = 20f
+    /** T262: the quiet "More below" sign shown while a hub page still has content under the fade. */
+    const val hubScrollHintBottomDp = 3f
+    const val hubScrollHintCornerDp = 10f
     // T158 (DESIGN 3.4): the hub's tab strip. A pill is half the 48 dp touch row; its corner is half its height.
     const val hubTabPillHeightDp = 24f
     const val hubTabPillPadDp = 12f // text to the pill edge, left and right
     const val hubTabGapDp = 4f // between pills; the touch rows of neighbours meet, the pills do not
     const val hubTabSelectedMix = 0.24f // share of `accent` mixed into `surface` for the selected pill
     const val hubTabNameSp = 13f
+    const val hubTabLiftScale = 1.06f // T186: a tab held for reordering grows a little
+    const val hubTabEdgeZoneDp = 40f // T186: a dragged tab this close to the strip's edge scrolls the strip
+    const val hubTabEdgeScrollDpPerSecond = 520f // T186: strip scroll speed at the very edge
     /** T167: room kept between a stats page's last row and the bottom fade at the end of its scroll. */
     const val hubScrollEndGapDp = 16f
     /** T167: a drag is a page swipe only when it is this many times wider than tall; otherwise it scrolls. */
     const val hubDirectionLockRatio = 1.25f
     const val hubPageSwipeDp = 48f
     const val hudDotDp = 8f
+    // T187: the Steps page. The goal arc is drawn at one size per hub size; the week bars share one height.
+    const val stepsArcCompactDp = 56f
+    const val stepsArcStandardDp = 88f
+    const val stepsArcTallDp = 112f
+    const val stepsArcStrokeDp = 5f
+    const val stepsBarsHeightDp = 56f
+    const val stepsBarsCompactHeightDp = 40f
+    const val stepsBarFill = 0.5f
+    const val stepsGoalLineAlpha = 0.5f
+    const val stepsGoalLineDp = 1f
+    // T188: the Rhythm page. The 24-hour ring is drawn at one size per hub size.
+    const val rhythmRingCompactDp = 112f
+    const val rhythmRingStandardDp = 148f
+    const val rhythmRingTallDp = 184f
+    const val rhythmRingStrokeDp = 12f
+    const val rhythmTickDp = 5f
+    const val rhythmTickAlpha = 0.6f
+    const val rhythmNowDotDp = 4f
+    // T197: the Records page. A record row is a label line over a value line; the gap between rows shrinks to the minimum to fit the panel.
+    const val recordsRowDp = 40f
+    const val recordsRowGapMinDp = 2f
+    // T198: pages only some builds carry. A stat is a label line over a value line; the clock value is a little larger.
+    const val extraPageRowDp = 40f
+    const val extraPageRowGapMinDp = 2f
+    const val extraPageTimeSp = 22f
+    // T199: a flip card page. The card takes what the panel leaves after the header and the answer row; the word is large.
+    const val flipCardHeaderDp = 20f
+    const val flipCardCardMinDp = 96f
+    const val flipCardWordSp = 26f
+    const val flipCardSwipeDp = 40f
+    const val flipCardDistance = 12f
+    const val sessionProgressHeightDp = 4f
+    const val rhythmSwatchDp = 8f // 1.2.1: the small lit swatch in the legend
+    const val rhythmRingBelowMinDp = 120f // 1.5.1
+    const val rhythmRingMinDp = 72f // 1.2.1: the ring never draws smaller than this at Standard or Tall (the page scrolls instead)
+    const val rhythmRingCompactMinDp = 64f
+    const val rhythmLabelBandDp = 16f // 1.2.1: room around the ring for the 00 / 06 / 12 / 18 hour labels
+    const val rhythmHeaderDp = 80f // 1.2.1: the day switch row (arrows are 48 dp touch targets)
+    const val rhythmFactsRowDp = 56f // 1.2.1: one row of facts
+    const val rhythmSideFactsMinWidthDp = 120f // 1.2.1: the facts beside the ring need at least this much width
+    const val rhythmStrokeFraction = 0.1f // 1.2.1: ring stroke as a share of the ring, capped at rhythmRingStrokeDp
+    // 1.2.1: dragging a row in a settings list starts only after a press and hold (Metrics.longPressMs) on its handle.
+    const val settingsDragEdgeZoneDp = 72f // a lifted row this near the top or bottom of the list scrolls it
+    const val settingsDragScrollDpPerSecond = 640f
+    const val settingsHandleWidthDp = 56f
+    // T190: the Year page. One dot per day, a row per month; the row height is per hub size, the dot is 70 % of the smaller cell side.
+    const val yearRowCompactDp = 9f
+    const val yearRowStandardDp = 11f
+    const val yearRowTallDp = 13f
+    const val yearDotFill = 0.7f
+    const val yearMonthLabelWidthDp = 12f
+    const val yearMonthLabelSp = 8f
+    const val yearRingDp = 1.2f
+    const val yearMarkFill = 0.32f
+    /** T238: a day that is empty (future, or no number) is a thin outline ring at this alpha; filled days are solid. */
+    const val yearFutureAlpha = 0.45f
+    const val yearEmptyRingAlpha = 0.7f
+    const val yearEmptyRingDp = 1f
+    const val yearLegendDotDp = 9f
+    /** T238: the weakest step (step 1) is the palette colour faded toward the card only until it still has this contrast on the card. */
+    const val yearStepFloorContrast = 3.2f
+    /** T238: where steps 2 and 3 sit between step 1 (0) and step 4 (1). */
+    const val yearStepRamp2 = 0.4f
+    const val yearStepRamp3 = 0.7f
+    /** T238: fixed hues, each with a light form (for dark skins) and a dark form (for light skins). The better one is used. */
+    const val yearGreenLight = 0xFF8FD99CL
+    const val yearGreenDark = 0xFF1F6B34L
+    const val yearBlueLight = 0xFF86B6F2L
+    const val yearBlueDark = 0xFF1D4F9CL
+    const val yearAmberLight = 0xFFF0C050L
+    const val yearAmberDark = 0xFF8A5A00L
+    const val yearRoseLight = 0xFFF0A0B4L
+    const val yearRoseDark = 0xFF9E2A4AL
+    // T189: the Sky page. The sun's day as a curve over a horizon line, and the moon as a lit disc.
+    const val skyArcCompactDp = 84f
+    const val skyArcStandardDp = 108f
+    const val skyArcTallDp = 140f
+    const val skyCurveStrokeDp = 2f
+    const val skyHorizonDp = 1f
+    const val skyNowDotDp = 5f
+    const val skyBelowHorizonAlpha = 0.55f
+    const val skyMoonCompactDp = 48f
+    const val skyMoonStandardDp = 60f
+    const val skyMoonTallDp = 76f
+    const val skyMoonUnlitAlpha = 0.5f
+    const val skyMoonOutlineDp = 1f
     const val badgeDotRadiusDp = 3f
     const val badgeCountRadiusDp = 8f
     const val badgeCornerFraction = 0.72f
@@ -187,6 +336,27 @@ object Metrics {
     const val searchFieldCornerDp = 28f // half the field height
     const val searchFieldTextSp = 20f
     const val searchRowHeightDp = 56f
+    /** T247: the cached arc icon shown at the start of an app search row. */
+    const val searchRowIconDp = 28f
+    /** T247: the quiet arc sketch used by the Add to arc picker. */
+    const val searchArcLineAlpha = 0.55f
+    const val searchArcSpotRadiusDp = 14f
+    const val searchArcSpotAlpha = 0.18f
+    /** T194: alpha of the accent pill that slides under the selected search mode chip. */
+    const val searchModeHighlightAlpha = 0.14f
+    /** T195: how long "Copied" stays under a calculator result. */
+    const val searchCopiedNoticeMs = 1_500L
+    /** T195: the note preview card in Note mode: its corner, inner padding and a long note's visible height. */
+    const val searchNoteCardCornerDp = 14f
+    const val searchNoteCardPaddingDp = 14f
+    const val searchNoteCardMaxHeightDp = 220f
+    const val searchNoteCardFillAlpha = 0.5f
+    /** T196: Translate mode. Pause after the last key before sending, shortest text sent, longest text sent, saved translations, wait before the one retry. */
+    const val translateDebounceMs = 600L
+    const val translateMinChars = 2
+    const val translateMaxChars = 5_000
+    const val translateHistoryMax = 20
+    const val translateRetryDelayMs = 1_500L
     /** Alpha of the module while the sheet is fully open (DESIGN 3.4). */
     const val searchModuleAlpha = 0.35f
     /** A fast flick down dismisses from this distance (the plain drag needs `searchSwipeDp`). */
@@ -311,6 +481,9 @@ object Metrics {
     const val homeRecedeScale = 0.92f
     // T37: the home behind an open folder is a 6 % ghost; its labels are dropped while a folder is open.
     const val folderGhostAlpha = 0.06f
+    // T244: while an app is dragged out of an open folder, the Home arcs and their free spots show
+    // as a quiet drop guide behind the folder arcs.
+    const val folderDropGuideAlpha = 0.42f
     // T144: press scales and the size a slot grows from when a ring opens (DESIGN 2.6).
     const val pressSlotScale = 0.92f
     const val pressHubScale = 0.88f
@@ -343,11 +516,13 @@ object Metrics {
     // Editing UX (T30). First-run hint card, one-step undo snackbar and the inline rename field.
     const val hintCardWidthDp = 300f
     const val hintCardPaddingDp = 16f
-    const val hintCardTopDp = 96f
+    const val hintCardTopDp = 150f // T271: below the page-name strip, so the hint never covers the page names
     const val hintCardLineGapDp = 10f
     const val hintCornerDp = 20f
     const val editNoticeMs = 2_500L
     const val snackbarMs = 3_000L
+    /** T246: how long the quiet "Add <app> to an arc?" line stays; it is marked shown at once. */
+    const val newAppPromptMs = 8_000L
     const val snackbarBottomDp = 32f
     const val snackbarCornerDp = 12f
     const val settingsSubtitleGapDp = 6f
@@ -383,4 +558,195 @@ object Metrics {
     const val atlasRegistrationLength = 0.13f
     const val atlasPreviewHeightDp = 96f
     const val atlasPreviewWidthDp = 104f
+    // Hidden arcade (T200). Orbit is drawn in one Canvas on a pure black square; sizes are dp, ring radii and the score are fractions of the field's side.
+    const val arcadeRingInnerFraction = 0.22f
+    const val arcadeRingMiddleFraction = 0.34f
+    const val arcadeRingOuterFraction = 0.46f
+    const val arcadeDotPitchDp = 9f
+    const val arcadeDotDp = 1.5f
+    const val arcadeMarkDp = 2.6f
+    const val arcadeMarkEveryDeg = 30f
+    const val arcadeBarrierDotDp = 3.4f
+    const val arcadeBarrierPitchDp = 7f
+    const val arcadePlayerDp = 4.8f
+    const val arcadeLightDp = 3.4f
+    const val arcadeLightHaloDp = 7f
+    const val arcadeLightPulseTicks = 90
+    const val arcadeDimAlpha = 0.3f
+    const val arcadeMarkAlpha = 0.7f
+    const val arcadeScoreFraction = 0.13f
+    const val arcadeScoreDimAlpha = 0.55f
+    const val arcadeFieldMinDp = 120f
+    // T211: Lander's dots and its small labelled gauges inside the field.
+    const val arcadeLanderPadDotDp = 2.4f
+    const val arcadeLanderPadPitchDp = 7f
+    const val arcadeLanderShipDp = 3.0f
+    const val arcadeLanderFlameDp = 2.4f
+    const val arcadeLanderGaugeDotDp = 2.0f
+    const val arcadeLanderGaugePitchDp = 9f
+    const val arcadeLanderHudMarginFraction = 0.05f
+    const val arcadeLanderLabelFraction = 0.032f
+    const val arcadeLanderValueFraction = 0.052f
+    // T205: disk thumbnail dimensions and typographic cover proportions (not screen layout).
+    const val bookCoverWidthPx = 320
+    const val bookCoverHeightPx = 448
+    const val bookCoverInsetFraction = 0.09f
+    const val bookCoverTitleFraction = 0.085f
+    const val bookCoverAuthorFraction = 0.05f
+    const val bookCoverLineSpacing = 1.15f
+    const val bookCoverTitleLines = 7
+    // T206: the Library shelf and the Find books sheet. Covers keep the reader's 5:7 shape;
+    // the shelf sizes itself from the panel height and adds columns on wide screens.
+    // T249: the Continue reading row on Today. A small 5:7 cover beside a title and percent.
+    const val todayCoverWidthDp = 30f
+    const val todayCoverHeightDp = 42f
+
+    const val bookShelfAspect = 0.714f
+    const val bookShelfCoverMinDp = 56f
+    const val bookShelfCoverMaxDp = 140f
+    const val bookShelfTallMinCoverDp = 84f // T271: Tall's second row only when covers stay at least this tall
+    const val bookShelfLabelHeightDp = 44f
+    const val bookShelfGapDp = 12f
+    const val bookShelfProgressDp = 2f
+    const val bookShelfProgressTrackAlpha = 0.35f
+    const val bookShelfCornerDp = 6f
+    const val bookShelfMissingAlpha = 0.55f
+    // T227: the "+" tile that follows the last book on the shelf. Its size follows the cover; only
+    // the drawn glyph, its inset and the label gap are their own quiet values.
+    const val bookShelfAddGlyphFraction = 0.42f
+    const val bookShelfAddArmFraction = 0.30f
+    const val bookShelfAddStrokeDp = 1.6f
+    const val bookShelfAddInsetDp = 4f
+    const val bookShelfAddGapDp = 4f
+    const val bookFindChipHeightDp = 48f
+    const val bookFindChipInsetDp = 10f
+    const val bookFindSearchHeightDp = 48f
+    const val bookFindRowGapDp = 4f
+    const val bookFindTickDp = 20f
+    const val bookFindTickStrokeDp = 1.5f
+    const val bookFindNoticeMs = 3_000L
+    // T226: the redesigned Find books screen. One compact filter, quiet rows and a sticky selection bar.
+    const val bookFindSegmentHeightDp = 40f
+    const val bookFindSegmentGapDp = 2f
+    const val bookFindBadgeWidthDp = 38f
+    const val bookFindBadgeHeightDp = 20f
+    const val bookFindBadgeCornerDp = 4f
+    const val bookFindSelectedTintAlpha = 0.12f
+    const val bookFindGroupHeaderHeightDp = 48f
+    const val bookFindStickyBarClearanceDp = 72f
+    const val bookFindRowSettleOffsetDp = 8f
+    const val bookFindRowSettleDelayMs = 18
+    const val bookFindSortMenuWidthDp = 160f
+    const val bookFindSortButtonWidthDp = 96f
+    // T207: the full-screen reader. Page margins and type sizes are reader settings, not screen tokens;
+    // these are the bar, sheets and touch geometry.
+    const val readerBarSideInsetDp = 12f
+    const val readerHairlineDp = 1f
+    const val readerBarTopInsetDp = 8f
+    const val readerBarMinHeightDp = 48f
+    const val readerProgressHeightDp = 2f
+    const val readerProgressGapDp = 6f
+    const val readerSheetInsetDp = 12f
+    const val readerSheetCornerDp = 20f
+    const val readerSheetMaxWidthDp = 480f
+    const val readerSheetMaxHeightFraction = 0.78f
+    const val readerContentsHeightFraction = 0.62f
+    const val readerRowGapDp = 8f
+    const val readerChipHeightDp = 44f
+    const val readerChipInsetDp = 10f
+    const val readerChipGapDp = 6f
+    const val readerTouchTargetDp = 48f
+    const val readerEdgeFraction = 0.30f
+    const val readerSwipeDp = 48f
+    const val readerBarScrimAlpha = 0.94f
+    const val readerDefaultFontSp = 19f
+    const val readerMinFontSp = 15f
+    const val readerMaxFontSp = 30f
+    const val readerFontStepSp = 1f
+    const val readerDefaultLineSpacing = 1.55f
+    const val readerMinLineSpacing = 1.2f
+    const val readerMaxLineSpacing = 2.2f
+    const val readerLineStep = 0.15f
+    const val readerDefaultMarginFraction = 0.07f
+    const val readerMinMarginFraction = 0.03f
+    const val readerMaxMarginFraction = 0.14f
+    const val readerMarginStep = 0.01f
+    const val readerPageLightPaper = 0xFFF3EDE2L
+    const val readerPageLightInk = 0xFF24211CL
+    const val readerPageLightSecondary = 0xFF6B6258L
+    const val readerPageSepiaPaper = 0xFFE8D8B8L
+    const val readerPageSepiaInk = 0xFF3A2E1EL
+    const val readerPageSepiaSecondary = 0xFF746349L
+    const val readerPageDarkPaper = 0xFF17191DL
+    const val readerPageDarkInk = 0xFFE6EAF0L
+    const val readerPageDarkSecondary = 0xFF9AA3AEL
+    const val readerPageBlackPaper = 0xFF000000L
+    const val readerPageBlackInk = 0xFFE6EAF0L
+    const val readerPageBlackSecondary = 0xFF8C97A6L
+    // T255: Night is dimmer and warmer than Black, so it is easy on the eyes in the dark.
+    const val readerNightPaper = 0xFF0A0908L
+    const val readerNightInk = 0xFFB5A998L
+    const val readerNightSecondary = 0xFF7A7062L
+    const val readerMaxDocumentChars = 8_000_000
+    const val readerMaxBookHtmlChars = 24_000_000
+    const val readerMaxImageBytes = 4_000_000
+    const val readerMaxImagesBytes = 16_000_000
+    const val readerMaxSourceBytes = 128_000_000L
+    // T209: the Files search mode lists a lazy, bounded set of files above the field.
+    const val searchFilesMaxHeightDp = 320f
+    const val searchFilesRowGapDp = 4f
+    // T208: PDF rendering. Pages render at screen width but never taller than a factor of the
+    // screen, so a very tall page cannot allocate an unbounded bitmap. Only a small window of
+    // neighbours is kept; evicted bitmaps are recycled. Zoom and the scrubber are gestures, not
+    // stored values.
+    const val pdfMaxRenderHeightFactor = 2.0f
+    const val pdfCacheMinPages = 2
+    const val pdfCacheMaxPages = 5
+    const val pdfCacheMaxBytes = 32 * 1024 * 1024
+    /** T235: a zoomed render may use at most half the cache budget for one page (ARGB_8888). */
+    const val pdfMaxRenderPixels = pdfCacheMaxBytes / pdfCacheMinPages / 4
+    /** T235: the zoom limit, and a sharper re-render once a pinch or double tap settles. */
+    const val pdfMaxZoom = 5f
+    const val pdfDoubleTapZoom = 2f
+    const val pdfZoomLabelThreshold = 1.01f
+    /** T235: a pan is at the page edge when it is this close to its limit, in pixels. */
+    const val pdfPanEdgeSlopPx = 1f
+    const val pdfPageGapDp = 8f
+    const val pdfScrubberHitDp = 44f
+    const val pdfScrubberTrackDp = 3f
+    const val pdfScrubberThumbDp = 7f
+    // T210: reader motion. A drag turns a page at 18 % of the screen width; a flick turns it
+    // earlier. At the first/last page the finger meets quiet resistance. Pulling from the top
+    // edge closes the reader once the page has moved 28 % of the way into its cover (or with a
+    // downward flick). The cover overlay only appears near the end of the close.
+    const val readerPullZoneFraction = 0.18f
+    const val readerPullDistanceFraction = 0.55f
+    const val readerPullCloseFraction = 0.28f
+    const val readerPullFlingPxPerSec = 1_200f
+    const val readerPageTurnFraction = 0.18f
+    const val readerPageFlingPxPerSec = 900f
+    const val readerPageEdgeResistance = 0.18f
+    const val readerCoverRevealStart = 0.62f
+    const val readerCoverHoldMaxMs = 1_500L
+    const val readerShelfSettleScale = 0.96f
+    const val readerShelfSettleAlpha = 0.60f
+    // T236: highlights, selection handles, the quiet bookmark ribbon and the Marks panel. The
+    // highlight colours themselves are skin tokens; only their wash strength is geometry.
+    const val readerHighlightAlpha = 0.38f
+    // T257: the follow-along highlight under the spoken word or sentence.
+    const val readerSpeakingAlpha = 0.24f
+    const val readerSelectionAlpha = 0.26f
+    const val readerSelectionHandleDp = 9f
+    const val readerSelectionHandleGrabDp = 30f
+    const val readerSelectionMenuInsetDp = 12f
+    const val readerSelectionSwatchDp = 34f
+    const val readerMarkRibbonWidthDp = 18f
+    const val readerMarkRibbonHeightDp = 28f
+    const val readerMarkRibbonInsetDp = 10f
+    const val readerMarkRibbonNotchFraction = 0.72f
+    const val readerMarkRibbonAlpha = 0.82f
+    const val readerSelectionHaloDp = 1.5f
+    const val readerMarkRowSwipeDp = 72f
+    const val readerMarkRowMaxLines = 2
 }
+

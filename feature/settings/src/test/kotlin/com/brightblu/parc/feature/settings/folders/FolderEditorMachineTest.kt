@@ -2,6 +2,7 @@ package com.brightblu.parc.feature.settings.folders
 
 import com.brightblu.parc.model.AppId
 import com.brightblu.parc.model.FolderId
+import com.brightblu.parc.model.hidden
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -144,6 +145,22 @@ class FolderEditorMachineTest {
         assertEquals("Chat", renamed.openFolder?.name)
         assertEquals(listOf(a, b, c), renamed.openFolder?.appIds)
         assertEquals("Rename", renamed.undoLabel)
+    }
+
+    @Test
+    fun `hiding and unhiding toggles only the tag and can be undone`() {
+        val hidden = open().run(FolderEditorEvent.ToggleFolderHidden)
+        assertTrue(hidden.openFolder?.hidden == true)
+        assertEquals(listOf(a, b, c), hidden.openFolder?.appIds)
+        assertEquals("Hide folder", hidden.undoLabel)
+        assertEquals("Folder hidden. Its apps stay inside.", hidden.notice)
+
+        val shown = hidden.run(FolderEditorEvent.ToggleFolderHidden)
+        assertFalse(shown.openFolder?.hidden == true)
+        assertEquals("Unhide folder", shown.undoLabel)
+
+        val undone = shown.run(FolderEditorEvent.Undo)
+        assertTrue(undone.openFolder?.hidden == true)
     }
 
     @Test

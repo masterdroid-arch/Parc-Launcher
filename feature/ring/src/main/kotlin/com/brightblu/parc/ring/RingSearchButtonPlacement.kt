@@ -9,9 +9,12 @@ import kotlin.math.*
  * and is lifted just enough that its 44 dp touch target clears every slot's touch target. The
  * clear-of-slots search replaces the T09 draw only; the maths is pure and unit-tested.
  */
-internal class RingSearchButtonPlacement(arcs: List<ArcSpec>) {
+internal class RingSearchButtonPlacement(arcs: List<ArcSpec>, widthDp: Float = 0f) {
+    /** T261: with the hub on the left half (Left hand) the button moves to the bottom right, clear of the hub. */
+    val mirrored = widthDp > 0f && (arcs.firstOrNull()?.originXDp ?: Float.MAX_VALUE) < widthDp / 2f
+
     /** Left edge of the 44 dp touch box, in dp. */
-    val left = Metrics.searchButtonLeftDp
+    val left = if (mirrored) widthDp - Metrics.searchButtonLeftDp - Metrics.searchButtonTouchDp else Metrics.searchButtonLeftDp
 
     /** Touch radius in dp (22). */
     val radius = Metrics.searchButtonTouchDp / 2f
@@ -42,5 +45,5 @@ internal class RingSearchButtonPlacement(arcs: List<ArcSpec>) {
 }
 
 /** OPUS4: top edge (dp) of the search button's touch box for these arcs, for layouts that must keep clear of it. */
-fun searchButtonTopDp(arcs: List<com.brightblu.parc.model.ArcSpec>): Float =
-    RingSearchButtonPlacement(arcs).let { it.centerY - it.radius }
+fun searchButtonTopDp(arcs: List<com.brightblu.parc.model.ArcSpec>, widthDp: Float = 0f): Float =
+    RingSearchButtonPlacement(arcs, widthDp).let { it.centerY - it.radius }

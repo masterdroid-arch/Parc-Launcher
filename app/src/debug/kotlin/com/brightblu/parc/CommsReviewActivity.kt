@@ -45,8 +45,7 @@ class CommsReviewActivity : ComponentActivity() {
                     (skin.typography.label.sizeSp + Metrics.labelPaddingVerticalDp * 2) * density.fontScale)
                 HubPages(skin, Modifier.padding(start = Metrics.textGutterDp.dp, end = Metrics.textGutterDp.dp, top = top.dp)
                     .height(com.brightblu.parc.ring.RingHudBounds.heightDp(top, bottom).dp),
-                    comms = { CommsPage(repository, skin, reviewAccess = if (live) null else true) },
-                    system = { androidx.compose.foundation.text.BasicText("System", style = androidx.compose.ui.text.TextStyle(color = Color(skin.colors.accent.toInt()))) })
+                    comms = { CommsPage(repository, skin, reviewAccess = if (live) null else true) })
             }
         }
     }
@@ -70,9 +69,25 @@ internal class ReviewComms : CommsExtrasRepository {
     // entry already in the history so the toggle shows the dimmed view without a real dismissal.
     override val cannedReplies = MutableStateFlow(CommsCannedReplies.Default)
     override val keepHistory = MutableStateFlow(true)
+    override val storedMessages = MutableStateFlow(listOf(
+        CommsMessageEntity(
+            id = 1,
+            app = CommsPackages.WhatsApp,
+            conversationKey = "Alex",
+            conversationTitle = "Alex",
+            sender = "alex",
+            notificationTitle = "Alex",
+            text = "Stored fixture line",
+            timeMs = 1_760_709_000_000L,
+            recordedAtMs = 1_760_709_100_000L,
+            notificationKey = "fixture4",
+            identity = "fixture4",
+            live = false,
+        ),
+    ))
     override val history = MutableStateFlow(listOf(
         CommsHistoryEntry(CommsConversationId(CommsPackages.WhatsApp, "Alex"), "Alex",
-            CommsMessage("fixture4", "alex", "Dismissed fixture line", 1_760_709_000_000L), 1_760_709_100_000L),
+            CommsMessage("fixture4", "alex", "Stored fixture line", 1_760_709_000_000L), 1_760_709_100_000L),
     ))
     override suspend fun setEnabled(enabled: Boolean) { this.enabled.value = enabled }
     override suspend fun setAllowedApps(packages: Set<String>) { allowedApps.value = packages }
@@ -80,10 +95,18 @@ internal class ReviewComms : CommsExtrasRepository {
         cannedReplies.value = CommsCannedReplies.sanitize(replies)
     }
     override suspend fun setKeepHistory(enabled: Boolean) {
+        // T214: recording off pauses writes; it does not clear what is already stored.
         keepHistory.value = enabled
-        if (!enabled) history.value = emptyList()
     }
-    override suspend fun clearHistory() { history.value = emptyList() }
+    override suspend fun clearHistory() { history.value = emptyList(); storedMessages.value = emptyList() }
+    override suspend fun deleteHistoryMessage(id: Long) {
+        storedMessages.value = storedMessages.value.filterNot { it.id == id }
+        history.value = history.value.filterNot { it.message.notificationKey == "fixture4" }
+    }
+    override suspend fun deleteHistoryConversation(app: String, conversationKey: String) {
+        storedMessages.value = storedMessages.value.filterNot { it.app == app && it.conversationKey == conversationKey }
+        history.value = history.value.filterNot { it.conversation.app == app && it.conversation.key == conversationKey }
+    }
     override suspend fun markAsRead(conversation: CommsConversation): MarkReadResult {
         conversations.value = conversations.value.filterNot { it.id == conversation.id }
         return if (conversation.canMarkRead) MarkReadResult.Marked else MarkReadResult.Dismissed

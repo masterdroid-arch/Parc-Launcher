@@ -24,6 +24,8 @@ data class SearchPrefsSnapshot(
     val eventsEnabled: Boolean = SearchPrefs.DefaultSourceEnabled,
     /** T102: the one-time permission row in the sheet has been used; it is not shown again. */
     val extrasPromptDone: Boolean = false,
+    /** T259: the alias the user gave an app, keyed by the stable app id. */
+    val aliases: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -44,6 +46,9 @@ class SearchPrefs(private val store: DataStore<Preferences>) {
     val recentsEnabled: Flow<Boolean> = store.data.map { it[KeyRecentsEnabled] ?: DefaultRecentsEnabled }
 
     val webEngine: Flow<WebSearchEngine> = store.data.map { WebSearchEngine.fromId(it[KeyWebEngine]) }
+
+    /** T259: app aliases, already decoded from their compact JSON document. */
+    val aliases: Flow<Map<String, String>> = store.data.map { SearchAliases.decode(it[KeyAliases]) }
 
     /** Records a search that actually led somewhere; a blank query is ignored. */
     suspend fun recordSearch(query: String) {
@@ -80,6 +85,14 @@ class SearchPrefs(private val store: DataStore<Preferences>) {
         store.edit { it[KeySourceEvents] = enabled }
     }
 
+    /** T259: sets, changes or clears (blank alias) one app's search alias. */
+    suspend fun setAlias(appId: String, alias: String) {
+        store.edit { prefs ->
+            val next = SearchAliases.updated(SearchAliases.decode(prefs[KeyAliases]), appId, alias)
+            prefs[KeyAliases] = SearchAliases.encode(next)
+        }
+    }
+
     /** Marks the one-time "Search files and calendar" row as used. Not part of the backup. */
     suspend fun markExtrasPromptDone() {
         store.edit { it[KeyExtrasPromptDone] = true }
@@ -98,6 +111,7 @@ class SearchPrefs(private val store: DataStore<Preferences>) {
         internal val KeySourceFiles = booleanPreferencesKey("source_files")
         internal val KeySourceEvents = booleanPreferencesKey("source_events")
         internal val KeyExtrasPromptDone = booleanPreferencesKey("extras_prompt_done")
+        internal val KeyAliases = stringPreferencesKey("aliases")
 
         /** Builds the process-wide search settings store for an app context. */
         fun create(context: Context): SearchPrefs = SearchPrefs(context.applicationContext.parcSearchStore)
@@ -113,6 +127,7 @@ internal fun Preferences.toSearchPrefs(): SearchPrefsSnapshot = SearchPrefsSnaps
     filesEnabled = this[SearchPrefs.KeySourceFiles] ?: SearchPrefs.DefaultSourceEnabled,
     eventsEnabled = this[SearchPrefs.KeySourceEvents] ?: SearchPrefs.DefaultSourceEnabled,
     extrasPromptDone = this[SearchPrefs.KeyExtrasPromptDone] ?: false,
+    aliases = SearchAliases.decode(this[SearchPrefs.KeyAliases]),
 )
 
 internal val Context.parcSearchStore by preferencesDataStore(name = SearchPrefs.StoreName,

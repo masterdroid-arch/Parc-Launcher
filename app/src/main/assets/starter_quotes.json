@@ -1,0 +1,202 @@
+[
+  {
+    "id": "starter-walden-tenderly",
+    "text": "The finest qualities of our nature, like the bloom on fruits, can be preserved only by the most delicate handling. Yet we do not treat ourselves nor one another thus tenderly.",
+    "author": "Henry David Thoreau",
+    "work": "Walden — Economy",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/205/pg205.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-emerson-kindness",
+    "text": "We have a great deal more kindness than is ever spoken. Barring all the selfishness that chills like east winds the world, the whole human family is bathed with an element of love like a fine ether.",
+    "author": "Ralph Waldo Emerson",
+    "work": "Friendship (Essays)",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/16643/pg16643.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-whitman-loafe",
+    "text": "I loafe and invite my soul,\nI lean and loafe at my ease observing a spear of summer grass.",
+    "author": "Walt Whitman",
+    "work": "Leaves of Grass — Song of Myself, 1",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/1322/pg1322.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-walden-margin",
+    "text": "I love a broad margin to my life.",
+    "author": "Henry David Thoreau",
+    "work": "Walden — Sounds",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/205/pg205.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-emerson-sincere",
+    "text": "A friend is a person with whom I may be sincere. Before him, I may think aloud.",
+    "author": "Ralph Waldo Emerson",
+    "work": "Friendship (Essays)",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/16643/pg16643.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-whitman-enough",
+    "text": "I exist as I am, that is enough,\nIf no other in the world be aware I sit content,\nAnd if each and all be aware I sit content.",
+    "author": "Walt Whitman",
+    "work": "Leaves of Grass — Song of Myself, 20",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/1322/pg1322.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-walden-pace",
+    "text": "If a man does not keep pace with his companions, perhaps it is because he hears a different drummer. Let him step to the music which he hears, however measured or far away. It is not important that he should mature as soon as an apple-tree or an oak.",
+    "author": "Henry David Thoreau",
+    "work": "Walden — Conclusion",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/205/pg205.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-emerson-roses",
+    "text": "These roses under my window make no reference to former roses or to better ones; they are for what they are; they exist with God to-day. There is no time to them. There is simply the rose; it is perfect in every moment of its existence.",
+    "author": "Ralph Waldo Emerson",
+    "work": "Self-Reliance (Essays)",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/16643/pg16643.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-whitman-senses",
+    "text": "Seeing, hearing, feeling, are miracles, and each part and tag of me is a miracle.",
+    "author": "Walt Whitman",
+    "work": "Leaves of Grass — Song of Myself, 24",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/1322/pg1322.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-walden-heaven",
+    "text": "Heaven is under our feet as well as over our heads.",
+    "author": "Henry David Thoreau",
+    "work": "Walden — The Pond in Winter",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/205/pg205.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-emerson-silent",
+    "text": "Let us be silent,--so we may hear the whisper of the gods. Let us not interfere.",
+    "author": "Ralph Waldo Emerson",
+    "work": "Friendship (Essays)",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/16643/pg16643.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-whitman-animals",
+    "text": "I think I could turn and live with animals, they are so placid and self-contain’d,\nI stand and look at them long and long.",
+    "author": "Walt Whitman",
+    "work": "Leaves of Grass — Song of Myself, 32",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/1322/pg1322.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-walden-change",
+    "text": "Things do not change; we change. Sell your clothes and keep your thoughts.",
+    "author": "Henry David Thoreau",
+    "work": "Walden — Conclusion",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/205/pg205.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-emerson-trust",
+    "text": "The essence of friendship is entireness, a total magnanimity and trust.",
+    "author": "Ralph Waldo Emerson",
+    "work": "Friendship (Essays)",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/16643/pg16643.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-whitman-truths",
+    "text": "All truths wait in all things,\nThey neither hasten their own delivery nor resist it,",
+    "author": "Walt Whitman",
+    "work": "Leaves of Grass — Song of Myself, 30",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/1322/pg1322.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-walden-solitude",
+    "text": "I love to be alone. I never found the companion that was so companionable as solitude.",
+    "author": "Henry David Thoreau",
+    "work": "Walden — Solitude",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/205/pg205.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-whitman-goodness",
+    "text": "I am larger, better than I thought,\nI did not know I held so much goodness.",
+    "author": "Walt Whitman",
+    "work": "Leaves of Grass — Song of the Open Road, 5",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/1322/pg1322.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-walden-nature",
+    "text": "We can never have enough of Nature. We must be refreshed by the sight of inexhaustible vigor, vast and Titanic features, the sea-coast with its wrecks, the wilderness with its living and its decaying trees, the thunder cloud, and the rain which lasts three weeks and produces freshets. We need to witness our own limits transgressed, and some life pasturing freely where we never wander.",
+    "author": "Henry David Thoreau",
+    "work": "Walden — Spring",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/205/pg205.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-whitman-road",
+    "text": "Afoot and light-hearted I take to the open road,\nHealthy, free, the world before me,\nThe long brown path before me leading wherever I choose.",
+    "author": "Walt Whitman",
+    "work": "Leaves of Grass — Song of the Open Road, 1",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/1322/pg1322.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-walden-dawn",
+    "text": "Only that day dawns to which we are awake. There is more day to dawn. The sun is but a morning star.",
+    "author": "Henry David Thoreau",
+    "work": "Walden — Conclusion",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/205/pg205.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-whitman-earth",
+    "text": "The earth, that is sufficient,\nI do not want the constellations any nearer,\nI know they are very well where they are,\nI know they suffice for those who belong to them.",
+    "author": "Walt Whitman",
+    "work": "Leaves of Grass — Song of the Open Road, 1",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/1322/pg1322.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-walden-morning",
+    "text": "Every morning was a cheerful invitation to make my life of equal simplicity, and I may say innocence, with Nature herself.",
+    "author": "Henry David Thoreau",
+    "work": "Walden — Where I Lived, and What I Lived For",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/205/pg205.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-whitman-miracle",
+    "text": "To me every hour of the light and dark is a miracle,\nEvery cubic inch of space is a miracle,\nEvery square yard of the surface of the earth is spread with the same,\nEvery foot of the interior swarms with the same.",
+    "author": "Walt Whitman",
+    "work": "Leaves of Grass — Miracles",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/1322/pg1322.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-walden-chairs",
+    "text": "I had three chairs in my house; one for solitude, two for friendship, three for society.",
+    "author": "Henry David Thoreau",
+    "work": "Walden — Visitors",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/205/pg205.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  },
+  {
+    "id": "starter-whitman-stars",
+    "text": "When I heard the learn’d astronomer,\nWhen the proofs, the figures, were ranged in columns before me,\nWhen I was shown the charts and diagrams, to add, divide, and measure them,\nWhen I sitting heard the astronomer where he lectured with much applause in the lecture-room,\nHow soon unaccountable I became tired and sick,\nTill rising and gliding out I wander’d off by myself,\nIn the mystical moist night-air, and from time to time,\nLook’d up in perfect silence at the stars.",
+    "author": "Walt Whitman",
+    "work": "Leaves of Grass — When I Heard the Learn’d Astronomer",
+    "sourceUrl": "https://www.gutenberg.org/cache/epub/1322/pg1322.txt",
+    "confidence": "High: exact contiguous excerpt, whitespace normalized"
+  }
+]

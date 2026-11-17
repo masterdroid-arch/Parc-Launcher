@@ -55,13 +55,17 @@ class SpacingSystemTest {
         assertEquals(124f, ParcSpacing.pageBottomDp(100f), 0f)
     }
 
-    @Test fun pageSidesAreTheGutterPlusAnyCutout() {
+    @Test fun pageSidesAreTheGutterPlusAnyCutoutAndTheRightBackStrip() {
+        // T230: the right side never enters gesturenav's Back strip (PROJECT.md keeps the right 40 dp;
+        // the 48 dp keep-out is the existing token), while the left keeps the text gutter.
         val plain = ParcSpacing.page(statusTopDp = 46.9f, navBottomDp = 24f)
         assertEquals(20f, plain.startDp, 0f)
-        assertEquals(20f, plain.endDp, 0f)
+        assertEquals(48f, plain.endDp, 0f)
         val cut = ParcSpacing.page(statusTopDp = 0f, navBottomDp = 0f, startInsetDp = 30f, endInsetDp = 12f)
         assertEquals(50f, cut.startDp, 0f)
-        assertEquals(32f, cut.endDp, 0f)
+        assertEquals(48f, cut.endDp, 0f)
+        val wideCut = ParcSpacing.page(statusTopDp = 0f, navBottomDp = 0f, endInsetDp = 60f)
+        assertEquals(80f, wideCut.endDp, 0f)
         assertEquals(20f, ParcSpacing.page(0f, 0f, -8f, -8f).startDp, 0f)
     }
 

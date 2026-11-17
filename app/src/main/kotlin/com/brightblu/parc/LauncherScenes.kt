@@ -44,9 +44,12 @@ internal object LauncherScenes {
         hideLockedName: Boolean = false,
         shortcutVisuals: Map<Slot.Shortcut, PinnedShortcutVisual> = emptyMap(),
         shortcutHiddenPackages: Set<String> = emptySet(),
+        /** T218: folder slots that leave Home (hidden tag or every member hidden). */
+        hiddenFolderIds: Set<FolderId> = emptySet(),
         icon: (AppId) -> android.graphics.Bitmap?): RingState = try {
         buildScene(geometry, layout, apps, shell, clock, previews, rotations, rank, profiles,
-            markWorkApps, lockedFolders, hideLockedName, shortcutVisuals, shortcutHiddenPackages, icon)
+            markWorkApps, lockedFolders, hideLockedName, shortcutVisuals, shortcutHiddenPackages,
+            hiddenFolderIds, icon)
     } catch (failure: Throwable) {
         val detail = "${shell.layer}/${sceneSlotCapacityHint(geometry)}: " +
             "${failure.javaClass.simpleName}: ${failure.message.orEmpty()}"
@@ -60,7 +63,7 @@ internal object LauncherScenes {
         rotations: Map<String, Float>, rank: (FolderId) -> List<AppId>,
         profiles: ProfileSet, markWorkApps: Boolean, lockedFolders: Set<FolderId>, hideLockedName: Boolean,
         shortcutVisuals: Map<Slot.Shortcut, PinnedShortcutVisual>, shortcutHiddenPackages: Set<String>,
-        icon: (AppId) -> android.graphics.Bitmap?): RingState {
+        hiddenFolderIds: Set<FolderId>, icon: (AppId) -> android.graphics.Bitmap?): RingState {
         fun folderLabel(folder: Folder): String =
             if (hideLockedName && folder.id in lockedFolders) LockedFolderText.HiddenName else folder.name
         val byId = apps.associateBy { it.id }
@@ -88,6 +91,10 @@ internal object LauncherScenes {
         }
         if (shell.layer == Layer.Folder) {
             val folder = folders[shell.folderId]
+            if (folder != null && (folder.hidden || folder.id in hiddenFolderIds)) {
+                // T218: a folder that left Home never leaks its members through an open folder layer.
+                return RingScenes.folder(geometry, folder, emptyList(), rotations)
+            }
             if (folder != null) {
                 // T156: folder members pinned on Home lead in pin iteration order; supplied order follows.
                 val ordered = (layout.pins.filter { it in folder.appIds } +
@@ -112,7 +119,8 @@ internal object LauncherScenes {
                 val position = SlotPosition(arc.id, index)
                 when (slot) {
                     is Slot.App -> appSlot(slot.id)?.copy(position = position)
-                    is Slot.Folder -> folders[slot.id]?.let { RingSlot(position, slot, folderLabel(it), previews[it.id]) }
+                    is Slot.Folder -> folders[slot.id]?.takeUnless { it.hidden || it.id in hiddenFolderIds }
+                        ?.let { RingSlot(position, slot, folderLabel(it), previews[it.id]) }
                     is Slot.Action -> if (slot.kind == ActionKind.More) null else RingSlot(position, slot, when (slot.kind) {
                         ActionKind.Settings -> "Settings"
                         ActionKind.More -> "More"
@@ -125,7 +133,8 @@ internal object LauncherScenes {
         }.toMutableList()
         // The seeded inbox is unplaced. Use an empty outer position without moving a saved slot.
         val inbox = folders[FolderId("new")]
-        if (inbox != null && inbox.appIds.isNotEmpty() && slots.none { it.slot == Slot.Folder(inbox.id) }) {
+        if (inbox != null && !inbox.hidden && inbox.id !in hiddenFolderIds &&
+            inbox.appIds.isNotEmpty() && slots.none { it.slot == Slot.Folder(inbox.id) }) {
             val outer = geometry.arcs.last()
             val vacant = (0 until outer.slotCapacity).firstOrNull { i ->
                 layout.arcs.firstOrNull { it.arc.id == outer.id }?.slots?.containsKey(i) != true

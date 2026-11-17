@@ -19,10 +19,13 @@ internal class PullState {
     val hubAlpha get() = 1f - (1f - Metrics.searchPullMinHubAlpha) * progress
 
     fun start(x: Float, y: Float, time: Long, fromHub: Boolean = false,
-        atScrollTop: Boolean = true, blocked: Boolean = false, onControl: Boolean = false) {
+        atScrollTop: Boolean = true, blocked: Boolean = false, onControl: Boolean = false,
+        onGrip: Boolean = false) {
         this.x = x; this.y = y; this.fromHub = fromHub
-        eligible = !blocked && !onControl && x.isFinite() && y.isFinite() &&
-            y > Metrics.keepOutTopDp && (!fromHub || atScrollTop)
+        // T235: a hub page at its top is entered only from the grip. Any other drag on a
+        // scrollable page must scroll that page and never pull the search open.
+        eligible = HubPullPriority.startsSearchPull(fromHub, atScrollTop, onGrip, blocked, onControl) &&
+            x.isFinite() && y.isFinite() && y > Metrics.keepOutTopDp
         ticked = false
         progress = 0f
         detector.start(x, y, time, blocked = !eligible)

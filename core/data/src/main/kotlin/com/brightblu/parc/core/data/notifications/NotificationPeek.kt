@@ -16,8 +16,9 @@ enum class PeekVisibility {
 
 /**
  * What the long-press menu may know about one active notification (T97). Pure data: no
- * `PendingIntent`, no icon, no bitmap. The text is kept in memory only, never written to disk or
- * logged, and dropped when the listener disconnects.
+ * `PendingIntent`, no icon, no bitmap. This live preview text is kept in memory only, never
+ * written to disk or logged, and dropped when the listener disconnects. The Messages history is a
+ * separate store ([com.brightblu.parc.core.data.comms.CommsHistoryStore]).
  */
 data class PeekEntry(
     val key: String,

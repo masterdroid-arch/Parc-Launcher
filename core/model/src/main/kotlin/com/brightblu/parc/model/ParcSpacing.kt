@@ -15,19 +15,35 @@ object ParcSpacing {
      * cutout; [navBottomDp] is the navigation bar; the side insets are zero in portrait.
      */
     fun page(statusTopDp: Float, navBottomDp: Float, startInsetDp: Float = 0f, endInsetDp: Float = 0f) = PageInsets(
-        startDp = Metrics.screenGutterDp + startInsetDp.coerceAtLeast(0f),
+        startDp = pageStartDp(startInsetDp),
         topDp = pageTopDp(statusTopDp),
-        endDp = Metrics.screenGutterDp + endInsetDp.coerceAtLeast(0f),
+        endDp = pageEndDp(endInsetDp),
         bottomDp = pageBottomDp(navBottomDp),
     )
+
+    /** The left gutter plus any display cutout. */
+    fun pageStartDp(startInsetDp: Float): Float =
+        Metrics.screenGutterDp + startInsetDp.coerceAtLeast(0f)
+
+    /**
+     * The right gutter plus any display cutout, never inside gesturenav's right Back strip.
+     * PROJECT.md keeps the right 40 dp clear; [Metrics.keepOutRightDp] leaves 48 dp.
+     */
+    fun pageEndDp(endInsetDp: Float): Float =
+        max(Metrics.keepOutRightDp, Metrics.screenGutterDp + endInsetDp.coerceAtLeast(0f))
 
     /** Page content starts below the top keep-out, and a card inset below any status bar or cutout. */
     fun pageTopDp(statusTopDp: Float): Float =
         max(Metrics.keepOutTopDp, statusTopDp.coerceAtLeast(0f) + Metrics.cardInsetDp)
 
-    /** The last row scrolls clear of the gesture strip, and a section gap above a navigation bar. */
-    fun pageBottomDp(navBottomDp: Float): Float =
-        max(Metrics.keepOutBottomDp, navBottomDp.coerceAtLeast(0f) + Metrics.sectionGapDp)
+    /**
+     * The last row scrolls clear of the whole bottom system area: the navigation bar, the gesture
+     * area and the mandatory gesture strip, plus a section gap. The 48 dp PROJECT.md keep-out is the
+     * floor, so a device that reports no inset still leaves [Metrics.keepOutBottomDp].
+     */
+    fun pageBottomDp(navBottomDp: Float, gestureBottomDp: Float = 0f): Float =
+        max(Metrics.keepOutBottomDp,
+            max(navBottomDp.coerceAtLeast(0f), gestureBottomDp.coerceAtLeast(0f)) + Metrics.sectionGapDp)
 
     /** Width inside a card whose edges are [cardWidthDp] apart. */
     fun cardContentWidthDp(cardWidthDp: Float): Float = (cardWidthDp - 2 * Metrics.cardInsetDp).coerceAtLeast(0f)

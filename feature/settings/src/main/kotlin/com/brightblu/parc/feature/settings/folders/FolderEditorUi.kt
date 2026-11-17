@@ -3,6 +3,7 @@ package com.brightblu.parc.feature.settings.folders
 import com.brightblu.parc.model.AppEntry
 import com.brightblu.parc.model.AppId
 import com.brightblu.parc.model.FolderId
+import com.brightblu.parc.model.hidden
 
 /** One row of the folder list. */
 data class FolderRow(val id: FolderId, val name: String, val appCount: Int)
@@ -44,6 +45,8 @@ data class FolderEditorUi(
     val canUndo: Boolean,
     val undoLabel: String?,
     val folderIsFull: Boolean,
+    /** T218: the open folder carries the `parc:hidden` tag. */
+    val folderHidden: Boolean = false,
 )
 
 /**
@@ -110,5 +113,6 @@ fun FolderEditorState.toUi(apps: List<AppEntry>): FolderEditorUi {
         canUndo = canUndo,
         undoLabel = undoLabel,
         folderIsFull = grid != null && !grid.hasFreeSlot,
+        folderHidden = open?.hidden == true,
     )
 }

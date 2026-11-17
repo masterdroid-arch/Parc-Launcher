@@ -34,7 +34,7 @@ internal object FocusDisplay {
     fun clockLine(state: FocusState): String = state.active?.let { mode ->
         val until = state.untilMillis ?: return@let "focus · ${mode.name}"
         val time = java.time.Instant.ofEpochMilli(until).atZone(java.time.ZoneId.systemDefault()).toLocalTime().toString().take(5)
-        "${mode.glyph} ${mode.name} · until $time"
+        "${mode.name} · until $time"
     } ?: ""
 
     /** Root Settings row detail: the active mode, `Off` when modes exist, or `No modes`. */
@@ -99,25 +99,25 @@ internal object FocusFilter {
 }
 
 /**
- * [AppIndex] view that removes the active focus mode's packages. Search indexes this view and the
- * search sheet resolves labels from it, so a hidden app disappears from results as soon as the mode
- * changes and comes back when it ends. Launch, icons and shortcuts delegate unchanged.
+ * [AppIndex] view that removes everything the current [Visibility] hides: permanent hide, the
+ * active Focus mode, Lock and a hidden folder. Search indexes this view and the search sheet
+ * resolves labels from it, so a hidden app disappears from results as soon as the state changes and
+ * comes back when it ends. The shortcut loader follows the same set; launch and icons delegate.
  */
 internal class FocusAppIndex(
     private val delegate: AppIndex,
     private val focus: StateFlow<FocusState>,
     scope: CoroutineScope,
-    layout: StateFlow<com.brightblu.parc.model.ParcLayout> = kotlinx.coroutines.flow.MutableStateFlow(com.brightblu.parc.model.ParcLayout()),
+    private val layout: StateFlow<com.brightblu.parc.model.ParcLayout> = kotlinx.coroutines.flow.MutableStateFlow(com.brightblu.parc.model.ParcLayout()),
     /** T98: packages of locked folders that are hidden right now; search and shortcuts never see them. */
     private val locked: StateFlow<Set<String>> = kotlinx.coroutines.flow.MutableStateFlow(emptySet()),
 ) : AppIndex {
 
     override val apps: StateFlow<List<AppEntry>> =
         combine(delegate.apps, focus, layout, locked) { entries, state, current, hiddenByLock ->
-            com.brightblu.parc.core.data.lock.LockedApps.visibleApps(focusSearchApps(entries, state, current), hiddenByLock)
+            visibleSearchApps(entries, state, current, hiddenByLock)
         }.stateIn(scope, SharingStarted.Eagerly,
-            com.brightblu.parc.core.data.lock.LockedApps.visibleApps(
-                focusSearchApps(delegate.apps.value, focus.value, layout.value), locked.value))
+            visibleSearchApps(delegate.apps.value, focus.value, layout.value, locked.value))
 
     private data class IconKey(val id: AppId, val size: Int)
     private data class PreparedIcon(val source: Bitmap, val treatment: com.brightblu.parc.core.data.focus.FocusIconTreatment, val bitmap: Bitmap)
@@ -138,10 +138,29 @@ internal class FocusAppIndex(
     override fun launch(id: AppId) = delegate.launch(id)
 
     override fun shortcuts(id: AppId): List<AppShortcut> {
-        val hidden = locked.value
-        if (hidden.isNotEmpty() && delegate.apps.value.firstOrNull { it.id == id }?.packageName in hidden) return emptyList()
+        val entry = delegate.apps.value.firstOrNull { it.id == id } ?: return delegate.shortcuts(id)
+        if (entry.packageName in hiddenPackagesNow()) return emptyList()
         return delegate.shortcuts(id)
     }
+
+    /** The same rule as [apps], read synchronously for the shortcut loader. */
+    private fun hiddenPackagesNow(): Set<String> {
+        val state = focus.value
+        val mode = if (state.active?.pauseBeforeOpen == true) null else state.active
+        return Visibility.of(delegate.apps.value, layout.value, mode, locked.value).hidden
+    }
+}
+
+/**
+ * T217: search, All apps, ABC and shortcuts use the same Visibility set as the scenes and pages.
+ * Permanent hide, a hidden folder and Lock always apply; Focus pauses only its own block while its
+ * mode says "pause before open", exactly as the old Focus-only filter did.
+ */
+private fun visibleSearchApps(entries: List<AppEntry>,
+    state: FocusState, layout: com.brightblu.parc.model.ParcLayout,
+    locked: Set<String>): List<AppEntry> {
+    val mode = if (state.active?.pauseBeforeOpen == true) null else state.active
+    return FocusFilter.visibleApps(entries, Visibility.of(entries, layout, mode, locked).hidden)
 }
 
 /** 15-minute schedule steps, wrapping at midnight. Pure and locale independent. */
@@ -251,8 +270,3 @@ internal fun focusBlockedPackages(mode: FocusMode?, apps: List<AppEntry>, layout
     }
     return blocked
 }
-
-private fun focusSearchApps(entries: List<AppEntry>, state: FocusState,
-    layout: com.brightblu.parc.model.ParcLayout): List<AppEntry> =
-    if (state.active?.pauseBeforeOpen == true) entries
-    else FocusFilter.visibleApps(entries, focusBlockedPackages(state.active, entries, layout))

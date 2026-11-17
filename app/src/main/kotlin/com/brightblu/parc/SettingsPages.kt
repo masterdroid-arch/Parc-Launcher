@@ -29,14 +29,13 @@ internal fun SettingsIntro(skin: Skin, text: String) {
 }
 
 /**
- * T175/T177: the rows of one Settings page, generated from [SettingsRegistry]. Nothing else draws a setting row: a page is
- * its registry rows in registry order, grouped by [SettingDef.group]. [custom] draws the few rows whose control is
- * [SettingControl.Custom] (the skin carousel, the background chooser, the build stamp); [extra] adds a non-setting block
- * after a group (the list of stats hub pages).
+ * T175/T177/T220: the rows of one Settings sub-page, generated from [SettingsRegistry]. Nothing else draws a setting
+ * row: a page is its registry rows in registry order, grouped by [SettingDef.card]. [custom] draws the few rows whose
+ * control is [SettingControl.Custom] (the skin carousel, the background chooser, the build stamp).
  */
 @Composable
 internal fun RegistryRows(
-    home: SettingsHome,
+    page: SettingsPage,
     snapshot: SettingsSnapshot,
     skin: Skin,
     target: String?,
@@ -44,13 +43,21 @@ internal fun RegistryRows(
     onOpen: (SettingDef) -> Unit,
     custom: @Composable (SettingDef) -> Unit,
     footer: (String) -> String = { "" },
+    /** Registry rows another part of the page already draws (for example a list editor). */
+    hide: Set<String> = emptySet(),
 ) {
-    val rows = SettingsRegistry.shown(home, snapshot)
-    rows.map { it.group }.distinct().forEach { group ->
-        val inGroup = rows.filter { it.group == group }
-        SettingsGroup(group, skin, footer = footer(group)) {
-            inGroup.forEachIndexed { index, def ->
-                SettingsAnchor(def.id, target) { RegistryRow(def, snapshot, skin, index < inGroup.lastIndex, onValue, onOpen, custom) }
+    val rows = SettingsRegistry.shown(page, snapshot).filter { it.id !in hide }
+    rows.map { it.card }.distinct().forEach { card ->
+        val groupRows = rows.filter { it.card == card }
+        // About owns its heading and build-stamp card; do not nest that card inside another card.
+        groupRows.filter { it.id == "About" }.forEach { def ->
+            SettingsAnchor(def.id, target) { custom(def) }
+        }
+        val inCard = groupRows.filterNot { it.id == "About" }
+        if (inCard.isEmpty()) return@forEach
+        SettingsGroup(card, skin, footer = footer(card)) {
+            inCard.forEachIndexed { index, def ->
+                SettingsAnchor(def.id, target) { RegistryRow(def, snapshot, skin, index < inCard.lastIndex, onValue, onOpen, custom) }
             }
         }
     }
@@ -76,8 +83,17 @@ private fun RegistryRow(def: SettingDef, s: SettingsSnapshot, skin: Skin, divide
             }) { onValue(def, it) }
         }
         SettingControl.Page -> SettingRow(def.title, skin, SettingKind.Page, def.help, value = def.value(s), divider = divider) { onOpen(def) }
-        SettingControl.Action -> SettingRow(def.title, skin, SettingKind.Action, def.help, value = def.value(s),
-            icon = if (def.id == "AndroidSettings") "↗" else "+", divider = divider) { onOpen(def) }
+        SettingControl.Action -> {
+            val clearHistory = def.id == "CommsClearHistory"
+            val storage = def.value(s)
+            SettingRow(def.title, skin, SettingKind.Action,
+                if (clearHistory && storage.isNotBlank()) "$storage · ${def.help}" else def.help,
+                value = storage,
+                enabled = !clearHistory || s.commsStoredCount > 0,
+                destructive = clearHistory && s.commsStoredCount > 0,
+                icon = when (def.id) { "AndroidSettings" -> "↗"; "CommsClearHistory" -> "−"; else -> "+" },
+                divider = divider) { onOpen(def) }
+        }
         SettingControl.Custom -> custom(def)
     }
 }

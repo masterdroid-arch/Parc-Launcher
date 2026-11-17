@@ -3,7 +3,7 @@ package com.brightblu.parc.feature.settings.permissions
 /** The optional permissions Parc asks for, each with the plain reason shown next to its state. */
 enum class OptionalPermission(val title: String, val reason: String) {
     UsageAccess("Usage access", "Learns which apps you use, and shows screen time and data use."),
-    NotificationAccess("Notification access", "Unread dots on icons and the Comms page."),
+    NotificationAccess("Notification access", "Unread dots and the Messages page. Messages from WhatsApp, Telegram and Instagram are stored on this phone; text and links only, not in backups."),
     NotificationPolicy("Do Not Disturb access", "Lets a Focus mode turn on its own Do Not Disturb rule. Off by default."),
     Contacts("Contacts", "Lets search find people by name or number."),
     Calendar("Calendar", "Shows your next events on the Agenda page and lets search find events by title. Read only; nothing leaves the phone."),

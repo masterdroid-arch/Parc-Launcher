@@ -90,7 +90,8 @@ internal object TimerAlertRules {
     }
 
     const val Title = "Timer done"
-    fun text(totalMs: Long): String = "${TimerFormat.duration(totalMs)} timer finished"
+    fun text(totalMs: Long, label: String = ""): String =
+        (if (label.isEmpty()) "" else "$label · ") + "${TimerFormat.duration(totalMs)} timer finished"
 
     /** Notification id for timer [id]; stable so a repeat replaces instead of stacking. */
     fun notificationId(id: Int): Int = NotificationBase + id
@@ -233,8 +234,10 @@ internal object TimerNotifier {
             val nm = context.getSystemService(NotificationManager::class.java) ?: return
             ids.forEach { id ->
                 val timer = book.find(id) ?: return@forEach
+                // T183: a timer started from a note opens that note when tapped.
                 val open = PendingIntent.getActivity(context, 200 + id,
-                    Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                    Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        .also { if (timer.noteId.isNotEmpty()) it.putExtra(NoteOpenRequests.ExtraNoteId, timer.noteId) },
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
                 val dismiss = PendingIntent.getBroadcast(context, 100 + id,
                     Intent(context, TimerReceiver::class.java).setAction(TimerReceiver.ActionDismiss).putExtra(TimerReceiver.ExtraId, id),
@@ -242,7 +245,7 @@ internal object TimerNotifier {
                 val notification = Notification.Builder(context, ChannelId)
                     .setSmallIcon(R.drawable.ic_timer)
                     .setContentTitle(TimerAlertRules.Title)
-                    .setContentText(TimerAlertRules.text(timer.totalMs))
+                    .setContentText(TimerAlertRules.text(timer.totalMs, timer.label))
                     .setCategory(Notification.CATEGORY_ALARM)
                     .setContentIntent(open)
                     .setAutoCancel(true)
@@ -287,12 +290,14 @@ class TimerReceiver : BroadcastReceiver() {
             val app = context.applicationContext
             val action = intent.action
             val id = intent.getIntExtra(ExtraId, 0)
+            val noteId = intent.getStringExtra(NoteOpenRequests.ExtraNoteId)
             CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
                 try {
                     withTimeout(WorkLimitMs) {
                         when (action) {
                             ActionFire -> TimerEngine.apply(app)
                             ActionDismiss -> TimerNotifier.dismiss(app, id)
+                            ActionNote -> noteId?.let { NoteReminders.fire(app, it) }
                             else -> Unit
                         }
                     }
@@ -311,6 +316,8 @@ class TimerReceiver : BroadcastReceiver() {
     companion object {
         const val ActionFire = "com.brightblu.parc.TIMER_FIRE"
         const val ActionDismiss = "com.brightblu.parc.TIMER_DISMISS"
+        /** T183: a note reminder is due. Shares this receiver so no new manifest entry is needed. */
+        const val ActionNote = "com.brightblu.parc.NOTE_REMINDER"
         const val ExtraId = "timer_id"
         private const val WorkLimitMs = 8_000L
     }

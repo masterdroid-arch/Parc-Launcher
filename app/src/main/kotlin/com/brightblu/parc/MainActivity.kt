@@ -33,6 +33,8 @@ class MainActivity : ComponentActivity() {
     private val navigation by lazy {
         ShellNavigation(ShellState(layer = ParcUiPrefs(this).mode()))
     }
+    private var sharedQuote by mutableStateOf<String?>(null)
+    private var sharedNote by mutableStateOf<String?>(null)
     private var session: LauncherSession? = null
     private val _resumed = MutableStateFlow(false)
     val resumed: StateFlow<Boolean> = _resumed.asStateFlow()
@@ -44,6 +46,13 @@ class MainActivity : ComponentActivity() {
             finish()
             return
         }
+        if (savedInstanceState == null) postNoteRequest(intent)
+        sharedQuote = savedInstanceState?.getString("quote_share")
+        sharedNote = savedInstanceState?.getString("note_share")
+        // A recreation (rotation, process death) hands back the original launch intent: a share is read
+        // only on a fresh start, so it can never post a second note.
+        if (savedInstanceState == null) postQuoteShare(intent)
+        if (savedInstanceState == null) postNoteShare(intent)
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> { AppGraph.refreshWallpaper(this); AppGraph.checkFolderLock(); _resumed.value = true }
@@ -71,6 +80,23 @@ class MainActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize()) {
                     LauncherHome(host, geometry, navigation, resumed, ::hideKeyboard,
                         { startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)) }) { session = it }
+                    sharedQuote?.let { shared ->
+                        val skin by host.skinProvider.active.collectAsState()
+                        key(shared) {
+                            val draft = remember { QuoteDraft.shared(shared) }
+                            QuoteEditorSheet(draft, skin, rememberQuotesStore()) { sharedQuote = null }
+                        }
+                    }
+                    sharedNote?.takeIf { it.isNotBlank() }?.let { shared ->
+                        val skin by host.skinProvider.active.collectAsState()
+                        val noteStore = remember { NotesStore.get(this@MainActivity) }
+                        key(shared) {
+                            val note = remember(shared) {
+                                Note(java.util.UUID.randomUUID().toString(), shared, updatedAt = System.currentTimeMillis())
+                            }
+                            NoteEditor(note, skin, noteStore, changed = {}, close = { sharedNote = null }, saveOnOpen = true)
+                        }
+                    }
                     if (DemoMode.enabled) {
                         val skin by host.skinProvider.active.collectAsState()
                         BasicText("DEMO", Modifier.align(Alignment.TopEnd).statusBarsPadding()
@@ -89,9 +115,43 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        // OPUS8 (T133): the Home key. LauncherSession.home is the one place that closes every
-        // layer and sends the hub back to its first page, also on an already clean Home.
-        if (intent.hasCategory(Intent.CATEGORY_HOME)) session?.home() ?: navigation.emit(ShellEvent.ResetToBase)
+        postNoteRequest(intent)
+        postQuoteShare(intent)
+        postNoteShare(intent)
+        // T241: a Home press resets the hub only while Parc is already in front. A HOME intent
+        // that brings Parc back from another app, the reader or recents keeps the page the user left.
+        val alreadyInFront = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        if (HomeKey.shouldResetOnHomeIntent(intent.hasCategory(Intent.CATEGORY_HOME), alreadyInFront)) {
+            session?.home() ?: navigation.emit(ShellEvent.ResetToBase)
+        }
+    }
+
+    /** T183: a tapped reminder or finished note timer asks to open its note. */
+    private fun postNoteRequest(intent: Intent?) {
+        val id = intent?.getStringExtra(NoteOpenRequests.ExtraNoteId) ?: return
+        intent.removeExtra(NoteOpenRequests.ExtraNoteId)
+        NoteOpenRequests.post(id)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("quote_share", sharedQuote)
+        outState.putString("note_share", sharedNote)
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun postQuoteShare(intent: Intent?) {
+        if (intent == null) return
+        val text = runCatching { QuoteRules.sharedText(intent.action, intent.type,
+            intent.getCharSequenceExtra(Intent.EXTRA_TEXT)) }.getOrNull() ?: return
+        sharedQuote = text
+        intent.removeExtra(Intent.EXTRA_TEXT)
+    }
+
+    /** T250: text forwarded by [ShareNoteActivity]; removed so a recreation cannot post it twice. */
+    private fun postNoteShare(intent: Intent?) {
+        val text = intent?.getStringExtra(NoteShareRules.ExtraText) ?: return
+        intent.removeExtra(NoteShareRules.ExtraText)
+        sharedNote = text
     }
 
     private fun hideKeyboard() {

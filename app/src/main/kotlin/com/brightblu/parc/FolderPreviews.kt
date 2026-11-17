@@ -12,18 +12,21 @@ import com.brightblu.parc.model.*
 /** Called on a worker dispatcher. The renderer receives one immutable raster per folder. */
 internal object FolderPreviews {
     fun members(folder: Folder, ranked: List<AppId>, available: Set<AppId>, hidden: Set<AppId>): List<AppId> =
-        (ranked.filter { it in folder.appIds } + folder.appIds).distinct()
+        if (folder.hidden) emptyList() else (ranked.filter { it in folder.appIds } + folder.appIds).distinct()
             .filter { it in available && it !in hidden }.take(Metrics.folderPreviewCount)
 
     fun prepare(layout: ParcLayout, apps: List<AppEntry>, usage: UsageRepository, skin: Skin,
-        lockedFolders: Set<FolderId> = emptySet(), icon: (AppId) -> Bitmap?): Map<FolderId, Bitmap> {
-        val available = apps.mapTo(mutableSetOf()) { it.id }
+        lockedFolders: Set<FolderId> = emptySet(), hiddenPackages: Set<String> = emptySet(),
+        icon: (AppId) -> Bitmap?): Map<FolderId, Bitmap> {
+        // T217: the same Visibility set as the arcs, so no permanently hidden, Focus-blocked,
+        // locked or hidden-folder app can appear in a preview raster.
+        val available = apps.filterNot { it.packageName in hiddenPackages }.mapTo(mutableSetOf()) { it.id }
         val size = Metrics.iconBitmapPx
         val scale = size / Metrics.iconDp
         val mini = Metrics.folderPreviewIconDp * scale
         val gap = Metrics.folderPreviewGapDp * scale
         val start = (size - mini * Metrics.folderPreviewColumns - gap) / 2f
-        return layout.folders.associate { folder ->
+        return layout.folders.filterNot { it.hidden }.associate { folder ->
             val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)

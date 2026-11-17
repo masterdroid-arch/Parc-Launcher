@@ -5,8 +5,8 @@ import org.junit.Test
 
 class PullStateTest {
     private val pull = PullState()
-    private fun start(hub: Boolean = false, top: Boolean = true) =
-        pull.start(100f, 100f, 0, fromHub = hub, atScrollTop = top)
+    private fun start(hub: Boolean = false, top: Boolean = true, grip: Boolean = hub) =
+        pull.start(100f, 100f, 0, fromHub = hub, atScrollTop = top, onGrip = grip)
 
     @Test fun emptySpaceProgressIsCappedAndDimmingReachesPointSix() {
         start()
@@ -42,6 +42,15 @@ class PullStateTest {
         pull.panelScrolled(1f)
         assertFalse(pull.move(100f, 700f))
         assertFalse(pull.release(100f, 700f, 1_000))
+    }
+
+    @Test fun aHubPageAtItsTopPullsOnlyFromTheGrip() {
+        start(hub = true, top = true, grip = false)
+        assertFalse(pull.move(100f, 700f))
+        assertEquals(0f, pull.progress, 0f)
+        assertFalse(pull.release(100f, 700f, 1_000))
+        start(hub = true, top = true, grip = true)
+        assertTrue(pull.release(100f, 320f, 1_000))
     }
 
     @Test fun actualScrollingInEitherDirectionCancelsButZeroConsumptionDoesNot() {

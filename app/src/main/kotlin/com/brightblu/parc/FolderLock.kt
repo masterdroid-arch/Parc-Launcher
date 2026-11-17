@@ -72,7 +72,8 @@ internal class FolderLock(
 /** T98: packages hidden by a locked folder right now; screens that list apps or messages filter with it. */
 internal val LocalLockedPackages = androidx.compose.runtime.staticCompositionLocalOf<Set<String>> { emptySet() }
 
-/** OPUS6 (audit F2): every package hidden right now: locked folders' apps plus the Focus block list. */
+/** OPUS6 (audit F2): every package hidden right now. T217 keeps this as a compatibility alias for
+ *  [Visibility.hidden]; new surfaces read [LocalVisibility] so they also see `messageBlocked`. */
 internal val LocalHiddenPackages = androidx.compose.runtime.staticCompositionLocalOf<Set<String>> { emptySet() }
 
 /** Platform authentication behind a fakeable port. */

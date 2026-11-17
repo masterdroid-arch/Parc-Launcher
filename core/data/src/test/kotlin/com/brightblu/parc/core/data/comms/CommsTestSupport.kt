@@ -1,5 +1,8 @@
 package com.brightblu.parc.core.data.comms
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+
 /** Small builders for the pure Comms tests; every default is a notification Comms should accept. */
 internal fun rawNotification(
     packageName: String = CommsPackages.Telegram,
@@ -77,4 +80,99 @@ internal class FakeCommsActions : CommsActions {
         markedRead += notificationKey
         return markReadResult
     }
+}
+
+/**
+ * A synchronous stand-in for Room's generated DAO (T214). It keeps the rows in the same shape and
+ * lets a test reopen a store over the same "database" to prove the persistence contract without an
+ * Android SQLite runtime in JVM unit tests.
+ */
+internal class FakeCommsMessageDao(initial: List<CommsMessageEntity> = emptyList()) : CommsMessageDao {
+
+    private var rows: MutableList<CommsMessageEntity> = initial.toMutableList()
+    private var nextId: Long = (initial.maxOfOrNull { it.id } ?: 0L) + 1
+    private val state = MutableStateFlow(sorted(rows))
+
+    fun stored(): List<CommsMessageEntity> = sorted(rows)
+
+    private fun sorted(list: List<CommsMessageEntity>): List<CommsMessageEntity> =
+        list.sortedWith(compareByDescending<CommsMessageEntity> { it.timeMs }.thenByDescending { it.id })
+
+    private fun publish() {
+        state.value = sorted(rows)
+    }
+
+    @Synchronized
+    override fun insert(message: CommsMessageEntity): Long {
+        if (rows.any { it.identity == message.identity }) return -1L
+        val stored = message.copy(id = nextId++)
+        rows += stored
+        publish()
+        return stored.id
+    }
+
+    @Synchronized
+    override fun findByIdentity(identity: String): CommsMessageEntity? =
+        rows.firstOrNull { it.identity == identity }
+
+    @Synchronized
+    override fun markLive(identity: String, notificationKey: String, conversationTitle: String): Int {
+        var changed = 0
+        rows = rows.map {
+            if (it.identity != identity) it else {
+                changed++
+                it.copy(
+                    notificationKey = notificationKey,
+                    conversationTitle = conversationTitle,
+                    live = true,
+                    removedAtMs = null,
+                )
+            }
+        }.toMutableList()
+        if (changed > 0) publish()
+        return changed
+    }
+
+    @Synchronized
+    override fun markRemoved(notificationKey: String, removedAtMs: Long): Int {
+        var changed = 0
+        rows = rows.map {
+            if (it.notificationKey != notificationKey || !it.live) it else {
+                changed++
+                it.copy(live = false, removedAtMs = removedAtMs, notificationKey = "")
+            }
+        }.toMutableList()
+        if (changed > 0) publish()
+        return changed
+    }
+
+    @Synchronized
+    override fun markAllNotLive(removedAtMs: Long): Int {
+        var changed = 0
+        rows = rows.map {
+            if (!it.live) it else {
+                changed++
+                it.copy(live = false, removedAtMs = removedAtMs, notificationKey = "")
+            }
+        }.toMutableList()
+        if (changed > 0) publish()
+        return changed
+    }
+
+    override suspend fun clear() {
+        rows.clear()
+        publish()
+    }
+
+    override suspend fun delete(id: Long) {
+        rows.removeAll { it.id == id }
+        publish()
+    }
+
+    override suspend fun deleteConversation(app: String, conversationKey: String) {
+        rows.removeAll { it.app == app && it.conversationKey == conversationKey }
+        publish()
+    }
+
+    override fun observeAll(): Flow<List<CommsMessageEntity>> = state
 }

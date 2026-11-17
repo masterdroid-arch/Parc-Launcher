@@ -27,7 +27,7 @@ object OnboardingScript {
                     "Settings, under Permissions.",
                 "Focus can optionally sync Do Not Disturb. Allow Do Not Disturb access in Settings, under Permissions, only if you want this.",
                 "Usage access lets Parc learn which apps you use, show screen time and data use.",
-                "Notification access shows unread dots and powers the Comms page. Contacts search " +
+                "Notification access shows unread dots and powers the Messages page. Messages from WhatsApp, Telegram and Instagram are stored on this phone; text and links only, not in backups. You can clear them in Settings. Contacts search " +
                     "is asked for in Settings, only when you want it.",
                 "Calendar access is asked for on the Agenda page of the stats hub, only when you want to see your next events. " +
                     "Search can also find calendar events and your photos, videos and music by name. It asks once, from the search sheet, and you can say no.",
@@ -56,7 +56,7 @@ object OnboardingScript {
                 "Parc is installed by hand, not from a store, so Android hides the notification " +
                     "switch until you allow restricted settings for it.",
                 "Open the app info page, tap the three dots, then Allow restricted settings.",
-                "After that, turn on notification access for Parc so the unread dots work.",
+                "After that, turn on notification access for Parc so unread dots work and messages are stored on this phone.",
             ),
             actions = listOf(
                 OnboardingAction(OnboardingTarget.AppInfo, "Open app info"),

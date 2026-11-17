@@ -35,7 +35,7 @@ IGNORED_FILES = {'local.properties', 'keystore.properties', '.DS_Store',
                  'PROJECT.md', 'DESIGN.md', 'TASKS.md'}
 IGNORED_SUFFIXES = {'.apk', '.aab', '.keystore', '.jks', '.p12', '.pfx', '.pem', '.key', '.pyc', '.zip'}
 # Historical recovery relies on private inputs and old history, neither of which is exported.
-PRIVATE_PATHS = {'core/data/tools',
+PRIVATE_PATHS = {'core/data/tools', 'app/src/personalExtras', 'app/src/testPersonalExtras',
                  'core/data/src/test/kotlin/com/brightblu/parc/core/data/HistoricalLayoutBackupTest.kt'}
 IDENTITY = 'Parc <' + 'noreply' + '@' + 'example.invalid' + '>'
 GITIGNORE = '''build/

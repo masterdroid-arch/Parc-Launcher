@@ -29,6 +29,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brightblu.parc.core.data.ParcSettings
+import com.brightblu.parc.core.data.search.SearchAliases
+import com.brightblu.parc.core.data.search.SearchPrefsSnapshot
 import com.brightblu.parc.feature.search.*
 import com.brightblu.parc.model.*
 import com.brightblu.parc.ring.*
@@ -90,6 +92,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     // OPUS8 (T133): a group of the Settings root to open at once (Home menu "Wallpaper and look").
     var settingsInitialRow by remember { mutableStateOf<String?>(null) }
     var showFolderCreate by remember { mutableStateOf(false) }
+    var folderCreateBefore by remember { mutableStateOf<ParcLayout?>(null) }
     var showAddApp by remember { mutableStateOf(false) }
     var hintSeen by remember { mutableStateOf(uiPrefs.hintSeen()) }
     var swapPulse by remember { mutableStateOf(emptySet<SlotPosition>()) }
@@ -108,14 +111,30 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     val feel = rememberFeelPlayer()
     val arcFeelStore = remember { FeelStore(context) }
     val arcFeel by rememberUpdatedState(arcFeelStore.arcFeel.collectAsState(initial = com.brightblu.parc.model.ArcFeel()).value)
-    val edit = remember(services.layout, scope) { RingEditSession(services.layout, scope) }
+    // T245: the Settings switch and the edit host read the same live value.
+    val layoutLockedState = remember(uiPrefs) { mutableStateOf(uiPrefs.layoutLocked()) }
+    val layoutLocked by layoutLockedState
+    LaunchedEffect(uiPrefs) { uiPrefs.layoutLockedFlow.collect { layoutLockedState.value = it } }
+    val edit = remember(services.layout, scope) {
+        RingEditSession(services.layout, scope) { layoutLockedState.value }
+    }
     val rotations = remember(uiPrefs) { uiPrefs.rotations() }
     // T83: the HUD bound follows the settled live offsets, not only the cold-start snapshot.
     var liveRotations by remember(uiPrefs) { mutableStateOf(rotations) }
     val linkLauncher = remember(context) { LinkLauncher(context) }
     val pinnedSource = remember(context) { PinnedShortcutSource(context) }
-    val search = remember(services) {
-        SearchSheetState(services.searchEngine, services.focusIndex, services.usage, scope)
+    // T195/T259: one notes store for Note mode, the Notes page and the note rows in Apps search.
+    val noteStore = remember(context) { NotesStore.get(context) }
+    val searchPrefs = services.searchPrefs
+    val searchPrefsSnapshot by searchPrefs.snapshot.collectAsState(initial = SearchPrefsSnapshot())
+    val search = remember(services, noteStore) {
+        SearchSheetState(services.searchEngine, services.focusIndex, services.usage, scope,
+            // T194: Translate is listed only by the internet build.
+            modes = SearchModes.standard(WeatherVariant.extraSearchModes() + listOf(
+                // T195: Calculate (the shared evaluator) and Note (saves into the hub NotesStore).
+                com.brightblu.parc.feature.search.CalculateSearchMode(),
+                NoteSearchMode(noteStore),
+                FilesSearchMode(services.library))))
     }
     // T98: locked folders. The gate reads the same snapshot the scene is built from.
     val lockedPackages by services.lockedPackages.collectAsState()
@@ -125,6 +144,26 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     var pendingFocusExit by remember { mutableStateOf<com.brightblu.parc.core.data.focus.FocusExit?>(null) }
     var pendingFocusLaunch by remember { mutableStateOf<AppId?>(null) }
     var approvedFocusLaunch by remember { mutableStateOf<AppId?>(null) }
+    val shell by navigation.state.collectAsState()
+    val ui by search.state.collectAsState()
+    // T259: notes are read only while search is open; a typed query asks the same rules as the Notes page.
+    val noteList by produceState(initialValue = emptyList<Note>(), ui.isOpen) {
+        if (ui.isOpen) noteStore.notes.collect { value = it }
+    }
+    val searchNotes = remember(ui.isOpen, ui.query, noteList) {
+        if (ui.isOpen && ui.query.isNotBlank()) NoteSearchHits.of(noteList, ui.query) else emptyList()
+    }
+    val presentation by services.presentation.collectAsState()
+    val apps = presentation.apps
+    val layout = presentation.layout
+    // T217: one visibility value for every surface. It is computed from the current snapshot, never
+    // written back into the layout, so a Focus mode, unlock window or permanent hide is reversible.
+    val visibility = remember(apps, layout, focus.active, lockedPackages) {
+        Visibility.of(apps, layout, focus.active, lockedPackages)
+    }
+    // The session is remembered across layout/focus changes; read the newest value inside its
+    // lambdas instead of capturing one snapshot.
+    val latestVisibility = rememberUpdatedState(visibility)
     val session = remember(search, navigation) {
         LauncherSession(navigation, services.appIndex, services.usage, services.layout, search,
             hideKeyboard, { showSettings = true }, services.shortcutHost,
@@ -136,8 +175,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             }),
             launchLink = { if (!linkLauncher.open(it)) edit.notify("Link unavailable") },
             launchPinnedShortcut = { shortcut ->
-                val blocked = shortcut.packageName in services.lockedPackages.value ||
-                    shortcut.packageName in focusBlockedPackages(services.focus.state.value.active, services.appIndex.apps.value, services.layout.layout.value)
+                val blocked = shortcut.packageName in latestVisibility.value.hidden
                 if (!blocked) scope.launch {
                     val launched = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { pinnedSource.launch(shortcut) }
                     if (!launched) edit.notify("Shortcut unavailable. Hold it to remove.")
@@ -147,7 +185,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             launchApp = { id ->
                 val mode = services.focus.state.value.active
                 val entry = services.appIndex.apps.value.firstOrNull { it.id == id }
-                val blocked = mode != null && entry?.packageName in focusBlockedPackages(mode, services.appIndex.apps.value, services.layout.layout.value)
+                val blocked = mode != null && entry?.packageName in latestVisibility.value.focusBlocked
                 if (blocked && approvedFocusLaunch != id) {
                     services.focus.recordBlockedAttempt()
                     pendingFocusLaunch = id
@@ -164,6 +202,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             onMenuOpened = { if (haptics) feel.play(view, FeelEvent.Menu) },
             onRotation = { arcId, offset -> uiPrefs.setRotation(arcId, offset)
                 liveRotations = liveRotations + (arcId to offset) },
+            onRotationDrag = services.arcade::onArcDrag,
             openAndroidSettings = openAndroidSettings,
             appInfo = { id -> appEntryFor(id, services.appIndex.apps.value)?.let(appActions::openAppInfo) },
             uninstall = { id -> appEntryFor(id, services.appIndex.apps.value)?.let(appActions::uninstall) },
@@ -171,10 +210,11 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             gestures = { gestureConfig },
             enterEditMode = { edit.enter() },
             shortcutAllowed = { id ->
-                services.appIndex.apps.value.firstOrNull { it.id == id }?.packageName !in focusBlockedPackages(services.focus.state.value.active, services.appIndex.apps.value, services.layout.layout.value)
+                services.appIndex.apps.value.firstOrNull { it.id == id }?.packageName !in latestVisibility.value.focusBlocked
             },
-            menuNotifications = ListenerMenuNotifications(uiPrefs, blocked = { services.lockedPackages.value }),
+            menuNotifications = ListenerMenuNotifications(uiPrefs, blocked = { latestVisibility.value.hidden }),
             lockGate = lockGate,
+            hiddenPackages = { latestVisibility.value.hidden },
             openSettingsAt = { target ->
                 settingsInitialPage = target.page; settingsInitialRow = target.row; showSettings = true
             },
@@ -186,38 +226,50 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     if (!settings.statsVisible) services.prefs.setStatsVisible(true)
                     // Hub size is independent of the retired expanded preference.
                 }
-            })
+            },
+            layoutEditing = edit)
     }
     SideEffect { onSession(session) }
+    // T183: a tapped note reminder (or finished note timer) brings the hub up on the Notes page; that page opens the note.
+    val noteRequest by NoteOpenRequests.pending.collectAsState()
+    LaunchedEffect(noteRequest) {
+        if (noteRequest != null) {
+            navigation.emit(ShellEvent.ResetToBase)
+            hubStore.rememberPage("notes")
+            if (!settings.statsVisible) services.prefs.setStatsVisible(true)
+        }
+    }
     DisposableEffect(search) { onDispose { session.cancelHubTap(); search.cancel() } }
-    val shell by navigation.state.collectAsState()
-    val ui by search.state.collectAsState()
-    val presentation by services.presentation.collectAsState()
-    val apps = presentation.apps
-    val layout = presentation.layout
-    // The active mode's packages leave every view projection, never the stored layout.
-    val focusHidden = remember(focus.active, apps, layout) { focusBlockedPackages(focus.active, apps, layout) }
-    val visibleApps = remember(apps, focusHidden, lockedPackages) {
-        FocusFilter.visibleApps(apps, if (lockedPackages.isEmpty()) focusHidden else focusHidden + lockedPackages)
+    // The active mode, Lock, a hidden folder and a permanent hide all leave every view projection,
+    // never the stored layout.
+    val focusHidden = visibility.focusBlocked
+    val visibleApps = remember(apps, visibility.hidden) {
+        FocusFilter.visibleApps(apps, visibility.hidden)
     }
     // T98: folders whose apps are hidden right now (lock disc), and the labels a remembered search must not reveal.
     val lockedFolders = remember(layout, folderUnlocked) {
         com.brightblu.parc.core.data.lock.LockedApps.lockedFoldersNow(layout.folders.filter { !services.folderLock.isUnlocked(it.id) }, false)
+    }
+    // T218: a hidden folder, or a folder whose members are all hidden, leaves Home. The layout is
+    // only read, so unhiding restores the same slot, position and rotation.
+    val hiddenFolders = remember(layout, apps, visibility) {
+        FolderVisibility.hiddenFolderIds(layout, apps, visibility)
     }
     val hiddenLabels = remember(apps, lockedPackages, lockedFolders, layout, hideLockedName) {
         apps.filter { it.packageName in lockedPackages }.map { it.label } +
             if (hideLockedName) layout.folders.filter { it.id in lockedFolders }.map { it.name } else emptyList()
     }
     // Relocking removes the apps at once: leave a locked folder and close menus that may show its apps.
-    LaunchedEffect(folderUnlocked) {
-        if (folderUnlocked.isEmpty() || lockedFolders.isNotEmpty()) {
+    LaunchedEffect(folderUnlocked, hiddenFolders) {
+        if (folderUnlocked.isEmpty() || lockedFolders.isNotEmpty() || hiddenFolders.isNotEmpty()) {
             session.dismissMenu()
             session.dismissFolderMenu()
         }
     }
-    LaunchedEffect(folderUnlocked, shell.layer, shell.folderId, layout) {
+    LaunchedEffect(folderUnlocked, hiddenFolders, shell.layer, shell.folderId, layout) {
         val open = shell.folderId
-        if (shell.layer == Layer.Folder && open != null && open in lockedFolders) session.reset()
+        if (shell.layer == Layer.Folder && open != null &&
+            (open in lockedFolders || open in hiddenFolders)) session.reset()
     }
     // T75: profile membership drives the briefcase badge and the paused dim. The setting is
     // app-local and defaults to on, so an install without a work profile looks unchanged.
@@ -237,6 +289,22 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     val folderMenu by session.folderMenu.collectAsState()
     val shortcutMenu by session.shortcutMenu.collectAsState()
     val homeMenu by session.homeMenu.collectAsState()
+    // T246: one quiet prompt for an app installed after this version first looked, marked shown at
+    // once and kept for a few seconds. The spot picker is the prompt's only action.
+    var newAppPrompt by remember { mutableStateOf<AppEntry?>(null) }
+    var spotPickerApp by remember { mutableStateOf<AppEntry?>(null) }
+    // T247: the app actions from a search long press, and the visual arc picker they open.
+    var searchAppMenu by remember { mutableStateOf<SearchAppTarget?>(null) }
+    var searchArcTarget by remember { mutableStateOf<SearchAppTarget?>(null) }
+    // T259: the alias editor opened from that menu.
+    var aliasTarget by remember { mutableStateOf<SearchAppTarget?>(null) }
+    var aliasDraft by remember { mutableStateOf("") }
+    val newAppPromptSince = remember(uiPrefs) { uiPrefs.newAppPromptSince() }
+    LaunchedEffect(newAppPrompt?.id) {
+        val prompt = newAppPrompt ?: return@LaunchedEffect
+        delay(Metrics.newAppPromptMs)
+        if (newAppPrompt?.id == prompt.id) newAppPrompt = null
+    }
     // OPUS8 (T133): the Home key. The session already closed its own layers (LauncherSession.home);
     // this closes the ones the host owns. The hub reads the same count to go to its first page.
     val homePresses by session.homePresses.collectAsState()
@@ -244,12 +312,35 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
         if (homePresses == 0) return@LaunchedEffect
         showSettings = false; settingsInitialPage = SettingsPage.Root; settingsInitialRow = null
         showFolderCreate = false; showAddApp = false; edit.emptyPosition = null
+        newAppPrompt = null; spotPickerApp = null
+        searchAppMenu = null; searchArcTarget = null
         pendingFocusLaunch = null; approvedFocusLaunch = null; pendingFocusExit = null
         // The hub goes back to its first page, also when Home was already clean.
-        HomeKey.firstHubPage(DemoMode.enabled, hubConfig.pages) { focus.active?.hubPages?.contains(it) != false }
+        HomeKey.firstHubPage(DemoMode.enabled, hubConfig.pages) { focus.active?.hubPages?.let(HubCatalog::canonicalPages)?.contains(it) != false }
             ?.let { hubStore.rememberPage(it) }
     }
     val resumed by resumedFlow.collectAsState()
+    // T246: an install that arrives while Parc is open, or while it was closed, waits in New. The
+    // prompt is offered only once the screen is clean, and only for an app still waiting in New,
+    // unseen, and not already on an arc. The first run of this version sets the baseline, so an
+    // upgrade never asks about the existing New folder.
+    LaunchedEffect(apps, layout, liveReady, resumed, shell.layer, ui.isOpen, menu, folderMenu,
+        shortcutMenu, homeMenu, edit.enabled, edit.emptyPosition, edit.undoAvailable, showSettings,
+        showFolderCreate, spotPickerApp, newAppPrompt, layoutLocked, searchAppMenu, searchArcTarget) {
+        if (!liveReady || !resumed || DemoMode.enabled || layoutLocked || edit.undoAvailable) return@LaunchedEffect
+        if (shell.layer != Layer.Home || ui.isOpen || edit.enabled || showSettings || showFolderCreate ||
+            edit.emptyPosition != null || spotPickerApp != null || newAppPrompt != null ||
+            searchAppMenu != null || searchArcTarget != null) return@LaunchedEffect
+        if (menu != null || folderMenu != null || shortcutMenu != null || homeMenu != null) return@LaunchedEffect
+        val inbox = layout.folders.firstOrNull { it.id == FolderId(NewFolderKey) } ?: return@LaunchedEffect
+        val placed = layout.arcs.flatMap { it.slots.values }.filterIsInstance<Slot.App>()
+            .map { it.id }.toSet() + layout.pins
+        val candidate = NewAppPrompt.candidate(apps, inbox.appIds.toSet(), uiPrefs.newAppPromptSeen(),
+            newAppPromptSince, layout.hidden, placed)
+        if (candidate != null) {
+            newAppPrompt = candidate
+        }
+    }
     LaunchedEffect(showSettings, resumed) { hideLockedName = uiPrefs.lockHideName() }
     // T97: the in-memory notification collection follows the setting; re-read on resume so a
     // restored backup takes effect without a restart.
@@ -318,15 +409,27 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     var aligned by remember { mutableStateOf(uiPrefs.alignAcrossArcs()) }
     var hubDoubleTap by remember { mutableStateOf(uiPrefs.hubDoubleTap()) }
     var joystick by remember { mutableStateOf(uiPrefs.joystickAim()) }
+    // T261: Left hand mirrors the hub and arcs; the saved layout is untouched.
+    var leftHand by remember { mutableStateOf(uiPrefs.leftHand()) }
+    LaunchedEffect(uiPrefs) { uiPrefs.leftHandFlow.collect { leftHand = it } }
     val counts by remember(uiPrefs) { uiPrefs.countsFlow }.collectAsState(initial = uiPrefs.layoutCounts())
     LaunchedEffect(counts.arcs, liveReady, layout) {
         if (liveReady && counts.arcs == 3 && layout.arcs.any { it.arc.id == "A4" && it.slots.isNotEmpty() }) {
             services.layout.updateLayout { LayoutCounts.migrate(it, counts.arcs) }
         }
     }
-    val sceneGeometry = remember(geometry, aligned, counts) {
+    val sceneGeometry = remember(geometry, aligned, counts, leftHand) {
         RingLayout(geometry.widthDp, geometry.heightDp, geometry.insets,
-            geometry.options.copy(alignAcrossArcs = aligned, arcsShown = counts.arcs, iconsPerArc = counts.icons))
+            geometry.options.copy(alignAcrossArcs = aligned, arcsShown = counts.arcs, iconsPerArc = counts.icons,
+                mirrored = leftHand))
+    }
+    // T246: free spots are limited to the arcs the current hub size actually shows.
+    val promptSpots = remember(layout, sceneGeometry) {
+        ArcSpotChoices.free(
+            layout,
+            visibleArcIds = sceneGeometry.arcs.mapTo(mutableSetOf()) { it.id },
+            visibleCapacities = sceneGeometry.arcs.associate { it.id to it.slotCapacity },
+        )
     }
     val shortcutVisuals by produceState<Map<Slot.Shortcut, PinnedShortcutVisual>>(emptyMap(), layout, resumed, revision) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -351,21 +454,34 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             }
         }
     }
-    val previews by produceState<Map<FolderId, android.graphics.Bitmap>>(emptyMap(), layout, visibleApps, revision, skin, iconTreatment, lockedFolders) {
+    val previews by produceState<Map<FolderId, android.graphics.Bitmap>>(emptyMap(), layout, visibleApps, revision, skin, iconTreatment, lockedFolders, hiddenFolders) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            FolderPreviews.prepare(layout, visibleApps, services.usage, skin, lockedFolders) {
+            FolderPreviews.prepare(layout, visibleApps, services.usage, skin, lockedFolders, visibility.hidden) {
                 sceneIcon(it)
             }
         }
     }
-    val scene = remember(focusHidden, lockedPackages, shortcutVisuals, previews, sceneGeometry, layout, visibleApps, shell.layer, shell.folderId, revision, rotations, profiles, markWorkApps, iconTreatment, lockedFolders, hideLockedName) {
+    val scene = remember(focusHidden, lockedPackages, shortcutVisuals, previews, sceneGeometry, layout, visibleApps, shell.layer, shell.folderId, revision, rotations, profiles, markWorkApps, iconTreatment, lockedFolders, hideLockedName, hiddenFolders) {
         LauncherScenes.build(sceneGeometry, layout, visibleApps, shell,
             "", previews, rotations, services.usage::rank,
             profiles = profiles, markWorkApps = markWorkApps,
             lockedFolders = lockedFolders, hideLockedName = hideLockedName, shortcutVisuals = shortcutVisuals,
-            shortcutHiddenPackages = focusHidden + lockedPackages + apps.filter { it.id in layout.hidden }.map { it.packageName }) {
+            shortcutHiddenPackages = visibility.hidden, hiddenFolderIds = hiddenFolders) {
             sceneIcon(it)
         }
+    }
+    // T244: while edit mode is open inside a folder, the current Home arcs are the drop target for
+    // an app dragged out. Built from the live layout, so a drop refreshes the guide at once.
+    val editHomeScene = remember(sceneGeometry, layout, visibleApps, shell.layer, edit.enabled, revision,
+        rotations, profiles, markWorkApps, lockedFolders, hideLockedName, hiddenFolders, previews,
+        shortcutVisuals) {
+        if (!edit.enabled || shell.layer != Layer.Folder) null else LauncherScenes.build(
+            sceneGeometry, layout, visibleApps, ShellState(layer = Layer.Home), "",
+            previews, rotations, services.usage::rank,
+            profiles = profiles, markWorkApps = markWorkApps,
+            lockedFolders = lockedFolders, hideLockedName = hideLockedName,
+            shortcutVisuals = shortcutVisuals, shortcutHiddenPackages = visibility.hidden,
+            hiddenFolderIds = hiddenFolders) { sceneIcon(it) }
     }
     // T83 field diagnostics: what the phone actually built, stored app-locally for Parc Settings.
     val sceneDiagnostics = remember(context) { SceneDiagnosticsStore(context) }
@@ -382,7 +498,19 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     val unread by NotificationUnreadStore.shared.unread.collectAsState()
     // Settings is opaque; input is gated through searchOpen (the renderer ignores touches meanwhile).
     val inputBlocked = shortcutMenu != null || showSettings || showFolderCreate || edit.emptyPosition != null ||
-        folderMenu?.page == FolderPage.Rename || menu?.page == MenuPage.NewFolder
+        spotPickerApp != null || folderMenu?.page == FolderPage.Rename || menu?.page == MenuPage.NewFolder ||
+        searchAppMenu != null || searchArcTarget != null
+    // T246: the prompt is never drawn over Settings, search, edit mode or another menu. It is still
+    // marked seen once it is on screen, so closing that layer cannot make it appear a second time.
+    val newAppPromptVisible = newAppPrompt != null && !showSettings && !showFolderCreate &&
+        edit.emptyPosition == null && !edit.enabled && !ui.isOpen && shell.layer == Layer.Home &&
+        menu == null && folderMenu == null && shortcutMenu == null && homeMenu == null && !edit.undoAvailable &&
+        searchAppMenu == null && searchArcTarget == null
+    // Marked seen when it is actually on screen, not when it is chosen: a prompt that was held back by a
+    // menu or Settings is offered again later.
+    LaunchedEffect(newAppPromptVisible, newAppPrompt?.id) {
+        if (newAppPromptVisible) newAppPrompt?.let { uiPrefs.markNewAppPromptSeen(it.id) }
+    }
     LaunchedEffect(inputBlocked, edit.enabled, showSettings) {
         if (inputBlocked || edit.enabled || showSettings) session.cancelHubTap()
     }
@@ -401,9 +529,13 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     SideEffect { edit.scene = target }
     LaunchedEffect(shell.layer, shell.folderId, ui.isOpen) { edit.close() }
     LaunchedEffect(shell.layer) { uiPrefs.setMode(shell.layer) }
-    // One-step undo for a drag edit; the snackbar expires with the snapshot.
-    LaunchedEffect(edit.undoAvailable) {
-        if (edit.undoAvailable) {
+    // T245: switching the lock on while edit mode is open ends the session and says why.
+    LaunchedEffect(layoutLocked) {
+        if (layoutLocked && edit.enabled) { edit.close(); edit.refuseLocked() }
+    }
+    // T245: a change shows Undo for a few seconds; inside edit mode it stays for the whole session.
+    LaunchedEffect(edit.undoAvailable, edit.undoRevision, edit.enabled) {
+        if (edit.undoAvailable && !edit.enabled) {
             delay(Metrics.snackbarMs)
             edit.clearUndo()
         }
@@ -432,7 +564,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
         warmAllApps = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             LauncherScenes.build(sceneGeometry, layout, visibleApps, ShellState(layer = Layer.AllApps), "",
                 rotations = rotations, profiles = profiles, markWorkApps = markWorkApps,
-                shortcutHiddenPackages = focusHidden + lockedPackages) { sceneIcon(it) }
+                shortcutHiddenPackages = visibility.hidden) { sceneIcon(it) }
         }
     }
     // OPUS4: the All-apps letters turn the ring through this.
@@ -440,8 +572,19 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     // OPUS5: read by the renderer at touch-down; written once the letter arc is placed below.
     val latestLetterArcRef = remember { mutableStateOf<LetterArc.Arc?>(null) }
     val hubModule = remember { com.brightblu.parc.ring.module.HubModuleState() }
+    // T200: the hidden arcade. The host lets a running game take the hub joystick; the pulse counter makes the hub swell once on unlock.
+    val arcadeHost = remember { com.brightblu.parc.arcade.ArcadeHost(joystickEnabled = { joystick }, hapticsEnabled = { haptics }) }
+    var arcadePulse by remember { mutableIntStateOf(0) }
+    LaunchedEffect(services.arcade) {
+        services.arcade.unlocked.collect {
+            arcadePulse++
+            if (haptics) feel.play(view, FeelEvent.Confirm)
+        }
+    }
+    val latestEditHomeScene by rememberUpdatedState(editHomeScene)
     val renderer = remember(edit) {
-        CanvasRingRenderer(module = hubModule, detectSearchSwipe = false, editing = edit, steer = steer,
+        CanvasRingRenderer(module = hubModule, stick = arcadeHost, hubPulse = { arcadePulse }, detectSearchSwipe = false, editing = edit, steer = steer,
+            editHome = { latestEditHomeScene },
             ignoreDown = { x, y -> latestLetterArcRef.value?.let { LetterArc.inZone(it, x, y) } == true },
             hapticsEnabled = { haptics }, feel = feel, arcFeel = { arcFeel }, joystickEnabled = { joystick },
             hubHold = { sessionRef.value.onHubLongPress() },
@@ -455,6 +598,8 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     val swipeUp = remember { SearchSwipeDetector(upward = true) }
     val pull = remember { PullState() }
     val hubScroll = remember { HubScrollGate() }
+    // T235: survives a page switch, the reader covering the hub, and the hub closing.
+    val hubScrollMemory = remember { HubPageScrollMemory() }
     val pullProgress = remember { mutableFloatStateOf(0f) }
     // T157: the search sheet and the module's dim share one spring (`Springs.sheet`); a touch mid-motion catches it.
     val sheet = rememberSheetProgress(ui.isOpen, 1f / skin.motionScale)
@@ -526,15 +671,20 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     val letterArc = if (allAppsRing != null && LetterStrip.visible(shell.layer, ui.isOpen || inputBlocked,
             edit.enabled, target.slots.size, allAppsRing.slotCapacity))
         remember(allAppsRing, iconSizeDp) {
-            val searchTop = com.brightblu.parc.ring.searchButtonTopDp(target.arcs)
+            val searchTop = com.brightblu.parc.ring.searchButtonTopDp(target.arcs, geometry.widthDp)
             LetterArc.place(allAppsRing.originXDp, allAppsRing.originYDp, allAppsRing, iconSizeDp,
                 Metrics.searchButtonLeftDp + Metrics.searchButtonTouchDp / 2f, searchTop + Metrics.searchButtonTouchDp / 2f)
         } else null
     val latestLetterArc by rememberUpdatedState(letterArc)
     SideEffect { latestLetterArcRef.value = letterArc }
     // The Canvas applies search alpha tokens. Avoid multiplying them by the sheet scrim again.
-    val sheetSkin = remember(skin) { skin.copy(colors = skin.colors.copy(scrim = skin.colors.scrim and 0x00FFFFFFL)) }
-    CompositionLocalProvider(LocalOverscrollConfiguration provides null, LocalHubScrollGate provides hubScroll) {
+    // T262: the search sheet follows the same glass rule as the hub cards, not the base skin's
+    // moduleStyle. With glass on it is frosted in every skin; with glass off it stays flat.
+    val sheetSkin = remember(hubCards.stats) {
+        hubCards.stats.copy(colors = hubCards.stats.colors.copy(scrim = hubCards.stats.colors.scrim and 0x00FFFFFFL))
+    }
+    CompositionLocalProvider(LocalOverscrollConfiguration provides null, LocalHubScrollGate provides hubScroll,
+        LocalHubPageScrollMemory provides hubScrollMemory) {
         Box(Modifier.fillMaxSize().nestedScroll(connection).pointerInput(session, density, sceneGeometry, hubTop, hubBottom) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -545,13 +695,15 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 pullReturn?.cancel()
                 val fromHub = latestHubEligible && downY in hubTop..hubBottom &&
                     downX in Metrics.textGutterDp..(sceneGeometry.widthDp - Metrics.textGutterDp)
+                val onGrip = HubPullPriority.onGrip(downY, hubBottom, ParcSpacing.hubCard().bottomDp,
+                    Metrics.hubGripHeightDp)
                 if (replyKeyboardVisible && !fromHub) { homeFocus.clearFocus(); homeKeyboard?.hide() }
                 // OPUS4: a touch on the letter strip never starts the search pull or swipe up.
                 val onControlStart = !renderer.canStartSearchSwipe(downX, downY) ||
                     latestLetterArc?.let { LetterArc.inZone(it, downX, downY) } == true
                 pull.start(downX, downY, down.uptimeMillis, fromHub = fromHub,
                     atScrollTop = hubScroll.atTop, blocked = swipeBlocked || searchAtStart,
-                    onControl = onControlStart)
+                    onControl = onControlStart, onGrip = onGrip)
                 // T69: swipe up. The same empty-space rule as the search pull, and never from the
                 // hub panel (that surface scrolls); a chosen action of None disarms it entirely.
                 val inHubPanel = fromHub && statsModuleVisible(latestHubEligible, services.stats.stats.value)
@@ -561,6 +713,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 swipe.start(downX, downY, fromHub = kotlin.math.hypot(
                     downX - sceneGeometry.originXDp, downY - sceneGeometry.originYDp) <= Metrics.hubTouchDp / 2f,
                     anywhere = searchAtStart)
+                val liftsAtDown = HubDragPriority.lifts
                 val tracker = VelocityTracker()
                 var moved = false
                 var dismissed = false
@@ -569,6 +722,9 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 try { do {
                     val event = awaitPointerEvent(if (searchAtStart || fromHub) PointerEventPass.Final else PointerEventPass.Initial)
                     if (event.changes.count { it.pressed } > 1) { pull.cancel(); swipeUp.cancel() }
+                    // M13 review: a held tab drag (page reorder) owns the finger: no search pull, no swipe up from it.
+                    val reorderOwns = HubDragPriority.owns(liftsAtDown)
+                    if (reorderOwns) { pull.cancel(); swipeUp.cancel(); if (!searchAtStart) pullProgress.floatValue = 0f }
                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
                     if ((change.position - down.position).getDistance() > Metrics.gridDp * 2 * density.density) moved = true
                     val dx = (change.position.x - down.position.x) / density.density
@@ -584,7 +740,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                         dismissed = true
                     }
                     if (swipeBlocked || fromHub && !hubScroll.atTop) pull.cancel()
-                    if (!searchAtStart) {
+                    if (!searchAtStart && !reorderOwns) {
                         if (pull.move(change.position.x / density.density, change.position.y / density.density)) {
                             thresholdTicked = true
                             if (haptics) feel.play(view, FeelEvent.Tick)
@@ -600,7 +756,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                         // Prevent a preview gesture from releasing on a renderer control.
                         if (pullProgress.floatValue > 0f || opened) change.consume()
                     }
-                    if (!searchAtStart && !opened &&
+                    if (!searchAtStart && !opened && !reorderOwns &&
                         swipeUp.move(change.position.x / density.density, change.position.y / density.density,
                             change.uptimeMillis, released = !change.pressed)) {
                         change.consume()
@@ -648,10 +804,11 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     BasicText(if (edit.busy) "Saving…" else "", style = style)
                 }
             }
-            // OPUS8 (T133): what to do in edit mode, at the bottom. It takes no touches, so drags
-            // and the + spots under it still work; it gives way to a notice or Undo.
-            if (edit.enabled && edit.notice.isEmpty() && !edit.undoAvailable && edit.emptyPosition == null) {
-                EditModeBar(skin, Modifier.align(Alignment.BottomCenter))
+            // OPUS8 (T133): what to do in edit mode, at the bottom. Only its Undo word takes touches,
+            // so drags and the + spots around it still work; a notice takes its place.
+            if (edit.enabled && edit.notice.isEmpty() && edit.emptyPosition == null) {
+                EditModeBar(skin, Modifier.align(Alignment.BottomCenter),
+                    onUndo = if (edit.undoAvailable) ({ edit.undo() }) else null)
             }
             if (edit.notice.isNotEmpty()) BasicText(edit.notice, Modifier.align(Alignment.BottomCenter)
                 .padding(bottom = Metrics.snackbarBottomDp.dp)
@@ -661,7 +818,12 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             val statsEligibleNow = statsEligible(settings.statsVisible, shell.layer, ui.isOpen)
             val lean = com.brightblu.parc.ring.module.rememberLeanProgress(hubModule)
             androidx.compose.runtime.CompositionLocalProvider(LocalFocusRepository provides services.focus,
-                LocalLockedPackages provides lockedPackages, LocalHiddenPackages provides (lockedPackages + focusHidden),
+                LocalStepsRepository provides services.steps, LocalRhythmRepository provides services.rhythm,
+                LocalLibraryStore provides services.library,
+                com.brightblu.parc.arcade.LocalArcadeHost provides arcadeHost,
+                com.brightblu.parc.arcade.LocalArcadeUnlocker provides services.arcade,
+                LocalLockedPackages provides lockedPackages, LocalHiddenPackages provides visibility.hidden,
+                LocalVisibility provides visibility,
                 LocalHubLook provides look,
                 com.brightblu.parc.ring.module.LocalGlassRefraction provides hubCards.refraction,
                 LocalFocusSentence provides { mode -> focusModeSentence(mode, services.unlockedApps.value, layout.folders) },
@@ -686,7 +848,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 hubBottomDp = hubBottom,
                 powerSource = services.powerStats,
                 networkRepository = services.networkStats,
-                screenTime = services.screenTime, newApps = services.newApps,
+                dayLedger = services.dayLedger, newApps = services.newApps,
                 appStorage = services.appStorage, volume = services.volume, comms = services.comms,
                 entries = services.unlockedApps.collectAsState().value,
                 onLaunch = session::launch,
@@ -699,7 +861,6 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 },
                 pullProgress = { pullProgress.floatValue },
                 hubTopDp = hubTop,
-                clock = { ClockHubPage(statsSkin, look, clock, clockDetailWithFocus, settings.clockVisible) },
                 focusActiveName = focus.activeName,
                 focusAvailable = focusModes.isNotEmpty(),
                 onToggleFocus = {
@@ -712,33 +873,59 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             )
             }
             }
-            if (edit.undoAvailable) {
-                UndoSnackbar(skin, message = edit.notice.ifEmpty { "Moved" }, onUndo = { edit.undo() },
-                    modifier = Modifier.align(Alignment.BottomCenter))
+            if (edit.undoAvailable && !edit.enabled) {
+                UndoSnackbar(skin, message = edit.undoLabel.ifEmpty { edit.notice.ifEmpty { "Moved" } },
+                    onUndo = { edit.undo() }, modifier = Modifier.align(Alignment.BottomCenter))
             }
             if (!hintSeen && shell.layer == Layer.Home && !ui.isOpen && menu == null &&
                 folderMenu == null && !edit.enabled && !showSettings && liveReady) {
                 FirstRunHint(skin) { uiPrefs.markHintSeen(); hintSeen = true }
             }
+            // T260: one quiet hint per start, once the first-run card is done and Home is idle.
+            var gestureHint by remember { mutableStateOf<GestureHint?>(null) }
+            val homeIdle = hintSeen && shell.layer == Layer.Home && !ui.isOpen && menu == null &&
+                folderMenu == null && !edit.enabled && !showSettings && liveReady && !DemoMode.enabled &&
+                homeMenu == null && shortcutMenu == null && edit.emptyPosition == null
+            LaunchedEffect(homeIdle) {
+                if (!homeIdle) { gestureHint = null; return@LaunchedEffect }
+                if (gestureHint != null || GestureHintSession.shown) return@LaunchedEffect
+                delay(3_000)
+                val next = GestureHintRules.nextOnHome(uiPrefs.seenGestureHints()) ?: return@LaunchedEffect
+                GestureHintSession.shown = true
+                gestureHint = next
+            }
+            gestureHint?.let { hint ->
+                GestureHintChip(hint, skin, Modifier.align(Alignment.TopCenter)
+                    .padding(top = Metrics.hintCardTopDp.dp),
+                    onGotIt = { uiPrefs.markGestureHintSeen(hint.id); gestureHint = null },
+                    onSkipAll = { uiPrefs.skipAllGestureHints(); gestureHint = null })
+            }
             edit.emptyPosition?.let { position ->
                 val arcIndex = target.arcs.indexOfFirst { it.id == position.arcId }
                 EmptySlotSheet(EditModeText.emptySpotTitle(arcIndex, target.arcs.size),
                     visibleApps.filterNot { it.id in layout.hidden || it.suspended }, skin, showAddApp,
-                    onNewFolder = { edit.emptyPosition = null; showAddApp = false; showFolderCreate = true },
+                    onNewFolder = {
+                        edit.emptyPosition = null; showAddApp = false
+                        folderCreateBefore = services.layout.layout.value
+                        showFolderCreate = true
+                    },
                     onAddApp = { showAddApp = true },
                     onPickApp = { id ->
                         scope.launch {
                             val current = services.layout.layout.value
                             if (current.arcs.firstOrNull { it.arc.id == position.arcId }?.slots?.containsKey(position.index) == false) {
-                                try { services.layout.pin(id, position); edit.notify("App added") }
-                                catch (_: IllegalArgumentException) { edit.notify("Layout changed. Try again") }
+                                edit.change("App added") { services.layout.pin(id, position) }
                             } else edit.notify("Layout changed. Try again")
                             edit.emptyPosition = null; showAddApp = false
                         }
                     }, onClose = { edit.emptyPosition = null; showAddApp = false })
             }
             if (showFolderCreate) FolderEditorHost(services, skin, create = true) {
-                showFolderCreate = false; edit.close(); navigation.emit(ShellEvent.ResetToBase)
+                showFolderCreate = false
+                edit.close()
+                folderCreateBefore?.let { edit.recordChange(it, "Folder created") }
+                folderCreateBefore = null
+                navigation.emit(ShellEvent.ResetToBase)
             }
             if (showSettings) {
                 ParcSettings(services = services, skin = skin, initialPage = settingsInitialPage, initialRow = settingsInitialRow,
@@ -752,6 +939,10 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     onSetBadgesInAllApps = { badgesInAllApps = it; uiPrefs.setBadgesInAllApps(it) },
                     markWorkApps = markWorkApps,
                     onSetMarkWorkApps = { markWorkApps = it; uiPrefs.setMarkWorkApps(it) },
+                    layoutLocked = layoutLocked,
+                    onSetLayoutLocked = { layoutLockedState.value = it; uiPrefs.setLayoutLocked(it) },
+                    leftHand = leftHand,
+                    onSetLeftHand = { leftHand = it; uiPrefs.setLeftHand(it) },
                     onSetAlignedArcs = { aligned = it; uiPrefs.setAlignAcrossArcs(it) },
                     onSetJoystick = { joystick = it; uiPrefs.setJoystickAim(it) },
                     onAndroidSettings = openAndroidSettings,
@@ -767,7 +958,12 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 } else if (!ui.abcListOpen) SearchSheet(search, sheetSkin, progress = { sheet.progress }, closing = !ui.isOpen, onLaunch = { id ->
                     // A successful search clears the T35 discoverability hint.
                     uiPrefs.markSearchSucceeded(); searchSucceeded = true; session.launch(id)
-                }, hiddenLabels = hiddenLabels, modifier = Modifier.fillMaxSize().navigationBarsPadding().imePadding(),
+                }, hiddenLabels = hiddenLabels, modifier = Modifier.fillMaxSize(), searchPrefs = searchPrefs,
+                    notes = searchNotes,
+                    onOpenNote = { id ->
+                        session.dismissSearch()
+                        NoteOpenRequests.post(id)
+                    },
                     // OPUS8 (T133): Parc settings and its pages are findable; fixed page names only.
                     parcSettings = SettingsSearchEntries.all,
                     onOpenParcSetting = { key ->
@@ -775,12 +971,33 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                             session.dismissSearch()
                             settingsInitialPage = goal.page; settingsInitialRow = goal.row; showSettings = true
                         }
+                    },
+                    // T247: the arcs' own cached bitmaps, refreshed by the icon-cache revision.
+                    icon = sceneIcon,
+                    iconRevision = revision.toInt(),
+                    onAppLongPress = { row ->
+                        val entry = appEntryFor(row.appId, services.appIndex.apps.value)
+                        if (entry != null) {
+                            hideKeyboard()
+                            session.keyboard(false)
+                            searchAppMenu = SearchAppTarget(entry.id, entry.label, appActions.canUninstall(entry),
+                                alias = searchPrefsSnapshot.aliases[entry.id.value].orEmpty())
+                        }
                     })
             }
             Box(Modifier.fillMaxWidth().leanAway(lean)) {
             PullSearchBar(skin, progress = { if (ui.abcListOpen) 0f else pullProgress.floatValue },
                 committed = ui.isOpen && !ui.abcListOpen,
                 query = ui.query, onQueryChange = search::onQueryChange)
+            }
+            // T246: the quiet new-app line sits below the menus; the spot picker sits above them.
+            if (newAppPromptVisible) newAppPrompt?.let { app ->
+                NewAppPromptBar(app.label, skin, onAdd = {
+                    newAppPrompt = null
+                    if (layoutLocked) edit.refuseLocked()
+                    else if (promptSpots.isEmpty()) edit.notify(ArcsFull)
+                    else spotPickerApp = app
+                }, modifier = Modifier.align(Alignment.BottomCenter))
             }
             // Menus are the top-most layer: the name sheet is a full-screen sibling, so it must be
             // declared after the hub, which paints its own background.
@@ -810,12 +1027,119 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             homeMenu?.let {
                 HomeMenu(it, skin, onDismiss = session::dismissHomeMenu, onRow = session::homeMenuAction)
             }
+            spotPickerApp?.let { app ->
+                SpotPickerSheet(app.label, promptSpots, skin, onPick = { spot ->
+                    spotPickerApp = null
+                    scope.launch {
+                        val current = services.layout.layout.value
+                        if (ArcSpotChoices.isFree(current, spot.position) &&
+                            services.appIndex.apps.value.any { it.id == app.id }) {
+                            edit.change("App added") { services.layout.pin(app.id, spot.position) }
+                        } else edit.notify("Layout changed. Try again")
+                    }
+                }, onClose = { spotPickerApp = null })
+            }
+            // T247: a long press on a search app opens these actions; Add to arc replaces the sheet
+            // with the live arcs and a plus on every free spot.
+            searchAppMenu?.let { target ->
+                SearchAppMenuSheet(
+                    target = target,
+                    folders = SearchAppMenu.folders(layout.folders, hiddenFolders).map { folder ->
+                        com.brightblu.parc.core.data.lock.LockedApps.folderForDisplay(
+                            folder, folder.id in lockedFolders, hideLockedName)
+                    },
+                    skin = skin,
+                    onAddToArc = {
+                        searchAppMenu = null
+                        searchArcTarget = target
+                    },
+                    onAddToFolder = { folder ->
+                        searchAppMenu = null
+                        session.dismissSearch()
+                        scope.launch {
+                            edit.change("Added to folder", guarded = false) {
+                                services.layout.addToFolder(folder.id, target.appId)
+                            }
+                        }
+                    },
+                    onAppInfo = {
+                        searchAppMenu = null
+                        session.dismissSearch()
+                        appEntryFor(target.appId, services.appIndex.apps.value)?.let(appActions::openAppInfo)
+                    },
+                    onSetAlias = {
+                        searchAppMenu = null
+                        session.dismissSearch()
+                        aliasTarget = target
+                        aliasDraft = searchPrefsSnapshot.aliases[target.appId.value].orEmpty()
+                    },
+                    onUninstall = {
+                        searchAppMenu = null
+                        session.dismissSearch()
+                        appEntryFor(target.appId, services.appIndex.apps.value)?.let(appActions::uninstall)
+                    },
+                    onHide = {
+                        searchAppMenu = null
+                        session.dismissSearch()
+                        scope.launch { edit.change("Hidden") { services.layout.hide(target.appId) } }
+                    },
+                    onClose = { searchAppMenu = null },
+                )
+            }
+            aliasTarget?.let { target ->
+                val issue = if (aliasDraft.trim().length > SearchAliases.MaxLength) {
+                    "Keep it to ${SearchAliases.MaxLength} characters"
+                } else ""
+                FolderNameSheet(title = "Search alias", draftName = aliasDraft, nameIssue = issue, skin = skin,
+                    onNameChange = { aliasDraft = it },
+                    onSave = {
+                        if (issue.isEmpty()) {
+                            scope.launch { searchPrefs.setAlias(target.appId.value, aliasDraft) }
+                            aliasTarget = null
+                        }
+                    },
+                    onCancel = { aliasTarget = null })
+            }
+            searchArcTarget?.let { target ->
+                SearchArcPicker(
+                    target = target,
+                    layout = layout,
+                    geometry = sceneGeometry,
+                    rotations = liveRotations,
+                    skin = skin,
+                    onPick = { position ->
+                        searchArcTarget = null
+                        session.dismissSearch()
+                        scope.launch {
+                            val current = services.layout.layout.value
+                            if (ArcSpotChoices.isFree(current, position) &&
+                                services.appIndex.apps.value.any { it.id == target.appId }) {
+                                val existing = FolderDrop.homePosition(current, target.appId)
+                                if (existing == null) {
+                                    edit.change("App added") { services.layout.pin(target.appId, position) }
+                                } else {
+                                    // Already on an arc: it moves to the chosen spot, it is never placed twice.
+                                    edit.change("App moved") {
+                                        SlotOrder.move(current, existing, position)
+                                            ?.let { services.layout.importLayout(LayoutJson.encode(it)) }
+                                    }
+                                }
+                            } else edit.notify("Layout changed. Try again")
+                        }
+                    },
+                    onClose = { searchArcTarget = null },
+                )
+            }
             shortcutMenu?.let { shortcut ->
                 androidx.compose.material3.AlertDialog(onDismissRequest = session::dismissShortcutMenu,
                     containerColor = Color(skin.colors.surface.toInt()),
                     title = { BasicText(shortcut.label, style = com.brightblu.parc.feature.settings.ui.settingsText(skin)) },
                     confirmButton = { androidx.compose.material3.TextButton(onClick = {
-                        scope.launch { services.layout.updateLayout { ShortcutPlacement.remove(it, shortcut) } }
+                        scope.launch {
+                            edit.change("Shortcut removed") {
+                                services.layout.updateLayout { ShortcutPlacement.remove(it, shortcut) }
+                            }
+                        }
                         session.dismissShortcutMenu()
                     }) { BasicText("Remove", style = com.brightblu.parc.feature.settings.ui.settingsText(skin, skin.colors.accent)) } },
                     dismissButton = { androidx.compose.material3.TextButton(onClick = session::dismissShortcutMenu) {
@@ -834,7 +1158,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     }
 }
 
-/** One-step undo for a drag edit (T30). Drawn above the ring, dismissed by its own timer. */
+/** T245: the transient Undo chip outside edit mode. Dismissed by its own timer. */
 @Composable
 private fun UndoSnackbar(skin: Skin, message: String, onUndo: () -> Unit, modifier: Modifier = Modifier) {
     Box(

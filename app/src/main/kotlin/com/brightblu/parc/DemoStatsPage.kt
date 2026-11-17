@@ -33,8 +33,9 @@ import kotlinx.coroutines.withContext
 internal const val DemoHubPageId = "demo"
 
 /** T130: the pages the demo hub shows, in order. Every body is demo-only or the clock; T136 adds Quick toggles with fixed sample states. */
-internal val DemoHubPages: List<String> = listOf("clock", "power", "focus", "notes", QuickToggleCatalog.PageId) +
-    (if (WeatherVariant.Available) listOf(WeatherVariant.PageId) else emptyList())
+internal val DemoHubPages: List<String> = listOf(TodayPage.Id, DevicePage.Id, ControlsPage.Id, "apps", "focus", "notes", "comms") +
+    (if (WeatherVariant.Available) listOf(WeatherVariant.PageId) else emptyList()) + listOf(StepsPage.Id, RhythmPage.Id, SkyPage.Id, YearPage.Id, RecordsPage.Id, CommonplacePage.Id, LibraryPage.Id) +
+    PersonalExtras.pages.map { it.id }
 
 /**
  * T121/T130: the page list the hub shows. With demo off this is exactly the previous expression
@@ -44,8 +45,10 @@ internal val DemoHubPages: List<String> = listOf("clock", "power", "focus", "not
 internal fun hubPagesFor(
     demo: Boolean,
     configured: List<String>,
+    /** T200: the arcade joins the demo list only once a game is unlocked (a locked arcade must not exist anywhere). */
+    arcadeOpen: Boolean = false,
     allowed: (String) -> Boolean = { true },
-): List<String> = if (demo) DemoHubPages else configured.filter(allowed)
+): List<String> = if (demo) DemoHubPages + (if (arcadeOpen) listOf(com.brightblu.parc.arcade.ArcadePage.Id) else emptyList()) else configured.filter(allowed)
 
 /** T121/T130: the page name. Demo and real titles are the same word; the parameter stays so callers do not branch. */
 internal fun hubPageTitle(demo: Boolean, page: String?): String =

@@ -90,6 +90,12 @@ interface RingCallbacks {
     fun onAim(position: SlotPosition?) = Unit
     /** An arc settled on a new rotation offset (slot units, wrapped); the host persists it. */
     fun onRotate(arcId: String, offset: Float) = Unit
+    /**
+     * Read-only report of a finger turning a Home arc (the hidden arcade's unlock detector listens). [turns] is the
+     * finger's share of one full turn of that arc in this move (slots moved divided by the arc's item count; the sign is
+     * the finger's tangential direction on screen), [uptimeMs] the event time. Never called for folders or All apps.
+     */
+    fun onRotateDrag(arcId: String, turns: Float, uptimeMs: Long) = Unit
 }
 
 /** Main-thread renderer swap point; non-null immutable inputs. No Android View in the contract. */

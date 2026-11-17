@@ -12,14 +12,17 @@ data class HiddenAppRow(
 )
 
 /**
- * Immutable hidden apps screen state. Non-null. [rows] is what the list draws (the query already
- * applied), [hiddenCount] counts the installed apps currently hidden (independent of the query), and
- * [query] is the raw filter text.
+ * Immutable hidden apps screen state. Non-null. [rows] is every matching installed app (the query
+ * already applied) and stays for existing callers; [hiddenRows] and [visibleRows] are the two
+ * non-overlapping sections the T219 screen draws. [hiddenCount] counts every permanently hidden
+ * installed app regardless of the query, so the section heading does not change while searching.
  */
 data class HiddenAppsUiState(
     val rows: List<HiddenAppRow> = emptyList(),
     val query: String = "",
     val hiddenCount: Int = 0,
+    val hiddenRows: List<HiddenAppRow> = emptyList(),
+    val visibleRows: List<HiddenAppRow> = emptyList(),
 )
 
 /**
@@ -27,8 +30,8 @@ data class HiddenAppsUiState(
  * so the ordering and filtering rules are unit-tested without a device or a Compose host.
  *
  * Label matching uses a plain case-insensitive contains, not the search engine's diacritic folding:
- * the list is short and the user is scanning labels they can already see. Hidden apps stay in the
- * list, since unhiding is the point of the screen.
+ * the list is short and the user is scanning labels they can already see. Hidden apps stay in
+ * [rows]; the screen splits them into [hiddenRows] and [visibleRows] so no row is drawn twice.
  */
 object HiddenAppsProjection {
 
@@ -39,6 +42,14 @@ object HiddenAppsProjection {
         .map { HiddenAppRow(it.id, it.label, it.id in hidden, it.suspended) }
         .sortedWith(compareBy({ it.label.lowercase() }, { it.appId.value }))
         .toList()
+
+    /** The Hidden section: permanently hidden rows only, in the same label order. */
+    fun hiddenRows(apps: List<AppEntry>, hidden: Set<AppId>, query: String): List<HiddenAppRow> =
+        rows(apps, hidden, query).filter { it.hidden }
+
+    /** The All apps section: rows that are not already in the Hidden section. */
+    fun visibleRows(apps: List<AppEntry>, hidden: Set<AppId>, query: String): List<HiddenAppRow> =
+        rows(apps, hidden, query).filterNot { it.hidden }
 
     /** True when [label] passes the filter. A blank query keeps everything. */
     fun matches(label: String, query: String): Boolean =

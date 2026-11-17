@@ -45,13 +45,15 @@ class PowerNetworkFormatTest {
         assertEquals("—", PowerNetworkFormat.network(null))
     }
     @Test fun newTilesSupportHideReorderAndOldConfigMigration() {
-        for (page in listOf("power", "network")) {
-            val tiles = HubCatalog.tiles(page)
-            val config = HubConfig().move(page, tiles.last(), -99).showTile(page, tiles.first(), false)
-            val restored = HubConfig.decode(config.encode())
-            assertEquals(tiles.last(), restored.tiles(page).first())
-            assertTrue(tiles.first() in restored.hiddenTiles[page].orEmpty())
-            assertEquals(tiles, HubConfig.decode("$page:true::").tiles(page))
-        }
+        val tiles = HubCatalog.tiles(DevicePage.Id)
+        val config = HubConfig().move(DevicePage.Id, tiles.last(), -99).showTile(DevicePage.Id, tiles.first(), false)
+        val restored = HubConfig.decode(config.encode())
+        assertEquals(tiles.last(), restored.tiles(DevicePage.Id).first())
+        assertTrue(tiles.first() in restored.hiddenTiles[DevicePage.Id].orEmpty())
+        assertEquals(tiles, HubConfig.decode("system:true::").tiles(DevicePage.Id))
+        // Old power and network rows fold into the same Device page without duplicates.
+        val old = HubConfig.decode("power:true:charging:;network:true:traffic:;system:true:battery:")
+        assertEquals(HubCatalog.deviceTiles.size, old.tiles(DevicePage.Id).size)
+        assertEquals(HubCatalog.deviceTiles.toSet(), old.tiles(DevicePage.Id).toSet())
     }
 }

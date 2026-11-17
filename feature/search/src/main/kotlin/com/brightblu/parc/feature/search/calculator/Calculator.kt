@@ -19,8 +19,8 @@ data class Calculation(
  *
  * Grammar (whitespace ignored anywhere):
  * ```
- * expression := term (('+' | '-') term)*
- * term       := unary (('*' | '/') unary)*
+ * expression := term (('+' | '-') term)*     // 200 + 15% = 230: a bare percent after + or - is a share of the left side
+ * term       := unary (('*' | '×' | '/' | '÷' | 'of') unary)*   // 'of' only right after a percent: 15% of 80
  * unary      := ('+' | '-') unary | power
  * power      := postfix ('^' unary)?          // right associative, so 2^3^2 = 512
  * postfix    := primary '%'*                  // 5% = 0.05
@@ -42,6 +42,7 @@ object Calculator {
 
     private const val MaxInputLength = 256
     private const val MaxDepth = 32
+    private val BarePercent = Regex("""(?:[0-9]+(?:[.,][0-9]*)?|[.,][0-9]+)\s*%\s*""")
 
     /** Evaluation result, or null when [input] is blank, invalid or not finite. */
     fun evaluate(input: String): Calculation? {
@@ -76,11 +77,23 @@ object Calculator {
             while (true) {
                 skipSpaces()
                 value = when {
-                    take('+') -> value + term()
-                    take('-') -> value - term()
+                    take('+') -> addend(value, 1.0)
+                    take('-') -> addend(value, -1.0)
                     else -> return value
                 }
             }
+        }
+
+        /**
+         * The right side of `+` or `-`. A bare percent there is a share of the left side
+         * (`200 + 15%` = 230, `200 - 10%` = 180); anywhere else a percent is just the number / 100.
+         */
+        private fun addend(left: Double, sign: Double): Double {
+            skipSpaces()
+            val start = position
+            val right = term()
+            val text = source.substring(start, position)
+            return if (BarePercent.matches(text)) left + sign * left * right else left + sign * right
         }
 
         private fun term(): Double {
@@ -88,8 +101,9 @@ object Calculator {
             while (true) {
                 skipSpaces()
                 value = when {
-                    take('*') -> value * unary()
-                    take('/') -> {
+                    take('*') || take('×') -> value * unary()
+                    afterPercentOf() -> value * unary()
+                    take('/') || take('÷') -> {
                         val divisor = unary()
                         if (divisor == 0.0) throw InvalidExpression()
                         value / divisor
@@ -97,6 +111,17 @@ object Calculator {
                     else -> return value
                 }
             }
+        }
+
+        /** Takes the word `of` when the number before it ended in `%` (`15% of 80` = 12). */
+        private fun afterPercentOf(): Boolean {
+            var back = position - 1
+            while (back >= 0 && source[back].isWhitespace()) back--
+            if (back < 0 || source[back] != '%') return false
+            if (!source.regionMatches(position, "of", 0, 2, ignoreCase = true)) return false
+            if (position + 2 < source.length && source[position + 2].isLetter()) return false
+            position += 2
+            return true
         }
 
         private fun unary(): Double {

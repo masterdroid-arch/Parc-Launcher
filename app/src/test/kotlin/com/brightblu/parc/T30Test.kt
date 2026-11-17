@@ -26,7 +26,7 @@ class T30Test {
         org.junit.Assert.assertEquals(HubCatalog.pages.toSet(), hubPageOptions.keys)
         org.junit.Assert.assertTrue(SettingsRegistry.byId.getValue("HubPages").help.contains("options"))
         assertTrue("time zone" in SettingsRegistry.byId.getValue("HubPages").words)
-        assertTrue(hubPageOptions.getValue("clock").tap.contains("Long press"))
+        assertTrue(hubPageOptions.getValue(TodayPage.Id).tap.contains("Long press"))
         hubPageOptions.values.forEach { org.junit.Assert.assertTrue(it.fullSettings in SettingsPage.entries) }
     }
     @Test fun sharedEditorsKeepEveryExistingDestination() {
@@ -73,7 +73,7 @@ class T30Test {
         val menu = MenuModel(a, SlotPosition("A1", 0), 200f, 700f,
             shortcuts = listOf(AppShortcut("s1", "Chat with Alice", a)), pinned = false, label = "App A")
         assertEquals(
-            listOf("Chat with Alice", "Pin", "Move to folder", "Hide from Parc", "App info", "Uninstall"),
+            listOf("Chat with Alice", "Pin", "Move to folder", "Remove from arc", "Hide from Parc", "App info", "Uninstall"),
             rows(appMenuRootItems(menu)),
         )
         assertTrue(appMenuRootItems(menu).any { it is MenuItem.Divider })

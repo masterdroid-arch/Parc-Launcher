@@ -1,12 +1,10 @@
 package com.brightblu.parc
 
 import com.brightblu.parc.model.textFamily
+import com.brightblu.parc.model.readableAccent
 import com.brightblu.parc.feature.settings.ui.*
 
 import android.content.ComponentName
-import android.content.Intent
-import android.net.Uri
-import android.graphics.Bitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.verticalScroll
@@ -15,11 +13,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -27,38 +26,51 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.*
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.style.TextOverflow
-import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.*
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.brightblu.parc.core.data.comms.*
+import com.brightblu.parc.core.data.notifications.NotificationListenerStatus
 import com.brightblu.parc.core.data.notifications.ParcNotificationListenerService
 import com.brightblu.parc.feature.settings.notifications.NotificationAccessLink
 import com.brightblu.parc.feature.settings.notifications.NotificationAccessStatus
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.ModuleStyle
 import com.brightblu.parc.model.ParcBlocks
 import com.brightblu.parc.model.parcBottomInset
 import com.brightblu.parc.model.parcCardPadding
 import com.brightblu.parc.model.Skin
+import com.brightblu.parc.ring.module.frostedBackground
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 @Composable
@@ -73,35 +85,57 @@ internal fun ConsoleAction(text: String, skin: Skin, modifier: Modifier = Modifi
     Box(modifier.heightIn(min = Metrics.commsActionDp.dp).widthIn(min = Metrics.commsActionDp.dp)
         .clickable(enabled = enabled, onClick = action).padding(Metrics.lineGapDp.dp), contentAlignment = Alignment.CenterStart) {
         BasicText(text, style = consoleStyle(skin).copy(
-            color = Color((if (enabled) skin.colors.accent else skin.colors.lineActive).toInt())))
+            color = Color((if (enabled) skin.colors.readableAccent else skin.colors.lineActive).toInt())))
     }
 }
 
+/**
+ * T233: Messages, with the messages as the page. The old large hero and full-width Live / History
+ * row are gone; the header is one line, the list owns the height, and each card puts its newest
+ * message before its actions. The footer is the last list item so it cannot take the list's room.
+ */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun CommsPage(repository: CommsExtrasRepository, skin: Skin, modifier: Modifier = Modifier,
     reviewAccess: Boolean? = null) {
     val allConversations by repository.conversations.collectAsState()
     val focusState = LocalFocusRepository.current?.state?.collectAsState()?.value
-    // T98: packages in locked folders are hidden from Comms until the folder is unlocked.
-    val hidden = focusState?.active?.hiddenComms.orEmpty() + LocalLockedPackages.current
+    // T217: Messages uses the launcher's message rule, not its old hiddenComms + Lock filter.
+    // A Focus-hidden app's messages are hidden by default; "Always show messages" is the only
+    // exception, and permanent hide, Lock and a hidden folder can never be overridden.
+    val visibility = LocalVisibility.current
+    val hidden = visibility.messageBlocked
     val conversations = remember(allConversations, hidden) { allConversations.filterNot { it.app in hidden } }
     val enabled by repository.enabled.collectAsState()
     val cannedReplies by repository.cannedReplies.collectAsState()
-    val allDismissed by repository.history.collectAsState()
-    val dismissed = remember(allDismissed, hidden) { allDismissed.filterNot { it.conversation.app in hidden } }
+    // T215: the stored rows are the History source of truth; the old T77 projection is no longer
+    // read here, so a row can be deleted by id and the count always follows the database.
+    val allStored by repository.storedMessages.collectAsState()
+    val stored = remember(allStored, hidden) { allStored.filterNot { it.app in hidden } }
     var selected by remember { mutableStateOf<CommsConversationId?>(null) }
     val selection = CommsPresentation.selection(selected, conversations)
     LaunchedEffect(selection) { selected = selection }
     var draft by remember { mutableStateOf("") }
-    // Drafts/notices are never saveable, logged or written to disk.
+    // Drafts/notices are never saved. T214 stores accepted messages separately in
+    // CommsHistoryStore; this view only reads those rows.
     var notice by remember { mutableStateOf<Pair<String, String>?>(null) }
     var sending by remember { mutableStateOf(false) }
-    // T77: the history toggle is a view state only; nothing about it is persisted.
-    var historyOn by remember { mutableStateOf(false) }
-    LaunchedEffect(enabled) { if (!enabled) historyOn = false }
+    // T215: the Live/History segment is a view state only; the stored rows are independent of it.
+    var segment by remember { mutableStateOf(CommsSegment.Live) }
+    var query by remember { mutableStateOf("") }
+    var visibleRows by remember { mutableIntStateOf(CommsExtrasPresentation.HistoryPageSize) }
+    var historyMenu by remember { mutableStateOf<CommsHistoryMessage?>(null) }
+    var conversationMenu by remember { mutableStateOf<CommsHistoryGroup?>(null) }
+    var deleteMessage by remember { mutableStateOf<CommsHistoryMessage?>(null) }
+    var deleteConversation by remember { mutableStateOf<CommsHistoryGroup?>(null) }
+    var historyNotice by remember { mutableStateOf<String?>(null) }
+    var menuOpen by remember { mutableStateOf(false) }
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
+    val replyFocus = remember { FocusRequester() }
+    var focusRequest by remember { mutableIntStateOf(0) }
+    var whyOpen by remember { mutableStateOf(false) }
+    val listener by NotificationListenerStatus.state.collectAsState()
     DisposableEffect(Unit) { onDispose { focus.clearFocus(); keyboard?.hide() } }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val ime = WindowInsets.ime.getBottom(density)
@@ -111,12 +145,27 @@ internal fun CommsPage(repository: CommsExtrasRepository, skin: Skin, modifier: 
         else if (hadKeyboard) { focus.clearFocus(); hadKeyboard = false }
     }
     LaunchedEffect(notice) { if (notice != null) { delay(Metrics.commsNoticeMs); notice = null } }
+    LaunchedEffect(historyNotice) { if (historyNotice != null) { delay(Metrics.commsNoticeMs); historyNotice = null } }
+    LaunchedEffect(query) { visibleRows = CommsExtrasPresentation.HistoryPageSize }
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     fun openApp(app: String) {
         val launch = context.packageManager.getLaunchIntentForPackage(app)
         if (launch != null) runCatching { context.startActivity(launch) }
         else notice = "app unavailable" to app
+    }
+    fun beginReply(conversation: CommsConversation) {
+        selected = conversation.id
+        draft = ""
+        notice = null
+        focusRequest++
+    }
+    fun cancelReply() {
+        selected = null
+        draft = ""
+        focus.clearFocus()
+        keyboard?.hide()
     }
     // One send path for the field and the T77 chips row, so a chip reports exactly like Send.
     fun send(conversation: CommsConversation, body: String) {
@@ -139,6 +188,9 @@ internal fun CommsPage(repository: CommsExtrasRepository, skin: Skin, modifier: 
             notice = CommsExtrasPresentation.readNotice(repository.markAsRead(conversation)) to conversation.app
         }
     }
+    fun dismissAll() {
+        scope.launch { conversations.forEach { repository.dismiss(it) } }
+    }
     val access = remember(context) { NotificationAccessLink.of(context, ComponentName(context, ParcNotificationListenerService::class.java)) }
     var granted by remember { mutableStateOf(access.status == NotificationAccessStatus.Granted) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -154,112 +206,618 @@ internal fun CommsPage(repository: CommsExtrasRepository, skin: Skin, modifier: 
     val historyList = rememberLazyListState()
     RegisterHubScroll(historyList)
     val ordered = remember(conversations) { CommsPresentation.cards(conversations) }
-    val mode = CommsExtrasPresentation.mode(enabled, historyOn, ordered.size, dismissed.size)
+    val accessOn = reviewAccess ?: granted
+    // Access off chooses History and keeps it reachable; when access returns, the user's chosen
+    // segment is left alone.
+    LaunchedEffect(accessOn) { if (!accessOn) segment = CommsSegment.History }
+    val mode = CommsExtrasPresentation.mode(segment, accessOn, enabled, ordered.size, stored.size)
+    val focusShown = focusState?.active?.alwaysShowMessagePackages.orEmpty()
+    val focusHiddenApps = remember(focusState, allConversations, visibility) {
+        val forcedHidden = visibility.permanentHidden + visibility.lockedNow + visibility.hiddenFolderApps
+        allConversations.filter {
+            (it.app in visibility.focusBlocked && it.app !in focusShown && it.app !in forcedHidden) ||
+                (it.app in focusState?.active?.hiddenComms.orEmpty() && it.app !in forcedHidden)
+        }.map { it.app }.distinct()
+    }
+    val emptyState = CommsExtrasPresentation.emptyState(
+        accessOn = accessOn,
+        enabled = enabled,
+        live = ordered.size,
+        stored = stored.size,
+        focusMode = focusState?.active?.name,
+        focusHiddenApps = focusHiddenApps,
+        drops = listener.lastDropReasons.size,
+    )
+    val whyRows = remember(listener.lastDropReasons, accessOn) {
+        CommsPresentation.whyRows(listener.lastDropReasons, accessOn)
+    }
+    val openFocus = LocalEditFocus.current
     val liveApps = remember(ordered) { ordered.map { it.app } }
-    val compactLimit = if (LocalHubSize.current == HubSize.Compact) 1 else if (LocalHubSize.current == HubSize.Standard) 3 else Int.MAX_VALUE
     val noticeApp = notice?.second
     val noticePlacement = CommsExtrasPresentation.noticePlacement(noticeApp, liveApps)
-    // T158: no page background (the hub card is the surface); 12 dp between the rows.
-    Column(modifier.fillMaxSize()
-        .pointerInput(Unit) { detectTapGestures(onTap = { focus.clearFocus(); keyboard?.hide() }) },
-        verticalArrangement = Arrangement.spacedBy(com.brightblu.parc.model.ParcSpacing.hubRowGapDp().dp)) {
-        if (reviewAccess ?: granted) HubHero(ordered.size.toString(), "Conversations", skin)
-        if (!(reviewAccess ?: granted)) {
-            HubPermissionCard("Comms needs notification access", "Allow", skin) { context.startActivity(access.settingsIntent()) }
+    val allHistoryGroups = remember(stored, query) { CommsExtrasPresentation.historyGroups(stored, query) }
+    val historyTotal = CommsExtrasPresentation.historyTotal(allHistoryGroups)
+    val historyGroups = remember(allHistoryGroups, visibleRows) {
+        CommsExtrasPresentation.historyPage(allHistoryGroups, visibleRows)
+    }
+    val historyCards = remember(historyGroups) { CommsPresentation.historyCards(historyGroups) }
+    val historySections = remember(historyCards) { CommsPresentation.historySections(historyCards) }
+    fun replyFromHistory(message: CommsHistoryMessage) {
+        val conversation = conversations.firstOrNull { it.id == message.conversation } ?: return
+        segment = CommsSegment.Live
+        beginReply(conversation)
+    }
+    fun openHistoryMessage(message: CommsHistoryMessage) {
+        when (CommsExtrasPresentation.historyAction(message, conversations).action) {
+            CommsHistoryAction.Reply -> replyFromHistory(message)
+            CommsHistoryAction.Open -> openApp(message.app)
         }
-        // T77: the history toggle stays reachable even when nothing is active, so a dismissed
-        // message can still be read after the conversation left the list.
-        if (enabled) {
-            Row(Modifier.fillMaxWidth().heightIn(min = Metrics.commsActionDp.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                BasicText(CommsExtrasPresentation.historyLabel(dismissed.size), style = consoleStyle(skin).copy(
-                    fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textSecondary.toInt())))
-                Spacer(Modifier.weight(1f))
-                ConsoleAction(CommsExtrasPresentation.historyToggle(historyOn), skin) {
-                    historyOn = !historyOn
-                    focus.clearFocus(); keyboard?.hide()
+    }
+    BoxWithConstraints(modifier.fillMaxSize()
+        .pointerInput(Unit) { detectTapGestures(onTap = { focus.clearFocus(); keyboard?.hide() }) }) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            state = if (segment == CommsSegment.Live) list else historyList,
+            contentPadding = PaddingValues(bottom = HubPageScroll.endPaddingDp.dp),
+            verticalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp),
+        ) {
+            item(key = "messages-header") {
+                MessagesHeader(
+                    live = ordered.size,
+                    segment = segment,
+                    skin = skin,
+                    menuOpen = menuOpen,
+                    onMenuOpenChange = { menuOpen = it },
+                    onSelect = { next ->
+                        segment = next
+                        menuOpen = false
+                        focus.clearFocus(); keyboard?.hide()
+                    },
+                    onDismissAll = {
+                        menuOpen = false
+                        dismissAll()
+                    },
+                )
+            }
+            // A status line whose card left the list (mark-as-read through the dismiss fallback) is
+            // reported on the page, so the outcome is never swallowed with the card.
+            if (noticePlacement == CommsNoticePlacement.Page) {
+                item(key = "page-notice") {
+                    notice?.let { (text, app) -> ConsoleAction(text, skin) { openApp(app) } }
                 }
             }
-        }
-        // A status line whose card left the list (mark-as-read through the dismiss fallback) is
-        // reported on the page, so the outcome is never swallowed with the card.
-        if (noticePlacement == CommsNoticePlacement.Page) {
-            notice?.let { (text, app) -> ConsoleAction(text, skin) { openApp(app) } }
-        }
-        when (mode) {
-            CommsMode.History -> CommsHistoryList(dismissed, historyList, skin)
-            CommsMode.Live -> LazyColumn(Modifier.fillMaxSize(), state = list,
-                contentPadding = PaddingValues(bottom = HubPageScroll.endPaddingDp.dp),
-                verticalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
-                items(minOf(ordered.size, compactLimit), key = { ordered[it].id.toString() }) { index ->
-                    val conversation = ordered[index]
+            when (mode) {
+                CommsMode.Live -> items(ordered, key = { it.id.toString() }) { conversation ->
                     val chosen = selection == conversation.id
-                    val card = CommsExtrasPresentation.cardState(chosen, cannedReplies)
-                    Column(Modifier.fillMaxWidth().commsFrame(skin, chosen).parcCardPadding()) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.weight(1f).heightIn(min = Metrics.commsActionDp.dp)
-                                .clickable {
-                                    focus.clearFocus(); keyboard?.hide()
-                                    selected = conversation.id; draft = ""; notice = null
-                                }, contentAlignment = Alignment.CenterStart) {
-                                BasicText(CommsPresentation.header(conversation), style = consoleStyle(skin).copy(
-                                    fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.accent.toInt())),
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    LiveConversationCard(
+                        conversation = conversation,
+                        selected = chosen,
+                        cannedReplies = cannedReplies,
+                        skin = skin,
+                        notice = notice?.takeIf { noticePlacement == CommsNoticePlacement.Card && it.second == conversation.app }?.first,
+                        draft = draft,
+                        onDraft = { draft = it },
+                        sending = sending,
+                        replyFocus = replyFocus,
+                        focusRequest = focusRequest,
+                        onBeginReply = { beginReply(conversation) },
+                        onCancelReply = ::cancelReply,
+                        onSend = { send(conversation, it) },
+                        onMarkRead = { markRead(conversation) },
+                        onDismiss = { scope.launch { repository.dismiss(conversation) } },
+                        onOpenApp = { openApp(conversation.app) },
+                    )
+                }
+                CommsMode.History -> {
+                    item(key = "history-search") {
+                        HistorySearch(query, { query = it }, accessOn, historyNotice, skin)
+                    }
+                    historySections.forEach { section ->
+                        item(key = "date-${section.label}") { HistoryDateHeader(section.label, skin) }
+                        items(section.messages, key = { "history-${it.id}" }) { message ->
+                            HistoryMessageCard(
+                                message = message,
+                                conversations = conversations,
+                                skin = skin,
+                                onAction = { openHistoryMessage(message) },
+                                onBodyLongPress = { historyMenu = message },
+                                onHeaderLongPress = {
+                                    conversationMenu = CommsHistoryGroup(
+                                        app = message.app,
+                                        conversationKey = message.conversationKey,
+                                        title = message.conversationTitle,
+                                        messages = listOf(message),
+                                    )
+                                },
+                            )
+                        }
+                    }
+                    if (historyTotal > visibleRows) {
+                        item(key = "show-older") {
+                            ConsoleAction("Show older", skin) {
+                                visibleRows += CommsExtrasPresentation.HistoryPageSize
                             }
-                            BasicText("${conversation.messages.size} ", style = consoleStyle(skin).copy(
-                                fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textSecondary.toInt())))
-                            ConsoleAction(if (skin.style.terminalStats) "[read]" else "Read", skin) { markRead(conversation) }
-                            ConsoleAction(if (skin.style.terminalStats) "[x all]" else "Dismiss", skin) { scope.launch { repository.dismiss(conversation) } }
-                        }
-                        // T56 behaviour: the status line is the affordance that opens the app when
-                        // the notification cannot be answered or read in place. T77 keeps it on the
-                        // card while the card is live.
-                        notice?.takeIf { noticePlacement == CommsNoticePlacement.Card && it.second == conversation.app }?.let { (text, app) ->
-                            ConsoleAction(text, skin) { openApp(app) }
-                        }
-                        Column(verticalArrangement = Arrangement.spacedBy(Metrics.commsMessageGapDp.dp)) {
-                            CommsPresentation.recent(conversation).forEach { message ->
-                                key(message) {
-                                    MessageLine(conversation.app, message, skin, { openApp(conversation.app) }) {
-                                        scope.launch { repository.dismiss(message) }
-                                    }
-                                }
-                            }
-                        }
-                        if (card.showField) {
-                            Row(
-                                Modifier.fillMaxWidth().heightIn(min = Metrics.commsActionDp.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                BasicText("> ", style = consoleStyle(skin))
-                                BasicTextField(
-                                    value = draft,
-                                    onValueChange = { draft = it },
-                                    modifier = Modifier.weight(1f)
-                                        .heightIn(min = Metrics.commsActionDp.dp).wrapContentHeight(),
-                                    enabled = !sending,
-                                    singleLine = true,
-                                    textStyle = consoleStyle(skin),
-                                    cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
-                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                    keyboardActions = KeyboardActions(onSend = { send(conversation, draft) }),
-                                )
-                            }
-                        }
-                        if (card.showQuickReplies) {
-                            ReplyChips(card.quickReplies, skin, !sending) { reply -> send(conversation, reply) }
                         }
                     }
                 }
+                CommsMode.Empty -> item(key = "empty") {
+                    CommsEmptyBody(emptyState, skin, Modifier.fillParentMaxHeight().fillMaxWidth()) { action ->
+                        when (action) {
+                            CommsEmptyAction.Allow -> runCatching { context.startActivity(access.settingsIntent()) }
+                            CommsEmptyAction.TurnOn -> scope.launch { repository.setEnabled(true) }
+                            CommsEmptyAction.OpenHistory -> {
+                                segment = CommsSegment.History
+                                focus.clearFocus(); keyboard?.hide()
+                            }
+                            CommsEmptyAction.OpenFocus -> openFocus()
+                            CommsEmptyAction.Why -> whyOpen = true
+                        }
+                    }
+                }
+                CommsMode.NoHistory -> item(key = "no-history") {
+                    Box(Modifier.fillParentMaxHeight().fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        BasicText("No stored messages yet", style = consoleStyle(skin).copy(
+                            color = Color(skin.colors.textSecondary.toInt())))
+                    }
+                }
             }
-            CommsMode.Empty -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                BasicText(hubTemplates.getValue("comms").empty, style = consoleStyle(skin).copy(color = Color(skin.colors.textSecondary.toInt())))
-            }
-            CommsMode.NoHistory -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                BasicText("No saved messages yet", style = consoleStyle(skin).copy(color = Color(skin.colors.textSecondary.toInt())))
+            item(key = "messages-footer") {
+                BasicText(
+                    CommsPresentation.footer(listener.connectedAtMs, accessOn, ordered.size, stored.size),
+                    Modifier.fillMaxWidth().padding(top = Metrics.lineGapDp.dp),
+                    style = consoleStyle(skin).copy(
+                        fontSize = Metrics.commsHeaderSp.sp,
+                        color = Color(skin.colors.textSecondary.toInt()),
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
+    if (whyOpen) CommsWhyDialog(whyRows, skin) { whyOpen = false }
+    historyMenu?.let { message ->
+        CommsMessageMenuDialog(
+            message = message,
+            skin = skin,
+            onCopy = {
+                clipboard.setText(androidx.compose.ui.text.AnnotatedString(message.text))
+                historyNotice = "copied"
+                historyMenu = null
+            },
+            onDelete = {
+                historyMenu = null
+                deleteMessage = message
+            },
+            onDismiss = { historyMenu = null },
+        )
+    }
+    deleteMessage?.let { message ->
+        CommsConfirmDialog(
+            title = "Delete message?",
+            body = "This stored message is removed from this phone.",
+            confirm = "Delete",
+            skin = skin,
+            onConfirm = {
+                deleteMessage = null
+                scope.launch { repository.deleteHistoryMessage(message.id) }
+            },
+            onDismiss = { deleteMessage = null },
+        )
+    }
+    conversationMenu?.let { group ->
+        CommsConversationMenuDialog(
+            group = group,
+            skin = skin,
+            onDelete = {
+                conversationMenu = null
+                deleteConversation = group
+            },
+            onDismiss = { conversationMenu = null },
+        )
+    }
+    deleteConversation?.let { group ->
+        CommsConfirmDialog(
+            title = "Delete conversation?",
+            body = "Every stored message in this conversation is removed from this phone.",
+            confirm = "Delete conversation",
+            skin = skin,
+            onConfirm = {
+                deleteConversation = null
+                scope.launch { repository.deleteHistoryConversation(group.app, group.conversationKey) }
+            },
+            onDismiss = { deleteConversation = null },
+        )
+    }
+}
+
+/** T233: one compact line, `Messages · 2 live`, with small text tabs on the same line. */
+@Composable
+private fun MessagesHeader(
+    live: Int,
+    segment: CommsSegment,
+    skin: Skin,
+    menuOpen: Boolean,
+    onMenuOpenChange: (Boolean) -> Unit,
+    onSelect: (CommsSegment) -> Unit,
+    onDismissAll: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = Metrics.commsHeaderRowDp.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BasicText(
+            CommsPresentation.headerLine(live),
+            Modifier.weight(1f),
+            style = consoleStyle(skin).copy(
+                fontSize = Metrics.commsHeaderTitleSp.sp,
+                color = Color(skin.colors.textPrimary.toInt()),
+                fontWeight = FontWeight(skin.typography.title.weight),
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        CommsTextTab(CommsSegment.Live.label, segment == CommsSegment.Live, skin) { onSelect(CommsSegment.Live) }
+        CommsTextTab(CommsSegment.History.label, segment == CommsSegment.History, skin) { onSelect(CommsSegment.History) }
+        if (live > 0) {
+            Box {
+                Box(
+                    Modifier.heightIn(min = Metrics.commsActionDp.dp).widthIn(min = Metrics.commsActionDp.dp)
+                        .clickable(role = Role.Button) { onMenuOpenChange(true) }
+                        .semantics { contentDescription = "Messages menu"; role = Role.Button },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    BasicText("…", style = consoleStyle(skin).copy(
+                        color = Color(skin.colors.textSecondary.toInt()),
+                        fontSize = Metrics.commsHeaderTitleSp.sp,
+                    ))
+                }
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { onMenuOpenChange(false) },
+                    modifier = Modifier.background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha)),
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            BasicText("Dismiss all", style = consoleStyle(skin).copy(
+                                color = Color(skin.colors.textPrimary.toInt())))
+                        },
+                        onClick = onDismissAll,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** T233: a small text tab; the selected one is primary with a thin accent underline, never a pill. */
+@Composable
+private fun CommsTextTab(label: String, selected: Boolean, skin: Skin, onClick: () -> Unit) {
+    Box(
+        Modifier.heightIn(min = Metrics.commsActionDp.dp)
+            .clickable(role = Role.Tab, onClick = onClick)
+            .semantics { contentDescription = "Show $label"; role = Role.Tab }
+            .padding(horizontal = Metrics.itemGapDp.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        BasicText(
+            label,
+            Modifier.drawBehind {
+                if (selected) {
+                    val stroke = Metrics.commsTabUnderlineDp.dp.toPx()
+                    val y = size.height - stroke / 2f
+                    drawLine(Color(skin.colors.accent.toInt()), Offset(0f, y), Offset(size.width, y), stroke)
+                }
+            },
+            style = consoleStyle(skin).copy(
+                fontSize = Metrics.commsHeaderSp.sp,
+                color = Color((if (selected) skin.colors.textPrimary else skin.colors.textSecondary).toInt()),
+            ),
+            maxLines = 1,
+        )
+    }
+}
+
+/** T233: app in secondary, sender in primary, time at the right. No underline and no link look. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun CommsCardHeader(app: String, sender: String, time: String, skin: Skin,
+    onLongPress: (() -> Unit)? = null) {
+    val modifier = Modifier.fillMaxWidth().then(
+        if (onLongPress != null) Modifier.combinedClickable(
+            onClickLabel = "Conversation actions",
+            onLongClickLabel = "Delete conversation",
+            onClick = {},
+            onLongClick = onLongPress,
+        ) else Modifier,
+    )
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        BasicText(
+            CommsPresentation.appName(app),
+            Modifier.widthIn(max = Metrics.commsChipMaxWidthDp.dp),
+            style = consoleStyle(skin).copy(
+                fontSize = Metrics.commsHeaderSp.sp,
+                color = Color(skin.colors.textSecondary.toInt()),
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.width(Metrics.itemGapDp.dp))
+        BasicText(
+            sender,
+            Modifier.weight(1f),
+            style = consoleStyle(skin).copy(
+                fontSize = Metrics.commsMessageSp.sp,
+                color = Color(skin.colors.textPrimary.toInt()),
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.width(Metrics.itemGapDp.dp))
+        BasicText(
+            time,
+            style = consoleStyle(skin).copy(
+                fontSize = Metrics.commsHeaderSp.sp,
+                color = Color(skin.colors.textSecondary.toInt()),
+            ),
+            maxLines = 1,
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LiveConversationCard(
+    conversation: CommsConversation,
+    selected: Boolean,
+    cannedReplies: List<String>,
+    skin: Skin,
+    notice: String?,
+    draft: String,
+    onDraft: (String) -> Unit,
+    sending: Boolean,
+    replyFocus: FocusRequester,
+    focusRequest: Int,
+    onBeginReply: () -> Unit,
+    onCancelReply: () -> Unit,
+    onSend: (String) -> Unit,
+    onMarkRead: () -> Unit,
+    onDismiss: () -> Unit,
+    onOpenApp: () -> Unit,
+) {
+    val card = CommsExtrasPresentation.cardState(selected, cannedReplies, conversation.canReply)
+    val keyboard = LocalSoftwareKeyboardController.current
+    Column(Modifier.fillMaxWidth().commsCardSurface(skin).commsFrame(skin, selected).parcCardPadding()) {
+        CommsCardHeader(
+            app = conversation.app,
+            sender = CommsPresentation.sender(conversation),
+            time = CommsPresentation.latest(conversation)?.let { CommsPresentation.time(it) }.orEmpty(),
+            skin = skin,
+        )
+        val text = CommsPresentation.latestText(conversation)
+        if (text.isNotBlank()) {
+            BasicText(
+                text,
+                Modifier.fillMaxWidth().padding(top = Metrics.commsCardInnerGapDp.dp),
+                style = consoleStyle(skin).copy(color = Color(skin.colors.textPrimary.toInt())),
+                maxLines = Metrics.commsMaxLines,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (conversation.messages.size > 1) {
+            BasicText(
+                CommsPresentation.messageCount(conversation.messages.size),
+                Modifier.padding(top = Metrics.commsCardInnerGapDp.dp),
+                style = consoleStyle(skin).copy(
+                    fontSize = Metrics.commsHeaderSp.sp,
+                    color = Color(skin.colors.textSecondary.toInt()),
+                ),
+            )
+        }
+        notice?.let { line -> ConsoleAction(line, skin) { onOpenApp() } }
+        FlowRow(
+            Modifier.fillMaxWidth().padding(top = Metrics.commsCardInnerGapDp.dp),
+            horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp),
+        ) {
+            ConsoleAction(CommsPresentation.liveActionLabel(conversation), skin) {
+                if (conversation.canReply) onBeginReply() else onOpenApp()
+            }
+            ConsoleAction("Mark read", skin) { onMarkRead() }
+            ConsoleAction("Dismiss", skin) { onDismiss() }
+            if (selected) ConsoleAction("Cancel", skin) { onCancelReply() }
+        }
+        if (selected && !conversation.canReply) {
+            BasicText("This app does not allow replies here.", style = consoleStyle(skin).copy(
+                fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textSecondary.toInt())))
+        }
+        if (card.showField) {
+            LaunchedEffect(focusRequest) {
+                if (focusRequest > 0) {
+                    // The card can leave while the effect is starting; a detached requester must
+                    // never crash the page.
+                    runCatching { replyFocus.requestFocus() }
+                    keyboard?.show()
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = Metrics.commsActionDp.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (skin.style.terminalStats) BasicText("> ", style = consoleStyle(skin))
+                BasicTextField(
+                    value = draft,
+                    onValueChange = onDraft,
+                    modifier = Modifier.weight(1f).focusRequester(replyFocus)
+                        .heightIn(min = Metrics.commsActionDp.dp).wrapContentHeight(),
+                    enabled = !sending,
+                    singleLine = true,
+                    textStyle = consoleStyle(skin),
+                    cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { onSend(draft) }),
+                )
+            }
+        }
+        if (card.showQuickReplies) {
+            ReplyChips(card.quickReplies, skin, !sending) { reply -> onSend(reply) }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun HistoryMessageCard(
+    message: CommsHistoryMessage,
+    conversations: List<CommsConversation>,
+    skin: Skin,
+    onAction: () -> Unit,
+    onBodyLongPress: () -> Unit,
+    onHeaderLongPress: () -> Unit,
+) {
+    val action = remember(message, conversations) {
+        CommsExtrasPresentation.historyAction(message, conversations)
+    }
+    val dim = Color(skin.colors.textSecondary.toInt())
+    val sender = message.sender.ifBlank { CommsPresentation.appName(message.app) }
+    Column(Modifier.fillMaxWidth().commsCardSurface(skin).commsFrame(skin, false).parcCardPadding()) {
+        CommsCardHeader(
+            app = message.app,
+            sender = sender,
+            time = CommsPresentation.time(message.timeMs),
+            skin = skin,
+            onLongPress = onHeaderLongPress,
+        )
+        BasicText(
+            message.text,
+            Modifier.fillMaxWidth().padding(top = Metrics.commsCardInnerGapDp.dp).combinedClickable(
+                onClickLabel = if (action.action == CommsHistoryAction.Reply) "Reply" else CommsPresentation.openLabel(message.app),
+                onLongClickLabel = "Message actions",
+                onClick = onAction,
+                onLongClick = onBodyLongPress,
+            ),
+            style = consoleStyle(skin).copy(color = Color(skin.colors.textPrimary.toInt())),
+            maxLines = Metrics.commsMaxLines,
+            overflow = TextOverflow.Ellipsis,
+        )
+        FlowRow(
+            Modifier.fillMaxWidth().padding(top = Metrics.commsCardInnerGapDp.dp),
+            horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp),
+        ) {
+            if (action.action == CommsHistoryAction.Reply) {
+                ConsoleAction("Reply", skin) { onAction() }
+            } else {
+                ConsoleAction(CommsPresentation.openLabel(message.app), skin) { onAction() }
+                action.status?.let { status ->
+                    BasicText(status, style = consoleStyle(skin).copy(fontSize = Metrics.commsHeaderSp.sp, color = dim))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryDateHeader(label: String, skin: Skin) {
+    BasicText(
+        label,
+        Modifier.padding(top = Metrics.lineGapDp.dp),
+        style = consoleStyle(skin).copy(
+            fontSize = Metrics.commsHeaderSp.sp,
+            color = Color(skin.colors.textSecondary.toInt()),
+        ),
+        maxLines = 1,
+    )
+}
+
+@Composable
+private fun HistorySearch(query: String, onQuery: (String) -> Unit, accessOn: Boolean,
+    notice: String?, skin: Skin) {
+    val dim = Color(skin.colors.textSecondary.toInt())
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = Metrics.commsActionDp.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicText("> ", style = consoleStyle(skin))
+            Box(Modifier.weight(1f)) {
+                if (query.isEmpty()) {
+                    BasicText("Search messages", style = consoleStyle(skin).copy(
+                        fontSize = Metrics.commsHeaderSp.sp, color = dim))
+                }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQuery,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = Metrics.commsActionDp.dp).wrapContentHeight(),
+                    singleLine = true,
+                    textStyle = consoleStyle(skin),
+                    cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                )
+            }
+            if (query.isNotEmpty()) ConsoleAction("Clear search", skin) { onQuery("") }
+        }
+        if (!accessOn) {
+            BasicText("Notification access is off. Stored messages are still readable.", style = consoleStyle(skin).copy(
+                fontSize = Metrics.commsHeaderSp.sp, color = dim))
+        }
+        notice?.let {
+            BasicText(it, style = consoleStyle(skin).copy(
+                fontSize = Metrics.commsHeaderSp.sp, color = dim))
+        }
+    }
+}
+
+/** The one empty reason and one action, plus the access-off history note. */
+@Composable
+private fun CommsEmptyBody(state: CommsEmptyState?, skin: Skin,
+    modifier: Modifier = Modifier, action: (CommsEmptyAction) -> Unit) {
+    if (state == null) return
+    Column(modifier.verticalScroll(rememberHubScrollState()), verticalArrangement = Arrangement.Center) {
+        HudCell(skin, Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
+                BasicText(state.message, style = consoleStyle(skin))
+                state.note?.let { note ->
+                    BasicText(note, style = consoleStyle(skin).copy(
+                        fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textSecondary.toInt())))
+                }
+                Box(Modifier.heightIn(min = Metrics.commsActionDp.dp)
+                    .clickable { action(state.action) }.padding(vertical = Metrics.lineGapDp.dp),
+                    contentAlignment = Alignment.CenterStart) {
+                    BasicText(state.actionLabel, style = consoleStyle(skin).copy(
+                        fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.readableAccent.toInt())))
+                }
+            }
+        }
+    }
+}
+
+/** The Why sheet: package and reason only, never a title, sender or message body. */
+@Composable
+private fun CommsWhyDialog(rows: List<CommsWhyRow>, skin: Skin, dismiss: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = dismiss,
+        containerColor = Color(skin.colors.surface.toInt()),
+        title = { BasicText("Why?", style = settingsText(skin)) },
+        text = {
+            // T230: the dropped-notification list can be longer than the dialog; scroll it.
+            Column(Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
+                if (rows.isEmpty()) {
+                    BasicText("No notifications have been dropped.", style = consoleStyle(skin).copy(
+                        fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textSecondary.toInt())))
+                } else {
+                    rows.forEach { row ->
+                        BasicText("${row.packageName} · ${row.reason}", style = consoleStyle(skin).copy(
+                            fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textPrimary.toInt())))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = dismiss) {
+                BasicText("Close", style = settingsText(skin, skin.colors.textSecondary))
+            }
+        },
+    )
 }
 
 /**
@@ -272,8 +830,8 @@ private fun ReplyChips(replies: List<String>, skin: Skin, enabled: Boolean, send
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Metrics.commsChipGapDp.dp)) {
-        // The `[r]` label names the row, the same console notation as `[read]` and `[x all]`.
-        BasicText("[r]", style = consoleStyle(skin).copy(
+        // Brackets only on terminal skins; every other skin uses plain words.
+        BasicText(CommsPresentation.quickRepliesLabel(skin.style.terminalStats), style = consoleStyle(skin).copy(
             fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textSecondary.toInt())))
         replies.forEach { reply ->
             val shape = RoundedCornerShape(Metrics.commsChipCornerDp.dp)
@@ -284,45 +842,102 @@ private fun ReplyChips(replies: List<String>, skin: Skin, enabled: Boolean, send
                 .padding(horizontal = Metrics.itemGapDp.dp, vertical = Metrics.lineGapDp.dp),
                 contentAlignment = Alignment.Center) {
                 BasicText(reply, style = consoleStyle(skin).copy(
-                    color = Color((if (enabled) skin.colors.accent else skin.colors.lineActive).toInt())),
+                    color = Color((if (enabled) skin.colors.readableAccent else skin.colors.lineActive).toInt())),
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
 }
 
-/**
- * T77 dismissed-message view: the same card frame, every line dimmed and deliberately free of the
- * `[x]`/`[x all]` controls, because a dismissed message has nothing left to dismiss.
- */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun CommsHistoryList(entries: List<CommsHistoryEntry>, state: androidx.compose.foundation.lazy.LazyListState, skin: Skin) {
-    val cards = remember(entries) { CommsExtrasPresentation.historyCards(entries) }
-    val dim = Color(skin.colors.textSecondary.toInt()).copy(alpha = Metrics.commsHistoryTextAlpha)
-    LazyColumn(Modifier.fillMaxSize(), state = state,
-        contentPadding = PaddingValues(bottom = HubPageScroll.endPaddingDp.dp),
-        verticalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
-        items(cards.size, key = { cards[it].lines.last().conversation.toString() }) { index ->
-            val card = cards[index]
-            Column(Modifier.fillMaxWidth().commsFrame(skin, false).parcCardPadding()) {
-                BasicText(card.header, style = consoleStyle(skin).copy(
-                    fontSize = Metrics.commsHeaderSp.sp, color = dim),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                card.lines.forEach { entry ->
-                    val (clock, body) = CommsPresentation.lineParts(entry.message)
-                    BasicText("$clock  $body", style = consoleStyle(skin).copy(color = dim),
-                        maxLines = Metrics.commsMaxLines, overflow = TextOverflow.Ellipsis)
-                }
+private fun CommsMessageMenuDialog(
+    message: CommsHistoryMessage,
+    skin: Skin,
+    onCopy: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(skin.colors.surface.toInt()),
+        title = { BasicText("Message", style = settingsText(skin)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
+                BasicText(message.text, style = consoleStyle(skin).copy(color = Color(skin.colors.textSecondary.toInt())),
+                    maxLines = Metrics.commsMaxLines, overflow = TextOverflow.Ellipsis)
+                ConsoleAction("Copy", skin, action = onCopy)
+                ConsoleAction("Delete", skin, action = onDelete)
             }
-        }
-    }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                BasicText("Close", style = settingsText(skin, skin.colors.textSecondary))
+            }
+        },
+    )
 }
+
+@Composable
+private fun CommsConversationMenuDialog(
+    group: CommsHistoryGroup,
+    skin: Skin,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(skin.colors.surface.toInt()),
+        title = { BasicText(CommsPresentation.header(group.app, group.title), style = settingsText(skin)) },
+        text = { ConsoleAction("Delete conversation", skin, action = onDelete) },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                BasicText("Close", style = settingsText(skin, skin.colors.textSecondary))
+            }
+        },
+    )
+}
+
+@Composable
+private fun CommsConfirmDialog(
+    title: String,
+    body: String,
+    confirm: String,
+    skin: Skin,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(skin.colors.surface.toInt()),
+        title = { BasicText(title, style = settingsText(skin)) },
+        text = { BasicText(body, style = settingsText(skin, skin.colors.textSecondary)) },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onConfirm) {
+                BasicText(confirm, style = settingsText(skin, skin.colors.warn))
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                BasicText("Cancel", style = settingsText(skin, skin.colors.textSecondary))
+            }
+        },
+    )
+}
+
+/** T262: the card surface follows glass exactly like the hub and the search sheet. */
+private fun Modifier.commsCardSurface(skin: Skin): Modifier =
+    if (skin.shape.moduleStyle == ModuleStyle.frosted) {
+        frostedBackground(skin, skin.shape.surfaceCornerDp)
+    } else {
+        background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha),
+            RoundedCornerShape(skin.shape.surfaceCornerDp.dp))
+    }
 
 /** Cache all frame geometry and colors outside the draw loop. */
 private fun Modifier.commsFrame(skin: Skin, selected: Boolean): Modifier = drawWithCache {
     val color = Color((if (selected) skin.colors.accent else skin.colors.lineActive).toInt())
     val surface = Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha)
+    val frosted = skin.shape.moduleStyle == ModuleStyle.frosted
     val b = skin.hud.bracketLengthDp.dp.toPx()
     val stroke = skin.hud.bracketWidthDp.dp.toPx()
     val points = arrayOf(
@@ -338,104 +953,26 @@ private fun Modifier.commsFrame(skin: Skin, selected: Boolean): Modifier = drawW
     val radius = androidx.compose.ui.geometry.CornerRadius(skin.shape.surfaceCornerDp.dp.toPx())
     val outline = androidx.compose.ui.graphics.drawscope.Stroke(stroke)
     onDrawBehind {
-        drawRect(surface)
+        if (!frosted) drawRect(surface)
         if (terminal) drawPath(box, color, style = outline)
         if (!terminal) {
-            drawRoundRect(surface, cornerRadius = radius)
+            if (!frosted) drawRoundRect(surface, cornerRadius = radius)
             drawRoundRect(color, cornerRadius = radius, style = outline)
         }
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-private fun MessageLine(app: String, message: CommsMessage, skin: Skin, openApp: () -> Unit, dismiss: () -> Unit) {
-    val style = consoleStyle(skin)
-    val measurer = rememberTextMeasurer()
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    var expanded by remember(message) { mutableStateOf(false) }
-    val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    val (clock, body) = remember(message) { CommsPresentation.lineParts(message) }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        BasicText("$clock  ",
-            style = style.copy(fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textSecondary.toInt())))
-        Column(Modifier.weight(1f)) {
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val full = body
-                val width = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
-                val layout = remember(full, width, style) { measurer.measure(AnnotatedString(full), style, constraints = androidx.compose.ui.unit.Constraints(maxWidth = width)) }
-                val end = CommsPresentation.visibleEnd((0 until layout.lineCount).map { layout.getLineEnd(it, visibleEnd = true) }, expanded) ?: full.length
-                val annotated = buildAnnotatedString {
-                    append(full.substring(0, end))
-                    message.links.forEach { link ->
-                        val start = link.start
-                        val stop = link.endExclusive.coerceAtMost(end)
-                        if (start < stop && link.endExclusive <= message.text.length) {
-                            val raw = message.text.substring(link.start, link.endExclusive)
-                            val url = if (raw.startsWith("www.", true)) "https://$raw" else raw
-                            addStyle(SpanStyle(textDecoration = TextDecoration.Underline, color = Color(skin.colors.accent.toInt())), start, stop)
-                            addStringAnnotation("url", url, start, stop)
-                        }
-                    }
-                }
-                var result by remember { mutableStateOf<TextLayoutResult?>(null) }
-                // Gesture offsets use the actual wrapped text, preserving UTF-16 link spans.
-                BasicText(annotated, Modifier.fillMaxWidth().then(Modifier.pointerLinkGestures(annotated, { result },
-                    { url -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } },
-                    { url -> clipboard.setText(AnnotatedString(url)) })), style = style, onTextLayout = { result = it })
-            }
-            // A separate action keeps [more] reachable even when the third line fills the width.
-            if (!expanded) {
-                MoreAction(message.text, style, measurer, skin) { expanded = true }
-            }
-            message.image?.let { mask ->
-                val bitmap = remember(mask, skin.colors.accent) {
-                    Bitmap.createBitmap(mask.width, mask.height, Bitmap.Config.ARGB_8888).also { image ->
-                        val pixels = IntArray(mask.width * mask.height) { i -> if (mask.bitAt(i % mask.width, i / mask.width)) skin.colors.accent.toInt() else skin.colors.bg.toInt() }
-                        image.setPixels(pixels, 0, mask.width, 0, 0, mask.width, mask.height)
-                    }.asImageBitmap()
-                }
-                Image(bitmap, "[img]", Modifier.size(Metrics.commsImageDp.dp).clickable(onClick = openApp), filterQuality = androidx.compose.ui.graphics.FilterQuality.None)
-                ConsoleAction("[img]", skin, action = openApp)
-            }
-        }
-        ConsoleAction(if (skin.style.terminalStats) "[x]" else "Dismiss", skin, action = dismiss)
-    }
-}
-
-@Composable
-private fun MoreAction(text: String, style: TextStyle, measurer: TextMeasurer, skin: Skin, expand: () -> Unit) {
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val width = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
-        val layout = remember(text, width, style) { measurer.measure(AnnotatedString(text), style, constraints = androidx.compose.ui.unit.Constraints(maxWidth = width)) }
-        if (layout.lineCount > Metrics.commsMaxLines) ConsoleAction(if (skin.style.terminalStats) "[more]" else "More", skin, action = expand)
-    }
-}
-
-private fun Modifier.pointerLinkGestures(text: AnnotatedString, layout: () -> TextLayoutResult?,
-    open: (String) -> Unit, copy: (String) -> Unit): Modifier = this.then(
-    Modifier.pointerInput(text) {
-        fun link(position: androidx.compose.ui.geometry.Offset): String? {
-            val result = layout() ?: return null
-            val offset = result.getOffsetForPosition(position)
-            return text.getStringAnnotations("url", offset, offset).firstOrNull()?.item
-        }
-        detectTapGestures(onTap = { point -> link(point)?.let(open) },
-            onLongPress = { point -> link(point)?.let(copy) })
-    })
-
 internal enum class CommsSettingsSection { Summary, Apps, Replies }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-internal fun CommsSettings(repository: CommsExtrasRepository, skin: Skin, apps: List<Pair<String, String>> = emptyList(),
+internal fun CommsSettings(repository: CommsExtrasRepository, skin: Skin, apps: List<CommsAppEntry> = emptyList(),
     section: CommsSettingsSection = CommsSettingsSection.Summary,
     onOpenApps: () -> Unit = {}, onOpenReplies: () -> Unit = {}) {
     val enabled by repository.enabled.collectAsState()
     val allowed by repository.allowedApps.collectAsState()
     val keepHistory by repository.keepHistory.collectAsState()
+    val stored by repository.storedMessages.collectAsState()
     val canned by repository.cannedReplies.collectAsState()
     var draft by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -457,23 +994,45 @@ internal fun CommsSettings(repository: CommsExtrasRepository, skin: Skin, apps: 
         if (section == CommsSettingsSection.Summary) {
         BasicText("Messages and quick replies", style = settingsText(skin).copy(
             fontSize = skin.typography.title.sizeSp.sp, fontWeight = androidx.compose.ui.text.font.FontWeight(skin.typography.title.weight)))
-        CommsSwitch("Comms", enabled, skin) { value -> scope.launch { repository.setEnabled(value) } }
+        CommsSwitch("Messages", enabled, skin) { value -> scope.launch { repository.setEnabled(value) } }
         CommsSwitch("Keep history", keepHistory, skin) { value -> scope.launch { repository.setKeepHistory(value) } }
+        BasicText(
+            "Messages from WhatsApp, Telegram and Instagram are stored on this phone: text and links only, no images, and not in backups. Nothing is deleted automatically. Clear all messages below, or long-press one in History, to remove it.",
+            style = settingsText(skin, skin.colors.textSecondary, true),
+        )
         SettingsSection("Messages", skin)
         SettingsCard(skin) {
-            SettingRow("Comms apps", skin, SettingKind.Page, description = "Choose which apps can show messages", onClick = onOpenApps)
+            SettingRow("Messages apps", skin, SettingKind.Page, description = "Choose which apps can show messages", onClick = onOpenApps)
             SettingRow("Quick replies", skin, SettingKind.Page, description = "Add or remove saved reply text", onClick = onOpenReplies)
+        }
+        SettingsSection("Stored messages", skin)
+        SettingsCard(skin) {
+            val bytes = remember(stored) { CommsExtrasPresentation.storageBytes(stored) }
+            SettingRow(
+                "Clear all messages", skin, SettingKind.Action,
+                description = CommsExtrasPresentation.storageLine(stored.size, bytes),
+                enabled = stored.isNotEmpty(), destructive = stored.isNotEmpty(), icon = "−",
+                onClick = { scope.launch { repository.clearHistory() } },
+            )
         }
         }
         if (section == CommsSettingsSection.Apps) {
-        val choices = remember(apps, allowed) {
-            (CommsPackages.Default.map { it to CommsPresentation.tag(it) } + apps + allowed.map { it to CommsPresentation.tag(it) })
-                .distinctBy { it.first }.sortedBy { it.second.lowercase() }
-        }
-        choices.forEach { (app, label) ->
-            CommsSwitch(label, app in allowed, skin) { on ->
-                scope.launch { val current = repository.allowedApps.value; repository.setAllowedApps(if (on) current + app else current - app) }
-                if (!on) undo.offer { scope.launch { repository.setAllowedApps(repository.allowedApps.value + app) } }
+        val choices = remember(apps, allowed) { CommsAppPicker.choices(apps, allowed) }
+        CommsAppGroup.entries.forEach { group ->
+            val groupChoices = choices.filter { it.group == group }
+            if (groupChoices.isNotEmpty()) {
+                SettingsSection(group.label, skin)
+                groupChoices.forEach { choice ->
+                    CommsSwitch(choice.label, choice.packageName in allowed, skin) { on ->
+                        scope.launch {
+                            val current = repository.allowedApps.value
+                            repository.setAllowedApps(if (on) current + choice.packageName else current - choice.packageName)
+                        }
+                        if (!on) undo.offer {
+                            scope.launch { repository.setAllowedApps(repository.allowedApps.value + choice.packageName) }
+                        }
+                    }
+                }
             }
         }
         }
@@ -539,4 +1098,99 @@ private fun CommsSwitch(label: String, on: Boolean, skin: Skin, change: (Boolean
     SettingsCard(skin) {
         SettingRow(label, skin, SettingKind.Toggle, checked = on, divider = false) { change(!on) }
     }
+}
+
+/**
+ * T233: a demo page with made-up conversations. It uses the real page layout, but its own
+ * in-memory repository, so no notification, contact or stored row is read while demo mode is on.
+ */
+@Composable
+internal fun DemoCommsPage(skin: Skin) {
+    val repository = remember { DemoCommsRepository() }
+    CommsPage(repository, skin, reviewAccess = true)
+}
+
+private class DemoCommsRepository : CommsExtrasRepository {
+    private val now = System.currentTimeMillis()
+    override val conversations: StateFlow<List<CommsConversation>> = MutableStateFlow(listOf(
+        conversation(
+            app = CommsPackages.WhatsApp,
+            title = "Sam",
+            messages = listOf(
+                CommsMessage("demo-w1", "Sam", "Are we still walking by the river at six?", now - 9 * 60_000L,
+                    canReply = true, canMarkRead = true),
+                CommsMessage("demo-w2", "Sam", "The forecast looks dry now.", now - 6 * 60_000L,
+                    canReply = true, canMarkRead = true),
+                CommsMessage("demo-w3", "Sam", "Meet by the old bridge instead — https://example.com/walk", now - 2 * 60_000L,
+                    canReply = true, canMarkRead = true),
+            ),
+            canReply = true,
+        ),
+        conversation(
+            app = CommsPackages.Telegram,
+            title = "Work group",
+            messages = listOf(
+                CommsMessage("demo-t1", "Mira", "The notes from this morning are in the shared folder. I will add the two missing pages after lunch, so nothing needs to be rushed before then.", now - 31 * 60_000L),
+            ),
+            canReply = false,
+        ),
+        conversation(
+            app = CommsPackages.Instagram,
+            title = "Alex",
+            messages = listOf(
+                CommsMessage("demo-i1", "Alex", "That photo from the market came out well.", now - 70 * 60_000L),
+                CommsMessage("demo-i2", "Alex", "Send it when you have a moment.", now - 55 * 60_000L),
+            ),
+            canReply = true,
+        ),
+    ))
+    override val allowedApps: StateFlow<Set<String>> = MutableStateFlow(CommsPackages.Default)
+    override val enabled: StateFlow<Boolean> = MutableStateFlow(true)
+    override val cannedReplies: StateFlow<List<String>> = MutableStateFlow(CommsCannedReplies.Default)
+    override val keepHistory: StateFlow<Boolean> = MutableStateFlow(true)
+    override val storedMessages: StateFlow<List<CommsMessageEntity>> = MutableStateFlow(listOf(
+        stored(1, CommsPackages.WhatsApp, "Sam", "Sam", "A made-up stored message from today.", now - 3 * 60 * 60_000L),
+        stored(2, CommsPackages.Telegram, "Work group", "Mira", "A made-up stored message from yesterday.", now - 26 * 60 * 60_000L),
+    ))
+    override val history: StateFlow<List<CommsHistoryEntry>> = MutableStateFlow(emptyList())
+
+    override suspend fun setEnabled(enabled: Boolean) = Unit
+    override suspend fun setAllowedApps(packages: Set<String>) = Unit
+    override suspend fun setCannedReplies(replies: List<String>) = Unit
+    override suspend fun setKeepHistory(enabled: Boolean) = Unit
+    override suspend fun clearHistory() = Unit
+    override suspend fun deleteHistoryMessage(id: Long) = Unit
+    override suspend fun deleteHistoryConversation(app: String, conversationKey: String) = Unit
+    override suspend fun reply(conversation: CommsConversation, text: String): ReplyResult =
+        if (conversation.canReply) ReplyResult.Sent else ReplyResult.NoReplyAction
+    override suspend fun markAsRead(conversation: CommsConversation): MarkReadResult = MarkReadResult.Marked
+    override suspend fun dismiss(message: CommsMessage) = Unit
+    override suspend fun dismiss(conversation: CommsConversation) = Unit
+
+    private fun conversation(app: String, title: String, messages: List<CommsMessage>, canReply: Boolean) =
+        CommsConversation(
+            id = CommsConversationId(app, title),
+            title = title,
+            messages = messages,
+            canReply = canReply,
+            updatedAtMs = messages.maxOf { it.timeMs },
+            canMarkRead = messages.any { it.canMarkRead },
+        )
+
+    private fun stored(id: Long, app: String, key: String, sender: String, text: String, time: Long) =
+        CommsMessageEntity(
+            id = id,
+            app = app,
+            conversationKey = key,
+            conversationTitle = key,
+            sender = sender,
+            notificationTitle = key,
+            text = text,
+            timeMs = time,
+            recordedAtMs = time,
+            notificationKey = "",
+            identity = "demo-$id",
+            live = false,
+            removedAtMs = time,
+        )
 }

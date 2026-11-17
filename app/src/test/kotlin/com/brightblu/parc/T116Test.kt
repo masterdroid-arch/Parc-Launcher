@@ -18,21 +18,21 @@ class T116Test {
             assertTrue(spec.fullSettings in SettingsPage.entries)
         }
         assertEquals(SettingsPage.Agenda, hubPageOptions.getValue("agenda").fullSettings)
-        assertEquals(SettingsPage.Comms, hubPageOptions.getValue("comms").fullSettings)
-        assertEquals(SettingsPage.Look, hubPageOptions.getValue("clock").fullSettings)
-        assertTrue(hubPageOptions.getValue("clock").tap.contains("Tap the clock"))
+        assertEquals(SettingsPage.Messages, hubPageOptions.getValue("comms").fullSettings)
+        assertEquals(SettingsPage.HubPages, hubPageOptions.getValue(TodayPage.Id).fullSettings)
+        assertTrue(hubPageOptions.getValue(TodayPage.Id).tap.contains("Tap the clock"))
     }
 
     @Test fun moveSkipsHiddenNeighboursAndPersistsAcrossTheExistingDocumentFormat() {
-        val original = legacyHubConfig().showPage("notes", true).showPage("power", false)
+        val original = legacyHubConfig().showPage("notes", true).showPage(ControlsPage.Id, false)
             .showTile("apps", "new apps", false).move("apps", "biggest apps", -1)
-        val moved = original.moveVisiblePage("network", -1)
+        val moved = original.moveVisiblePage(DevicePage.Id, -1)
         val restored = HubConfig.decode(moved.encode())
-        assertEquals(listOf("clock", "network", "system"), restored.pages.take(3))
+        assertEquals(listOf("device", "today"), restored.pages.take(2))
         assertEquals(original.hiddenPages, restored.hiddenPages)
         assertEquals(original.tiles("apps"), restored.tiles("apps"))
         HubCatalog.pages.forEach { assertEquals(original.hiddenTiles[it].orEmpty(), restored.hiddenTiles[it].orEmpty()) }
-        assertEquals(original.encode(), restored.moveVisiblePage("network", 1).encode())
+        assertEquals(original.encode(), restored.moveVisiblePage(DevicePage.Id, 1).encode())
     }
 
     @Test fun removeAndUndoKeepContentAndOtherLaterChanges() {
@@ -48,19 +48,19 @@ class T116Test {
 
     @Test fun movementAtEitherEndOrOfHiddenPageDoesNothing() {
         val c = HubConfig()
-        assertEquals(c, c.moveVisiblePage("clock", -1))
+        assertEquals(c, c.moveVisiblePage(TodayPage.Id, -1))
         assertEquals(c, c.moveVisiblePage("comms", 1))
         assertEquals(c, c.moveVisiblePage("notes", 1))
         assertEquals(c, c.moveVisiblePage("unknown", 1))
-        assertEquals(c.showPage("clock", false).encode(), HubConfig.decode(c.showPage("clock", false).encode()).encode())
+        assertEquals(c.showPage(TodayPage.Id, false).encode(), HubConfig.decode(c.showPage(TodayPage.Id, false).encode()).encode())
     }
 
     @Test fun oldDocumentsKeepTheirChoicesAndGainNoNewStoredKeys() {
         val old = "system:true:battery,ram:ram;power:false:charging:;apps:true:new apps:"
         val restored = HubConfig.decode(old)
-        assertTrue("power" in restored.hiddenPages)
+        assertTrue(DevicePage.Id in restored.pages)
         assertTrue("notes" in restored.hiddenPages)
-        assertTrue("ram" in restored.hiddenTiles.getValue("system"))
+        assertTrue("ram" in restored.hiddenTiles.getValue(DevicePage.Id))
         assertEquals("new apps", restored.tiles("apps").first())
         assertEquals(restored.encode(), HubConfig.decode(restored.encode()).encode())
     }

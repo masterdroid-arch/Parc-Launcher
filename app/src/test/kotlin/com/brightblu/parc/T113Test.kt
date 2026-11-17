@@ -11,27 +11,31 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class T113Test {
+    // T182 (intended behaviour change): `- ` is now a plain bullet; checkboxes need `- [ ] `. The old
+    // cases live on in checklistParsingCoversPlainEmptyUnicodeAndPortableChecks, updated to the new rule.
     @Test fun checklistParsingCoversPlainEmptyUnicodeAndPortableChecks() {
+        fun kindAndText(raw: String): Pair<LineKind, String> = NoteMarkup.parseLine(raw).let { it.kind to NoteMarkup.stripped(it) }
         val cases = listOf(
-            "" to NoteLine(""), "hello" to NoteLine("hello"), "-" to NoteLine("-"),
-            "- " to NoteLine("", false), "- milk" to NoteLine("milk", false),
-            "- [ ] milk" to NoteLine("milk", false), "- [x] milk" to NoteLine("milk", true),
-            "- [X] milk" to NoteLine("milk", true), "- [x] " to NoteLine("", true),
-            " - milk" to NoteLine(" - milk"), "* milk" to NoteLine("* milk"),
-            "- [x]milk" to NoteLine("[x]milk", false), "- [y] milk" to NoteLine("[y] milk", false),
-            "- café 漢字" to NoteLine("café 漢字", false), "- - nested" to NoteLine("- nested", false),
-            "- milk\r" to NoteLine("milk", false), "  " to NoteLine("  "), "a-b" to NoteLine("a-b"))
-        for ((raw, expected) in cases) assertEquals(raw, listOf(expected), noteLines(raw))
-        assertEquals(listOf(NoteLine("title"), NoteLine("milk", false), NoteLine("")), noteLines("title\n- milk\n"))
+            "" to (LineKind.Plain to ""), "hello" to (LineKind.Plain to "hello"), "-" to (LineKind.Plain to "-"),
+            "- " to (LineKind.Bullet to ""), "- milk" to (LineKind.Bullet to "milk"),
+            "- [ ] milk" to (LineKind.Checkbox to "milk"), "- [x] milk" to (LineKind.Checkbox to "milk"),
+            "- [X] milk" to (LineKind.Checkbox to "milk"), "- [x] " to (LineKind.Checkbox to ""),
+            " - milk" to (LineKind.Plain to " - milk"), "* milk" to (LineKind.Plain to "* milk"),
+            "- [x]milk" to (LineKind.Bullet to "[x]milk"), "- [y] milk" to (LineKind.Bullet to "[y] milk"),
+            "- café 漢字" to (LineKind.Bullet to "café 漢字"), "  " to (LineKind.Plain to "  "), "a-b" to (LineKind.Plain to "a-b"))
+        for ((raw, expected) in cases) assertEquals(raw, expected, kindAndText(raw))
+        assertTrue(NoteMarkup.parseLine("- [X] milk").checked)
+        assertFalse(NoteMarkup.parseLine("- [ ] milk").checked)
     }
     @Test fun checklistTogglePreservesOtherLinesAndHasNoEffectOnPlainText() {
-        val original = "Title\n- milk\n- [x] bread\n\nlast"
+        val original = "Title\n- [ ] milk\n- [x] bread\n\nlast"
         val checked = toggleNoteLine(original, 1)
         assertEquals("Title\n- [x] milk\n- [x] bread\n\nlast", checked)
         assertEquals(original, toggleNoteLine(checked, 1))
         assertEquals(original, toggleNoteLine(original, 0))
         assertEquals(original, toggleNoteLine(original, 99))
-        assertEquals("Title\n- milk\n- bread\n\nlast", toggleNoteLine(original, 2))
+        assertEquals("Title\n- [ ] milk\n- [ ] bread\n\nlast", toggleNoteLine(original, 2))
+        assertEquals("- plain bullet", toggleNoteLine("- plain bullet", 0))
     }
     @Test fun modelRoundTripRetainsIdentityTextPinTimeAndOrder() {
         val notes = listOf(Note("one", "Quotes \" / \\ \n- [x] café 漢字", true, Long.MAX_VALUE), Note("two", "", false, 0))
@@ -80,7 +84,7 @@ class T113Test {
         val config = HubConfig.decode(old)
         assertTrue("notes" in config.orderedPages); assertFalse("notes" in config.pages)
         assertTrue(config.orderedPages.indexOf("notes") < config.orderedPages.indexOf("comms"))
-        assertEquals(listOf("clock", "comms", "system", "focus"), config.orderedPages.filter { it in setOf("clock", "comms", "system", "focus") })
+        assertEquals(listOf(TodayPage.Id, "comms", DevicePage.Id, "focus"), config.orderedPages.filter { it in setOf(TodayPage.Id, "comms", DevicePage.Id, "focus") })
         assertTrue("notes" in HubConfig().pages) // T158: Notes is one of the four default tabs for a new user
         assertFalse("notes" in legacyHubConfig().pages)
         val shown = config.showPage("notes", true).movePage("notes", -1)

@@ -28,7 +28,7 @@ class T69Test {
         val actions = listOf(
             GestureAction.None, GestureAction.AllApps, GestureAction.Search,
             GestureAction.LastApp, GestureAction.EditMode,
-            GestureAction.HubPage("power"), GestureAction.OpenApp(app),
+            GestureAction.HubPage(DevicePage.Id), GestureAction.OpenApp(app),
         )
         actions.forEach { action ->
             assertEquals(action, GestureAction.decode(action.encode(), GestureAction.None))
@@ -99,10 +99,10 @@ class T69Test {
     }
 
     @Test fun pageRowsFollowTheVisiblePagesAndMarkTheChosenOne() {
-        val rows = gesturePageRows(listOf("system", "power"), GestureAction.HubPage("power"))
-        assertEquals(listOf("System", "Power"), rows.map { it.label })
-        assertEquals(listOf(false, true), rows.map { it.checked })
-        assertEquals(listOf(GestureAction.HubPage("system"), GestureAction.HubPage("power")),
+        val rows = gesturePageRows(listOf(DevicePage.Id, TodayPage.Id), GestureAction.HubPage(DevicePage.Id))
+        assertEquals(listOf("Device", "Today"), rows.map { it.label })
+        assertEquals(listOf(true, false), rows.map { it.checked })
+        assertEquals(listOf(GestureAction.HubPage(DevicePage.Id), GestureAction.HubPage(TodayPage.Id)),
             rows.map { it.action })
     }
 
@@ -118,7 +118,7 @@ class T69Test {
         assertEquals("Search", gestureActionLabel(GestureAction.Search))
         assertEquals("Last app", gestureActionLabel(GestureAction.LastApp))
         assertEquals("Edit mode", gestureActionLabel(GestureAction.EditMode))
-        assertEquals("Stats · Power", gestureActionLabel(GestureAction.HubPage("power")))
+        assertEquals("Stats · Device", gestureActionLabel(GestureAction.HubPage(DevicePage.Id)))
         assertEquals("App · Alpha", gestureActionLabel(GestureAction.OpenApp(app)) { "Alpha" })
         assertEquals("App · not installed", gestureActionLabel(GestureAction.OpenApp(app)))
     }
@@ -126,7 +126,7 @@ class T69Test {
     // ---- resolution --------------------------------------------------------------------------
 
     @Test fun plainActionsMapOneToOne() {
-        val pages = listOf("system", "power")
+        val pages = listOf(DevicePage.Id, TodayPage.Id)
         assertEquals(GestureTarget.Nothing, resolveGesture(GestureAction.None, pages) { true })
         assertEquals(GestureTarget.AllApps, resolveGesture(GestureAction.AllApps, pages) { true })
         assertEquals(GestureTarget.Search, resolveGesture(GestureAction.Search, pages) { true })
@@ -140,11 +140,11 @@ class T69Test {
     }
 
     @Test fun aHiddenOrUnknownPageFallsBackToTheFirstVisiblePageThenNothing() {
-        assertEquals(GestureTarget.HubPage("power"),
-            resolveGesture(GestureAction.HubPage("power"), listOf("system", "power")) { true })
-        assertEquals(GestureTarget.HubPage("system"),
-            resolveGesture(GestureAction.HubPage("sound"), listOf("system", "power")) { true })
-        assertEquals(GestureTarget.Nothing, resolveGesture(GestureAction.HubPage("system"), emptyList()) { true })
+        assertEquals(GestureTarget.HubPage(DevicePage.Id),
+            resolveGesture(GestureAction.HubPage(DevicePage.Id), listOf(DevicePage.Id, TodayPage.Id)) { true })
+        assertEquals(GestureTarget.HubPage(DevicePage.Id),
+            resolveGesture(GestureAction.HubPage("sound"), listOf(DevicePage.Id, TodayPage.Id)) { true })
+        assertEquals(GestureTarget.Nothing, resolveGesture(GestureAction.HubPage(DevicePage.Id), emptyList()) { true })
     }
 
     // ---- swipe-up gate -----------------------------------------------------------------------
@@ -240,7 +240,7 @@ class T69Test {
                 gestures = { config },
                 enterEditMode = { edits++ },
                 hubPage = { hubPages += it },
-                hubPages = { listOf("system", "power") },
+                hubPages = { listOf(DevicePage.Id, TodayPage.Id) },
                 lastApp = { other })
         }
     }
@@ -299,7 +299,7 @@ class T69Test {
         harness.navigation.show(ShellState(layer = Layer.AllApps))
         harness.session.onHubLongPress()
         assertEquals(Layer.Home, harness.navigation.state.value.layer)
-        assertEquals(listOf("power"), harness.hubPages)
+        assertEquals(listOf(DevicePage.Id), harness.hubPages)
     }
 
     @Test fun hubLongPressOpenAppLaunchesOnlyAnInstalledApp() {

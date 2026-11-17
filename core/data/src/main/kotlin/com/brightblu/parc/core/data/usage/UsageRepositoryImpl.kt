@@ -94,6 +94,20 @@ class UsageRepositoryImpl internal constructor(
     /** Decayed score of every app in the in-memory log (T34); the usage layer's input. */
     override fun scores(nowMillis: Long): Map<AppId, Double> = UsageRanking.scores(rows, nowMillis)
 
+    /** T248: the search sheet's most-used suggestions, from the same decayed scores, highest first. */
+    override fun mostUsed(limit: Int): List<AppId> {
+        val capped = limit.coerceAtLeast(0)
+        if (capped == 0) return emptyList()
+        return UsageRanking.scores(rows, clock())
+            .entries
+            .asSequence()
+            .filter { it.value > 0.0 }
+            .sortedWith(compareByDescending<Map.Entry<AppId, Double>> { it.value }.thenBy { it.key.value })
+            .take(capped)
+            .map { it.key }
+            .toList()
+    }
+
     /** Waits for the cold-start log read (T34). Failures are already logged by [loadAndRecompute]. */
     override suspend fun awaitLoaded() {
         coldStart.join()

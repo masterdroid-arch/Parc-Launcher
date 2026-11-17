@@ -45,6 +45,16 @@ class FocusModesTest {
         assertEquals("focus · Work", FocusDisplay.clockLine(FocusState(active = mode("Work"))))
     }
 
+    @Test fun timedClockLineDoesNotRenderTheStoredGlyph() {
+        val until = java.time.LocalDate.of(2026, 11, 11).atTime(17, 5)
+            .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        for ((glyph, _) in FocusGlyphs) {
+            val active = mode("Work").copy(glyph = glyph)
+            assertEquals("Work · until 17:05", FocusDisplay.clockLine(FocusState(active = active, untilMillis = until)))
+            assertEquals(glyph, active.glyph)
+        }
+    }
+
     @Test fun summaryAndHubLabelsDistinguishNoModesFromAnInactiveMode() {
         assertEquals("No modes", FocusDisplay.summary(FocusState(), emptyList()))
         assertEquals("Off", FocusDisplay.summary(FocusState(), listOf(mode("Work"))))

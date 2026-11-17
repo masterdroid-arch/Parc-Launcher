@@ -18,6 +18,14 @@ class FolderPreviewsTest {
             FolderPreviews.members(folder, emptyList(), ids.drop(1).toSet(), setOf(ids[2])))
     }
 
+    @Test fun aHiddenFolderNeverPreviewsItsMembersAndAHiddenMemberIsExcluded() {
+        assertEquals(emptyList<AppId>(),
+            FolderPreviews.members(folder.withHidden(true), listOf(ids[0], ids[1]), ids.toSet(), emptySet()))
+        assertEquals(listOf(ids[1]),
+            FolderPreviews.members(folder.copy(appIds = listOf(ids[0], ids[1])),
+                listOf(ids[0], ids[1]), ids.toSet(), setOf(ids[0])))
+    }
+
     @Test fun membershipChangesRemoveOldRankedAppsAndEmptyFolderHasNoMembers() {
         assertEquals(listOf(ids[1]), FolderPreviews.members(folder.copy(appIds = listOf(ids[1])),
             listOf(ids[4], ids[1]), ids.toSet(), emptySet()))

@@ -3,6 +3,7 @@ package com.brightblu.parc
 import android.content.Context
 import com.brightblu.parc.core.data.LauncherAppIndex
 import com.brightblu.parc.core.data.ParcPrefs
+import com.brightblu.parc.core.data.search.SearchPrefs
 import com.brightblu.parc.core.data.stats.AndroidDeviceStatsSource
 import com.brightblu.parc.core.data.usage.UsageLayerManager
 import com.brightblu.parc.core.data.usage.UsageRepositoryImpl
@@ -21,6 +22,9 @@ object AppGraph {
 
     /** T96: re-reads the system colour palette and night mode (resume and configuration change). */
     fun refreshWallpaper(context: Context) { services?.wallpaperSkin?.refresh(context) }
+
+    /** T207: the active skin when the launcher is already alive; the reader falls back to Midnight otherwise. */
+    fun activeSkin(): Skin? = services?.skinProvider?.active?.value
 
     /** T98: Parc left the foreground, so the unlock window ends. */
     fun folderLockHostLeft() { services?.folderLock?.onHostLeft() }
@@ -49,6 +53,15 @@ class LauncherServices internal constructor(context: Context, initialGeometry: R
     })
     @Volatile var geometry: RingLayout = initialGeometry
     val appIndex = LauncherAppIndex.create(context, scope)
+    init {
+        // T262: start the icon loads from the startup snapshot immediately, not after the first
+        // scene happens to ask for them. The arcs then fill as the cache lands instead of staying
+        // blank through the first live index pass.
+        if (!DemoMode.enabled) {
+            val seed = StartupPresentation.apps(restored?.apps.orEmpty(), appIndex.apps.value)
+            if (seed.isNotEmpty()) appIndex.preload(seed.map { it.id }, Metrics.iconBitmapPx)
+        }
+    }
     /**
      * T122: demo mode swaps the whole layout source. When demo is on the real repository is never
      * constructed, so no real layout row or preference is read or written.
@@ -86,7 +99,9 @@ class LauncherServices internal constructor(context: Context, initialGeometry: R
     /** T98: installed apps without the hidden ones; for the stats cards, settings pickers and Comms. */
     val unlockedApps: StateFlow<List<AppEntry>> = combine(appIndex.apps, lockedPackages) { all, hidden ->
         com.brightblu.parc.core.data.lock.LockedApps.visibleApps(all, hidden)
-    }.stateIn(scope, SharingStarted.Eagerly, appIndex.apps.value)
+    }.stateIn(scope, SharingStarted.Eagerly,
+        com.brightblu.parc.core.data.lock.LockedApps.visibleApps(
+            StartupPresentation.apps(snapshot.value.apps, appIndex.apps.value), emptySet()))
     private val usageImpl = UsageRepositoryImpl.create(
         context = context,
         scope = scope,
@@ -118,7 +133,11 @@ class LauncherServices internal constructor(context: Context, initialGeometry: R
     /** Search sees the view-level focus filter; launching still goes through [appIndex]. */
     val focusIndex: AppIndex = FocusAppIndex(appIndex, focus.state, scope, layout.layout, lockedPackages)
     val prefs = ParcPrefs.create(context)
-    val comms = com.brightblu.parc.core.data.comms.CommsRepositories.create(context, prefs, scope)
+    /** T259: search recents, sources and the aliases the user gives apps. */
+    val searchPrefs = SearchPrefs.create(context)
+    /** T214: the one persistent message-history store; the listener shares this instance. */
+    internal val commsHistory = com.brightblu.parc.core.data.comms.CommsHistoryStore.shared(context)
+    val comms = com.brightblu.parc.core.data.comms.CommsRepositories.create(context, prefs, scope, commsHistory)
     /** T30: the active skin drives every surface; the picker edits [prefs] through T16's screen. */
     val customSkins = com.brightblu.parc.core.data.skins.CustomSkinStore(java.io.File(context.filesDir, "skins"))
     private val skinCatalog = com.brightblu.parc.core.data.skins.SkinCatalogLoader.parse(
@@ -134,14 +153,27 @@ class LauncherServices internal constructor(context: Context, initialGeometry: R
     val statsArchive = com.brightblu.parc.core.data.stats.StatsArchiveRepository.create(context, scope)
     internal val statsAlertUi = StatsAlertController(stats.stats, statsAlerts.thresholds, StatsAlertUiStore(context), scope)
     val powerStats = com.brightblu.parc.core.data.power.AndroidPowerStatsSource(context, scope)
-    // T98: these four read the app list through the lock filter, so a locked app has no row, no time and no size.
+    // T98: these read the app list through the lock filter, so a locked app has no row, no time and no size.
     val networkStats = com.brightblu.parc.core.data.network.AndroidNetworkStatsRepository.create(context) { unlockedApps.value }
     val lastApp = com.brightblu.parc.core.data.apps.AndroidLastAppTracker.create(context) { unlockedApps.value }
-    val screenTime = com.brightblu.parc.core.data.apps.AndroidScreenTimeRepository.create(context) { unlockedApps.value }
+    /** T185: the day ledger behind the Network and Screen time period switch. Created once; ticks while the process lives (not in demo mode). */
+    val dayLedger = com.brightblu.parc.core.data.ledger.DayLedgerRepository.create(context, scope, startTicker = !DemoMode.enabled,
+        // M13 review: apps in a locked folder (locked or not right now) never get a per-app entry in the ledger or the backup.
+        excludedPackages = { com.brightblu.parc.core.data.lock.LockedApps.lockedPackages(appIndex.apps.value, layout.layout.value.folders, false) })
+    /** T200: the hidden arcade's two unlock watches (a calm day in the ledger, and the arc-turn shortcut). Off in demo mode. */
+    internal val arcade = com.brightblu.parc.arcade.ArcadeUnlocker(HubConfigStore(context), scope).also { if (!DemoMode.enabled) it.watch(dayLedger.ledger) }
+    /** T187: the Steps page's counter. Reads the phone's step counter into [dayLedger]; the 5-minute tick is off in demo mode. */
+    val steps = com.brightblu.parc.core.data.steps.StepsRepository.create(context, scope, dayLedger, startTicker = !DemoMode.enabled)
+    /** T188: the Rhythm page's day shape. Reads usage events into [dayLedger]; the 5-minute tick is off in demo mode. */
+    val rhythm = com.brightblu.parc.core.data.rhythm.RhythmRepository.create(context, scope, dayLedger,
+        options = { HubConfigStore(context).rhythmOptions.first() }, startTicker = !DemoMode.enabled)
     val newApps = com.brightblu.parc.core.data.apps.AndroidNewAppsProvider.create(context, { unlockedApps.value })
     val appStorage = com.brightblu.parc.core.data.storage.AndroidAppStorageRepository.create(context) { unlockedApps.value }
     val volume = com.brightblu.parc.core.data.audio.AndroidVolumeRepository.create(context)
-    private val searchIndexer = SearchIndexer(focusIndex, layout, usage, searchEngine, scope)
+    /** T206: the chosen books. Constructing the store starts no scan and reads no file until the Library page asks. */
+    val library = com.brightblu.parc.core.data.library.LibraryStore(context)
+    private val searchIndexer = SearchIndexer(focusIndex, layout, usage, searchEngine, scope,
+        aliases = searchPrefs.aliases)
     private val revision = MutableStateFlow(0L)
     val iconRevision = revision.asStateFlow()
     private val ready = MutableStateFlow(DemoMode.enabled)

@@ -22,10 +22,16 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.brightblu.parc.core.data.apps.*
+import com.brightblu.parc.core.data.ledger.DayLedgerRepository
+import com.brightblu.parc.core.data.ledger.LedgerAppKind
+import com.brightblu.parc.core.data.ledger.LedgerMath
+import com.brightblu.parc.core.data.ledger.LedgerTopApps
 import com.brightblu.parc.core.data.audio.*
 import com.brightblu.parc.core.data.storage.*
 import com.brightblu.parc.model.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 internal object AppsSoundFormat {
@@ -39,38 +45,44 @@ internal object AppsSoundFormat {
 }
 
 @Composable
-internal fun AppsHubPage(screenTime: ScreenTimeRepository?, newApps: NewAppsProvider?, storage: AppStorageRepository?,
+internal fun AppsHubPage(ledger: DayLedgerRepository?, newApps: NewAppsProvider?, storage: AppStorageRepository?,
     entries: List<AppEntry>, active: Boolean, tiles: List<String>, expanded: Boolean, skin: Skin, onLaunch: (AppId) -> Unit) {
-    var time by remember(screenTime) { mutableStateOf<ScreenTimeResult?>(null) }
     var recent by remember(newApps) { mutableStateOf<List<NewApp>?>(null) }
     var sizes by remember(storage) { mutableStateOf<StorageResult?>(null) }
     var failure by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    LaunchedEffect(screenTime, newApps, storage, active, entries) {
+    LaunchedEffect(newApps, storage, active, entries) {
         if (active) withContext(Dispatchers.IO) {
-            time = screenTime?.read()
             recent = newApps?.recent()
             sizes = storage?.read()
         }
     }
+    LaunchedEffect(ledger, active) {
+        if (active) while (isActive) {
+            ledger?.refresh()
+            delay(Metrics.hubNetworkRefreshMillis)
+        }
+    }
+    // T185: one screen-time tile; its period (Today, 7 days, 30 days, This year, All time) is remembered for this page.
+    val stored = ledger?.ledger?.collectAsState()?.value
+    val access = ledger?.accessGranted?.collectAsState()?.value
+    val (period, cycle) = rememberHubPeriod("apps")
+    val today = ledger?.today()
+    val summary = remember(stored, period, today) { if (stored != null && today != null) LedgerMath.summary(stored, period, today) else null }
     PageTiles(tiles, expanded, skin) { tile ->
         Column(verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
             when (tile) {
-                "screen time today", "screen time 7 days" -> {
-                    val today = tile == "screen time today"
-                    val available = time as? ScreenTimeResult.Available
-                    Readout(if (today) "Screen time · today" else "Screen time · 7 days incl. today",
-                        AppsSoundFormat.time(if (today) available?.todayTotalMillis else available?.last7DaysTotalMillis), skin)
-                    if (time == null) CellLabel("Loading…", skin)
-                    if (time == ScreenTimeResult.Unavailable) UsageAccessRow(skin)
-                    if (available != null) {
-                        val top = if (today) available.topToday() else available.topLast7Days()
-                        val max = top.maxOfOrNull { if (today) it.todayMillis else it.last7DaysMillis } ?: 0L
+                "screen time" -> {
+                    PeriodLabel(summary?.screenLabel() ?: period.label, skin, cycle)
+                    val shown = summary != null && access != false && summary.screenDays > 0
+                    Readout("Screen time", AppsSoundFormat.time(summary?.screenOnMillis.takeIf { shown }), skin)
+                    if (stored == null) CellLabel("Loading…", skin)
+                    if (access == false) UsageAccessRow(skin)
+                    else if (stored != null && today != null) {
+                        val top = LedgerTopApps.of(LedgerMath.appTotals(stored, period, today, LedgerAppKind.Screen), entries, context.packageName, ScreenTimeRepository.TopCount)
+                        val max = top.maxOfOrNull { it.value } ?: 0L
                         if (top.isEmpty()) CellLabel("No screen time recorded", skin)
-                        top.forEach { app ->
-                            val value = if (today) app.todayMillis else app.last7DaysMillis
-                            AppBarRow(app.label, AppsSoundFormat.time(value), AppsSoundFormat.bar(value, max), skin)
-                        }
+                        top.forEach { app -> AppBarRow(app.label, AppsSoundFormat.time(app.value), AppsSoundFormat.bar(app.value, max), skin) }
                     }
                 }
                 "new apps" -> {
@@ -119,13 +131,14 @@ private fun AppBarRow(label: String, value: String, fraction: Float, skin: Skin)
 }
 
 @Composable
-internal fun SoundHubPage(repository: VolumeRepository?, active: Boolean, tiles: List<String>, expanded: Boolean, skin: Skin) {
+internal fun SoundHubPage(repository: VolumeRepository?, active: Boolean, tiles: List<String>, expanded: Boolean, skin: Skin,
+    scroll: Boolean = true) {
     val state = repository?.state?.collectAsState()?.value ?: VolumeState.Empty
     LaunchedEffect(repository, active) { if (active) repository?.refresh() }
     val view = LocalView.current
     val feel = rememberFeelPlayer()
     var refused by remember { mutableStateOf<VolumeStream?>(null) }
-    PageTiles(tiles, expanded, skin) { tile ->
+    PageTiles(tiles, expanded, skin, scroll = scroll) { tile ->
         if (tile == "output") Readout("Output device", state.outputDeviceName ?: "—", skin)
         else {
             val stream = VolumeStream.All.first { it.name.lowercase() == tile }

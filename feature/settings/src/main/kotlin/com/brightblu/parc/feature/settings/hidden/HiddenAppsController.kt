@@ -42,12 +42,25 @@ class HiddenAppsController(
         scope.launch { if (hidden) repository.hide(id) else repository.unhide(id) }
     }
 
+    /**
+     * T219: clears the permanent Hidden flag on every app currently in it. Only `layout.hidden` is
+     * touched; Focus, Lock and hidden folders are different stores/tags and stay exactly as they are.
+     */
+    fun unhideAll() {
+        val ids = repository.layout.value.hidden.toList()
+        if (ids.isEmpty()) return
+        scope.launch { ids.forEach { runCatching { repository.unhide(it) } } }
+    }
+
     private fun rebuild() {
         val query = stateFlow.value.query
         val installed = apps.value
         val hidden = repository.layout.value.hidden
+        val rows = HiddenAppsProjection.rows(installed, hidden, query)
         stateFlow.value = stateFlow.value.copy(
-            rows = HiddenAppsProjection.rows(installed, hidden, query),
+            rows = rows,
+            hiddenRows = rows.filter { it.hidden },
+            visibleRows = rows.filterNot { it.hidden },
             hiddenCount = installed.count { it.id in hidden },
         )
     }

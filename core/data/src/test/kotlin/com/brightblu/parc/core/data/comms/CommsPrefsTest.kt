@@ -13,19 +13,38 @@ import org.junit.Test
 class CommsPrefsTest {
 
     @Test
-    fun `a fresh install enables Comms with the seven default apps`() = runTest {
+    fun `a fresh install enables Comms with exactly WhatsApp Telegram and Instagram`() = runTest {
         val prefs = ParcPrefs(FakePreferencesStore())
 
         assertTrue(prefs.commsEnabled.first())
         assertEquals(CommsPackages.Default, prefs.commsApps.first())
-        assertEquals(7, CommsPackages.Default.size)
-        assertTrue(CommsPackages.Default.contains(CommsPackages.Telegram))
-        assertTrue(CommsPackages.Default.contains(CommsPackages.WhatsApp))
-        assertTrue(CommsPackages.Default.contains(CommsPackages.Instagram))
-        assertTrue(CommsPackages.Default.contains(CommsPackages.Messages))
-        assertTrue(CommsPackages.Default.contains(CommsPackages.Signal))
-        assertTrue(CommsPackages.Default.contains(CommsPackages.Discord))
-        assertTrue(CommsPackages.Default.contains(CommsPackages.Imo))
+        assertEquals(3, CommsPackages.Default.size)
+        assertEquals(
+            setOf(CommsPackages.Telegram, CommsPackages.WhatsApp, CommsPackages.Instagram),
+            CommsPackages.Default,
+        )
+        assertFalse(CommsPackages.Default.contains(CommsPackages.Messages))
+        assertFalse(CommsPackages.Default.contains(CommsPackages.Signal))
+        assertFalse(CommsPackages.Default.contains(CommsPackages.Discord))
+        assertFalse(CommsPackages.Default.contains(CommsPackages.Imo))
+    }
+
+    @Test
+    fun `the four fixed opt-ins stay offered without joining the fresh default`() = runTest {
+        assertEquals(
+            listOf(CommsPackages.Messages, CommsPackages.Signal, CommsPackages.Discord, CommsPackages.Imo),
+            CommsPackages.FixedOptIns,
+        )
+        assertEquals(CommsPackages.Default + CommsPackages.FixedOptIns, CommsPackages.Known)
+    }
+
+    @Test
+    fun `an existing seven app allow list is read unchanged after the default shrinks`() = runTest {
+        val stored = CommsPackages.Default + CommsPackages.FixedOptIns
+        val prefs = ParcPrefs(FakePreferencesStore(preferencesOf(ParcPrefs.KeyCommsApps to stored)))
+
+        assertEquals(stored, prefs.commsApps.first())
+        assertEquals(7, prefs.commsApps.first().size)
     }
 
     @Test

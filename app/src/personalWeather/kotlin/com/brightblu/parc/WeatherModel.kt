@@ -35,17 +35,44 @@ internal object OpenMeteo {
     /** Two decimals (about 1 km): enough for a forecast, less precise than the stored point. */
     fun coordinate(value: Double): String = String.format(Locale.ROOT, "%.2f", value)
 
+    /** Today plus the next six days. The hourly rows cover all of them (7 x 24). */
+    const val ForecastDays = 7
+    const val SearchCount = 10
+
     /** The forecast request: the coordinates plus fixed field names. Nothing about the phone. */
     fun forecastUrl(place: WeatherPlace): String =
         "https://$ForecastHost/v1/forecast?latitude=${coordinate(place.latitude)}&longitude=${coordinate(place.longitude)}" +
             "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,is_day" +
             "&hourly=temperature_2m,weather_code,precipitation_probability" +
             "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset" +
-            "&timezone=auto&forecast_days=5&wind_speed_unit=kmh"
+            "&timezone=auto&forecast_days=${ForecastDays}&wind_speed_unit=kmh"
 
-    /** The city lookup: the typed name, sent once when the user taps Search. */
-    fun geocodingUrl(name: String): String =
-        "https://$GeocodingHost/v1/search?name=${URLEncoder.encode(name.trim(), "UTF-8")}&count=5&format=json"
+    /**
+     * The city lookup: the typed name, sent once when the user taps Search, plus a two-letter
+     * language code worked out from the phone's language and the typed letters (see
+     * [GeocodingLanguage]). Nothing else is sent.
+     */
+    fun geocodingUrl(name: String, language: String = "en"): String =
+        "https://$GeocodingHost/v1/search?name=${URLEncoder.encode(name.trim(), "UTF-8")}&count=$SearchCount" +
+            "&language=${language.lowercase(Locale.ROOT)}&format=json"
+}
+
+/**
+ * Which `language=` to send with a city search. Open-Meteo matches a name against the names in
+ * that language (as seen in earlier manual queries of the service, not re-verified here: `Москва` with
+ * language en or pt found nothing, with ru or uk it found Moscow; `Moscow` was found with any language). So a query typed in Cyrillic uses
+ * the phone's language when that is Russian or Ukrainian, and Russian otherwise; any other query
+ * uses the phone's language, or English when the phone's language is not a plain two-letter code.
+ */
+internal object GeocodingLanguage {
+    private val cyrillicLanguages = setOf("ru", "uk")
+
+    fun hasCyrillic(text: String): Boolean = text.any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.CYRILLIC }
+
+    fun forQuery(query: String, phone: Locale): String {
+        val own = phone.language.lowercase(Locale.ROOT).takeIf { it.length == 2 && it.all { c -> c in 'a'..'z' } } ?: "en"
+        return if (hasCyrillic(query)) (if (own in cyrillicLanguages) own else "ru") else own
+    }
 }
 
 internal enum class WeatherKind { Clear, PartlyCloudy, Cloudy, Fog, Drizzle, Rain, Snow, Thunder, Unknown }
@@ -252,6 +279,8 @@ internal data class WeatherView(
     val hours: List<WeatherHour>,
     val days: List<WeatherDay>,
     val rainPercent: Int?,
+    /** The date it is now at the place (not the phone), used to write "Today". */
+    val localDate: LocalDate? = null,
 )
 
 internal object WeatherPresentation {
@@ -261,7 +290,7 @@ internal object WeatherPresentation {
     fun localNow(forecast: WeatherForecast, now: Instant): LocalDateTime =
         LocalDateTime.ofInstant(now, ZoneOffset.ofTotalSeconds(forecast.utcOffsetSeconds))
 
-    fun view(forecast: WeatherForecast, now: Instant, hourCount: Int = 6, dayCount: Int = 5): WeatherView {
+    fun view(forecast: WeatherForecast, now: Instant, hourCount: Int = 6, dayCount: Int = OpenMeteo.ForecastDays): WeatherView {
         val local = localNow(forecast, now)
         val hourStart = local.truncatedTo(ChronoUnit.HOURS)
         val thisHour = forecast.hours.firstOrNull { it.time == hourStart }
@@ -283,6 +312,86 @@ internal object WeatherPresentation {
             hours = forecast.hours.filter { it.time >= hourStart }.take(hourCount),
             days = forecast.days.filter { it.date >= local.toLocalDate() }.take(dayCount),
             rainPercent = today?.rainPercent ?: thisHour?.rainPercent,
+            localDate = local.toLocalDate(),
         )
+    }
+
+    /** The saved hours of one date, in order: what the day detail lists. */
+    fun hoursOn(forecast: WeatherForecast, date: LocalDate): List<WeatherHour> =
+        forecast.hours.filter { it.time.toLocalDate() == date }.sortedBy { it.time }
+
+    /** Day or night at [time], from that date's own sunrise and sunset (day when they are unknown). */
+    fun isDay(time: LocalDateTime, days: List<WeatherDay>): Boolean {
+        val day = days.firstOrNull { it.date == time.toLocalDate() } ?: return true
+        val rise = day.sunrise ?: return true
+        val set = day.sunset ?: return true
+        return time in rise..set
+    }
+}
+
+/** What each place's saved forecast and the place list look like on the phone; pure, so it can be tested. */
+internal object WeatherPlaces {
+    const val Max = 6
+    private val json = Json { ignoreUnknownKeys = true }
+
+    fun encode(places: List<WeatherPlace>): String = JsonArray(places.map { p ->
+        JsonObject(mapOf("name" to JsonPrimitive(p.name), "detail" to JsonPrimitive(p.detail),
+            "lat" to JsonPrimitive(p.latitude), "lon" to JsonPrimitive(p.longitude)))
+    }).toString()
+
+    /** Never throws: unreadable text is an empty list; bad items, repeats and anything past six are left out. */
+    fun decode(text: String?): List<WeatherPlace> {
+        if (text.isNullOrBlank()) return emptyList()
+        val array = try { json.parseToJsonElement(text) as? JsonArray } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            null
+        } ?: return emptyList()
+        val places = array.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            val name = (item["name"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val detail = (item["detail"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+            val lat = (item["lat"] as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull?.takeIf { it in -90.0..90.0 } ?: return@mapNotNull null
+            val lon = (item["lon"] as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull?.takeIf { it in -180.0..180.0 } ?: return@mapNotNull null
+            WeatherPlace(name, detail, lat, lon)
+        }
+        return places.distinctBy { it.key }.take(Max)
+    }
+
+    /**
+     * Before 1.2.0 the page kept one place under four separate keys. With no list saved yet, that
+     * place becomes a one-item list (the home place); with a list, the old keys are ignored.
+     */
+    fun migrate(list: String?, legacyName: String?, legacyDetail: String?, legacyLat: Double?, legacyLon: Double?): List<WeatherPlace> {
+        if (list != null) return decode(list)
+        if (legacyName.isNullOrBlank() || legacyLat == null || legacyLon == null) return emptyList()
+        if (legacyLat !in -90.0..90.0 || legacyLon !in -180.0..180.0) return emptyList()
+        return listOf(WeatherPlace(legacyName, legacyDetail.orEmpty(), legacyLat, legacyLon))
+    }
+
+    /** The list with [place] added at the end, or null when it is already there or the list is full. */
+    fun add(places: List<WeatherPlace>, place: WeatherPlace): List<WeatherPlace>? =
+        if (places.size >= Max || places.any { it.key == place.key }) null else places + place
+
+    fun remove(places: List<WeatherPlace>, key: String): List<WeatherPlace> = places.filterNot { it.key == key }
+
+    /** Moves one place by [steps] positions (negative is towards home). The first place is home. */
+    fun move(places: List<WeatherPlace>, key: String, steps: Int): List<WeatherPlace> {
+        val from = places.indexOfFirst { it.key == key }
+        if (from < 0) return places
+        val to = (from + steps).coerceIn(0, places.lastIndex)
+        if (to == from) return places
+        return places.toMutableList().also { it.add(to, it.removeAt(from)) }
+    }
+
+    fun setHome(places: List<WeatherPlace>, key: String): List<WeatherPlace> = move(places, key, -places.size)
+
+    /** The place to show: the chosen one if it is still in the list, otherwise home. */
+    fun selected(places: List<WeatherPlace>, key: String?): WeatherPlace? = places.firstOrNull { it.key == key } ?: places.firstOrNull()
+
+    /** The next (or previous) place, wrapping round. */
+    fun cycle(places: List<WeatherPlace>, key: String?, step: Int): WeatherPlace? {
+        if (places.isEmpty()) return null
+        val index = places.indexOfFirst { it.key == key }.coerceAtLeast(0)
+        return places[Math.floorMod(index + step, places.size)]
     }
 }

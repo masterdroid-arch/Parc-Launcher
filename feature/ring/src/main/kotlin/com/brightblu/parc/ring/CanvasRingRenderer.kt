@@ -32,6 +32,7 @@ import com.brightblu.parc.ring.module.rememberFrosted
 import com.brightblu.parc.ring.module.MagnifyGeometry
 import com.brightblu.parc.ring.module.MagnifyMotion
 import com.brightblu.parc.ring.module.PressMotion
+import com.brightblu.parc.ring.motion.rememberSpringValue
 import kotlinx.coroutines.*
 import kotlin.math.*
 
@@ -57,6 +58,11 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
      * never drawn by itself. Null prepares nothing extra.
      */
     private val warmScene: () -> RingState? = { null },
+    /**
+     * T244: the Home scene shown as a quiet drop guide while an app is dragged out of an open
+     * folder. Null outside that moment.
+     */
+    private val editHome: () -> RingState? = { null },
     /** OPUS4: external turning of the All-apps ring (the letter strip); null when not offered. */
     private val steer: RingSteer? = null,
     /**
@@ -79,7 +85,11 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
      */
     private val cardAlphaIsOpacity: Boolean = false,
     /** T173: "Glass refraction" is on; read where the frost of the arc card is requested. */
-    private val refraction: () -> Boolean = { false }) : RingRenderer {
+    private val refraction: () -> Boolean = { false },
+    /** Hidden arcade: while it captures, the hub joystick steers the game and does nothing else. Null offers nothing. */
+    private val stick: JoystickCapture? = null,
+    /** Hidden arcade: a counter that changes once for each hub pulse. Read in composition; a change never rebuilds the scene. */
+    private val hubPulse: () -> Int = { 0 }) : RingRenderer {
     private var searchSwipeStart: ((Float, Float) -> Boolean)? = null
 
     /** Uses the rendered scene and its live rotation offsets, in dp. */
@@ -136,6 +146,16 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
             val scope = rememberCoroutineScope()
             val latest by rememberUpdatedState(callbacks)
             val session = remember(density, skin) { RenderSession(skin) }
+            // T243: the neighbours slide into their new places on the existing press spring.
+            val dragReveal = rememberSpringValue(1f)
+            LaunchedEffect(session.dragging.value, session.dropPosition) {
+                if (!session.dragging.value) {
+                    dragReveal.jumpTo(1f)
+                } else {
+                    dragReveal.jumpTo(0f)
+                    dragReveal.animateTo(1f, Springs.press)
+                }
+            }
             SideEffect {
                 searchSwipeStart = { x, y ->
                     val drawing = session.current
@@ -167,8 +187,20 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                     module?.dispatch(HubEvent.Cancel)
                 }
             }
-            LaunchedEffect(session, environment.visible, environment.animatorScale, session.activity.intValue, unread, state.searchHint) {
+            val hubPulseToken = hubPulse()
+            val editEnabled = editing?.enabled == true
+            fun outDropPosition(x: Float, y: Float): SlotPosition? {
+                val drawing = session.current ?: return null
+                if (drawing.state.layer != Layer.Folder) return null
+                val source = drawing.state.slots.getOrNull(session.downSlot)?.slot as? Slot.App ?: return null
+                return session.dropGuide?.target(x, y, source.id)
+            }
+            LaunchedEffect(session, environment.visible, environment.animatorScale, session.activity.intValue, unread, state.searchHint, hubPulseToken, editEnabled) {
                 if (!environment.visible) return@LaunchedEffect
+                if (hubPulseToken != session.lastHubPulse) {
+                    session.lastHubPulse = hubPulseToken
+                    if (hubPulseToken != 0) session.effects.startHubPulse(SystemClock.uptimeMillis())
+                }
                 if (environment.animatorScale == 0f) {
                     session.rotation.snapAll { arcId, offset -> latest.onRotate(arcId, offset) }
                     session.frame.intValue++
@@ -198,9 +230,37 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                                 latest.onAim(drawing.state.slots.getOrNull(next)?.position)
                             }
                         } else session.edgeHold.reset()
+                        // T243: while an app is dragged near either end of a rotating arc, the arc
+                        // turns by itself so the far spots come into reach.
+                        if (editEnabled && session.dragging.value && !session.aiming.value) {
+                            val drawing = session.current
+                            val x = session.x.floatValue / density
+                            val y = session.y.floatValue / density
+                            val arcIndex = drawing?.rotationArc(x, y) ?: -1
+                            val zone = if (drawing != null && arcIndex >= 0 &&
+                                drawing.state.arcs[arcIndex].slotCapacity > 0) {
+                                val arc = drawing.state.arcs[arcIndex]
+                                ArcEndTurn.zone(drawing.angleDeg(x, y), arc.slotAngle(0),
+                                    arc.slotAngle(arc.slotCapacity - 1), overflowing = drawing.arcRotating(arcIndex))
+                            } else 0
+                            val step = session.editEdgeHold.step(if (zone == 0) 0 else (arcIndex + 1) * zone, now)
+                            if (step != 0 && drawing != null) {
+                                // The edit edge-hold key is (arc index + 1) * direction and step is only the
+                                // direction, so the arc is the one under the finger, never step - 1.
+                                val id = drawing.state.arcs[arcIndex].id
+                                session.rotation.nudgeSnapped(id, -step.toFloat())
+                                latest.onRotate(id, session.rotation.offset(id))
+                                if (hapticsEnabled()) feel.play(view, FeelEvent.Tick)
+                                session.dropPosition = drawing.dropPosition(x, y, session.rotation.aligned)
+                                    ?: outDropPosition(x, y)
+                                session.dropAllowed = session.dropPosition?.let { to ->
+                                    session.dragFrom?.let { from -> editing?.canDrop(from, to) == true }
+                                } == true
+                            }
+                        } else session.editEdgeHold.reset()
                         session.reportSteer(steer)
                         session.frame.intValue++
-                        if (rotating || session.aiming.value) 0L else effectsWait
+                        if (rotating || session.aiming.value || (editEnabled && session.dragging.value)) 0L else effectsWait
                     }
                     if (wait == Long.MAX_VALUE) break
                     if (wait > 0) delay(wait)
@@ -264,6 +324,11 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                 session.frame.intValue++
             }
             val warm = warmScene()
+            val editHomeState = editHome()
+            val dropGuide = remember(editHomeState, skin, density) {
+                editHomeState?.takeIf { it.layer == Layer.Home }?.let { DropGuide(it, skin, density) }
+            }
+            SideEffect { session.dropGuide = dropGuide }
             LaunchedEffect(warm, skin, density, fontScale, screenWidth, screenHeight, lookSettings) {
                 if (warm != null && warm.layer != state.layer &&
                     queue.offerWarm(SceneRequest(warm, skin, density, fontScale, screenWidth, screenHeight,
@@ -285,7 +350,6 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                     Log.i("Parc", "T07 allocations supported=${session.counter.supported} samples=${session.counter.samples} objects=${session.counter.objects} max=${session.counter.maximum}")
                 }
             }
-            val editEnabled = editing?.enabled == true
             // T143: the module card is rasterised once per size, skin or origin change; one drawBitmap per frame.
             val origin = state.arcs.firstOrNull()
             val cardRect = remember(origin?.originXDp, origin?.originYDp, screenWidth) {
@@ -356,14 +420,12 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                         session.hubDownTime = now
                         session.hubTapSent = false
                         session.edgeHold.reset()
-                        session.aimCandidate = onHub && !editEnabled && joystickEnabled()
+                        session.stickCaptured = onHub && !editEnabled && stick?.captures() == true
+                        session.aimCandidate = onHub && !editEnabled && joystickEnabled() && !session.stickCaptured
                         session.aiming.value = false
                         session.lastAim = -1
                         session.rotating.value = false
-                        session.rotateCandidate = if (!onHub && !editEnabled) drawing?.rotationArc(x, y) ?: -1 else -1
-                        if (session.rotateCandidate >= 0) {
-                            session.rotation.grab(drawing?.state?.arcs?.getOrNull(session.rotateCandidate)?.id.orEmpty())
-                        }
+                        session.editEdgeHold.reset()
                         session.focus.intValue = if (onHub) -1 else drawing?.hit(x, y, session.rotation.aligned) ?: -1
                         session.downSlot = session.focus.intValue
                         session.pressDown(if (onHub && !editEnabled) PressMotion.HUB else session.downSlot, scope)
@@ -373,10 +435,21 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                         val slot = drawing?.state?.slots?.getOrNull(session.downSlot)
                         session.dragFrom = if (editEnabled) slot?.position else null
                         session.dragging.value = session.dragFrom != null
+                        // T243: a drag on an occupied slot moves it; a drag on empty arc turns that arc.
+                        // Outside edit mode the same rule already let every overflowing arc turn.
+                        session.rotateCandidate = if (!onHub && !session.dragging.value)
+                            drawing?.rotationArc(x, y) ?: -1 else -1
+                        if (session.rotateCandidate >= 0) {
+                            session.rotation.grab(drawing?.state?.arcs?.getOrNull(session.rotateCandidate)?.id.orEmpty())
+                        }
+                        if (session.dragging.value) {
+                            session.focus.intValue = -1
+                            session.dropPosition = session.dragFrom
+                        }
                         session.syncMagnify(scope, arcFeel().magnify, editEnabled)
                         // Long-press routing (T30): in edit mode nothing opens a menu; a press on a
                         // slot opens its menu (app, folder, action); only a hub hold enters edit mode.
-                        if (editEnabled) {
+                        if (editEnabled || session.stickCaptured) {
                             session.press = null
                         } else if (onHub) {
                             session.press = scope.launch {
@@ -419,7 +492,10 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                         if (session.emptyHold && !EmptySpacePress.holds(hypot(x - session.downX, y - session.downY),
                                 session.rotating.value, event.pointerCount)) session.press?.cancel()
                         if (session.dragging.value) {
-                            val to = session.current?.position(x, y)
+                            // T243: the target follows the turned arc, so a far spot reached by the
+                            // self-turn is the spot the app actually drops on.
+                            val to = drawing?.dropPosition(x, y, session.rotation.aligned)
+                                ?: outDropPosition(x, y)
                             session.dropPosition = to
                             session.dropAllowed = to != null && editing?.canDrop(session.dragFrom!!, to) == true
                         } else if (session.rotateCandidate >= 0) {
@@ -440,6 +516,10 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                             if (session.rotating.value) {
                                 val slots = drawing?.rotateSlots(session.rotateCandidate, x, y,
                                     x - session.rotateLastX, y - session.rotateLastY) ?: 0f
+                                if (drawing != null && drawing.state.layer == Layer.Home) {
+                                    val items = drawing.arcItems(session.rotateCandidate)
+                                    if (items > 0 && slots != 0f) latest.onRotateDrag(arcId, slots / items, SystemClock.uptimeMillis())
+                                }
                                 if (session.rotation.drag(arcId, slots)) {
                                     session.reportSteer(steer)
                                     if (hapticsEnabled()) feel.play(view, FeelEvent.Tick)
@@ -477,6 +557,9 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                                     drawing.state.layer != Layer.Home, session.hubTravelDp))
                                 session.lastAim = next
                             }
+                        } else if (session.stickCaptured) {
+                            val drawing = session.current
+                            if (drawing != null) stick?.onStick(drawing.hubDx(x), drawing.hubDy(y), true)
                         } else {
                             val next = session.current?.hit(x, y, session.rotation.aligned) ?: -1
                             if (next >= 0 && next != session.focus.intValue && hapticsEnabled())
@@ -500,7 +583,8 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                         session.aiming.value = session.aimCandidate && session.hubGesture.aiming
                         if (session.dragging.value) {
                             val from = session.dragFrom!!
-                            val to = drawing?.position(x, y)
+                            val to = drawing?.dropPosition(x, y, session.rotation.aligned)
+                                ?: outDropPosition(x, y)
                             if (to != null && editing?.canDrop(from, to) == true) editing.drop(from, to)
                             else if (hapticsEnabled()) feel.play(view, FeelEvent.Reject)
                         } else if (session.rotating.value) {
@@ -522,9 +606,12 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                         } else if (editEnabled) {
                             if (drawing?.state?.layer == Layer.Home &&
                                 hypot(x - session.downX, y - session.downY) < Metrics.gridDp * 2) {
-                                val position = drawing.position(x, y)
+                                val position = drawing.dropPosition(x, y, session.rotation.aligned)
                                 if (position != null && drawing.state.slots.none { it.position == position }) editing?.empty(position)
                             }
+                        } else if (session.stickCaptured) {
+                            // The game owns this touch: no hub tap, no launch.
+                            session.hubTapSent = true
                         } else if (session.hubGesture.active) {
                             if (session.hubGesture.release(drawing?.hubReach(x, y) ?: Float.POSITIVE_INFINITY, now, -1,
                                     session.hubTravelDp) == HubGesture.TAP) {
@@ -555,6 +642,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                             module.dispatch(HubEvent.Up(now, session.downSlot, upSlot?.slot is Slot.Folder,
                                 drawing?.hubDx(x) ?: 0f, drawing?.hubDy(y) ?: 0f, session.hubTravelDp))
                         }
+                        if (session.stickCaptured) { stick?.onStick(0f, 0f, false); session.stickCaptured = false }
                         session.dragging.value = false
                         session.rotating.value = false
                         session.rotateCandidate = -1
@@ -564,6 +652,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                         session.hubGesture.cancel()
                         session.hubDownOnHub = false
                         session.edgeHold.reset()
+                        session.editEdgeHold.reset()
                         session.lastAim = -1
                         session.touching.value = false
                         session.focus.intValue = -1
@@ -578,6 +667,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                         if (session.aiming.value) latest.onAim(null)
                         session.rotateVelocity = 0f
                         session.releaseArc(session.current, SystemClock.uptimeMillis(), view, arcFeel()) { id, off -> latest.onRotate(id, off) }
+                        if (session.stickCaptured) { stick?.onStick(0f, 0f, false); session.stickCaptured = false }
                         session.dragging.value = false
                         session.rotating.value = false
                         session.rotateCandidate = -1
@@ -586,6 +676,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                         session.aimCandidate = false
                         session.hubGesture.cancel()
                         session.edgeHold.reset()
+                        session.editEdgeHold.reset()
                         session.lastAim = -1
                         session.touching.value = false
                         session.focus.intValue = -1
@@ -622,6 +713,10 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                         showCaptions = false)
                     folder!!.draw(canvas, eased, 1f, -1, false, growth = session.open.growth)
                 } else if (old != null) old.draw(canvas, RingSnap.outgoingAlpha(progress), RingSnap.outgoingScale(progress), -1, false)
+                val guide = session.dropGuide
+                if (guide != null && editEnabled && session.dragging.value && current?.state?.layer == Layer.Folder) {
+                    guide.draw(canvas, session.dropPosition, session.dropAllowed)
+                }
                 if (current != null) {
                     if (!shared) {
                         current.draw(canvas, if (old == null) 1f else RingSnap.incomingAlpha(progress),
@@ -630,6 +725,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                             editing = editEnabled, dragged = if (session.dragging.value) session.downSlot else -1,
                             dragX = session.x.floatValue, dragY = session.y.floatValue,
                             drop = session.dropPosition, allowed = session.dropAllowed,
+                            dragReveal = dragReveal.value,
                             sweep = effects.sweep, slotsAlpha = effects.slots,
                             touching = session.touching.value, lineAlpha = effects.lineAlpha, pulse = if (unread) effects.pulse else 0f,
                             swap = effects.swap, rotations = session.rotation.aligned,
@@ -640,7 +736,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                     }
                     current.drawChrome(canvas, session.touching.value, effects.glowX, effects.glowY,
                         session.aiming.value && session.focus.intValue == RingAim.BACK,
-                        hint = effects.hint, showHint = state.searchHint,
+                        hint = effects.hint, showHint = state.searchHint, hubPulse = effects.hubSwell,
                         hubScale = if (session.pressMotion.subject == PressMotion.HUB)
                             session.pressMotion.scale(Metrics.pressHubScale) else 1f)
                 }
@@ -683,10 +779,15 @@ private class RenderSession(skin: Skin) {
     val aiming = mutableStateOf(false)
     val hubGesture = HubGesture()
     val edgeHold = EdgeHold()
+    /** T243: dwell/repeat for the self-turn while an app is held near an arc end. */
+    val editEdgeHold = EdgeHold()
     val dragging = mutableStateOf(false)
     var dragFrom: SlotPosition? = null
-    var dropPosition: SlotPosition? = null
+    /** T243: state so the move-preview spring follows a changed target. */
+    var dropPosition by mutableStateOf<SlotPosition?>(null)
     var dropAllowed = false
+    /** T244: Home arcs and their first free spots while an app leaves a folder. */
+    var dropGuide: DropGuide? = null
     var hubTravelDp = 0f
     /** T82: taps are decided from the hub DOWN, independently of the gesture's internal state. */
     var hubDownOnHub = false
@@ -699,6 +800,8 @@ private class RenderSession(skin: Skin) {
     /** OPUS8: the current press is a hold on empty Home space. */
     var emptyHold = false
     var aimCandidate = false
+    var stickCaptured = false
+    var lastHubPulse = 0
     var lastAim = -1
     var press: Job? = null
     private var motionJob: Job? = null
@@ -868,6 +971,125 @@ private class RenderSession(skin: Skin) {
 }
 
 /**
+ * T244: Home arcs and the first free spot they offer while an app is dragged out of an open folder.
+ * Built only from a Home [RingState], so a layout change while the folder stays open refreshes the
+ * guide through the host. Preallocates its paths and slot positions; [draw] allocates nothing.
+ */
+private class DropGuide(private val state: RingState, private val skin: Skin, private val density: Float) {
+    private val paths = Array(state.arcs.size) { Path() }
+    private val rect = RectF()
+    private val originX = (state.arcs.firstOrNull()?.originXDp ?: 0f) * density
+    private val originY = (state.arcs.firstOrNull()?.originYDp ?: 0f) * density
+    /** First free stored index per arc, or -1 when the arc has no room. */
+    private val freeIndex = IntArray(state.arcs.size) { a ->
+        val arc = state.arcs[a]
+        (0 until arc.slotCapacity).firstOrNull { i ->
+            state.slots.none { it.position == SlotPosition(arc.id, i) }
+        } ?: -1
+    }
+    /** T269: a spot is drawn where the arc's live turn puts it, not at the unturned angle. */
+    private fun spotAngle(arc: ArcSpec, stored: Int): Float = RingRotation.spotAngleDeg(arc, stored,
+        state.slots.filter { it.position.arcId == arc.id }.map { it.position.index }, state.rotations[arc.id] ?: 0f)
+    private val freeX = FloatArray(state.arcs.size)
+    private val freeY = FloatArray(state.arcs.size)
+    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeWidth = skin.lineWidths.baseDp * density
+        color = skin.colors.lineActive.toInt()
+    }
+    private val plusPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeWidth = Metrics.editPlusStrokeDp * density
+        color = skin.colors.textSecondary.toInt()
+    }
+    private val targetPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = skin.lineWidths.activeDp * density
+    }
+
+    init {
+        state.arcs.forEachIndexed { a, arc ->
+            val radius = arc.radiusDp * density
+            rect.set(-radius, -radius, radius, radius)
+            paths[a].addArc(rect, arc.startAngle, arc.endAngle - arc.startAngle)
+            val free = freeIndex[a]
+            if (free >= 0) {
+                val angle = Math.toRadians(spotAngle(arc, free).toDouble())
+                freeX[a] = cos(angle).toFloat() * radius
+                freeY[a] = sin(angle).toFloat() * radius
+            }
+        }
+    }
+
+    /** Draw the Home arcs and a '+' at the spot each arc would take. [target] is in any layer. */
+    fun draw(canvas: Canvas, target: SlotPosition?, allowed: Boolean) {
+        if (state.arcs.isEmpty()) return
+        val alpha = Metrics.folderDropGuideAlpha
+        linePaint.alpha = (255 * alpha).toInt().coerceIn(0, 255)
+        plusPaint.alpha = (255 * alpha).toInt().coerceIn(0, 255)
+        canvas.save()
+        canvas.translate(originX, originY)
+        for (path in paths) canvas.drawPath(path, linePaint)
+        val radius = Metrics.editPlusRadiusDp * density
+        var a = 0
+        while (a < freeX.size) {
+            if (freeIndex[a] >= 0) {
+                val x = freeX[a]
+                val y = freeY[a]
+                canvas.drawLine(x - radius, y, x + radius, y, plusPaint)
+                canvas.drawLine(x, y - radius, x, y + radius, plusPaint)
+            }
+            a++
+        }
+        if (target != null) {
+            a = state.arcs.indexOfFirst { it.id == target.arcId }
+            val arc = state.arcs.getOrNull(a)
+            if (arc != null && target.index in 0 until arc.slotCapacity) {
+                val angle = Math.toRadians(spotAngle(arc, target.index).toDouble())
+                val x = cos(angle).toFloat() * arc.radiusDp * density
+                val y = sin(angle).toFloat() * arc.radiusDp * density
+                targetPaint.color = (if (allowed) skin.colors.accent else skin.colors.danger).toInt()
+                targetPaint.alpha = (255 * alpha).toInt().coerceIn(0, 255)
+                canvas.drawCircle(x, y, Metrics.touchTargetDp * density / 2f, targetPaint)
+            }
+        }
+        canvas.restore()
+    }
+
+    /**
+     * The Home arc under (x, y) as a drop target: the app's own slot when it already sits on that
+     * arc, otherwise the arc's first free spot. Null when no Home arc is under the finger or the arc
+     * is full.
+     */
+    fun target(x: Float, y: Float, appId: AppId): SlotPosition? {
+        val dx = x * density - originX
+        val dy = y * density - originY
+        val reach = hypot(dx, dy) / density
+        var best = -1
+        var bestDistance = Metrics.touchTargetDp / 2f
+        for (a in state.arcs.indices) {
+            val arc = state.arcs[a]
+            if (arc.layer != Layer.Home) continue
+            val distance = abs(reach - arc.radiusDp)
+            if (distance <= bestDistance) {
+                best = a
+                bestDistance = distance
+            }
+        }
+        if (best < 0) return null
+        val arc = state.arcs[best]
+        val existing = state.slots.firstOrNull {
+            it.position.arcId == arc.id && (it.slot as? Slot.App)?.id == appId
+        }
+        if (existing != null) return existing.position
+        if (freeIndex[best] < 0) return null
+        return SlotPosition(arc.id, freeIndex[best])
+    }
+}
+
+/**
  * T71 background: the default black stays byte-identical to T07; a solid skin surface is the
  * darker surface token; a system wallpaper leaves the window showing through with a black dim.
  */
@@ -917,7 +1139,7 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
     private val railPaint = decoration.railPaint()
     private val bearingPaint = decoration.bearingPaint()
     private val bearingVisible: BooleanArray
-    private val searchButton = RingSearchButtonPlacement(state.arcs)
+    private val searchButton = RingSearchButtonPlacement(state.arcs, screenWidth)
     private val cx = (state.arcs.firstOrNull()?.originXDp ?: 0f) * density
     private val cy = (state.arcs.firstOrNull()?.originYDp ?: 0f) * density
     private val paths = Array(state.arcs.size) { Path() }
@@ -1035,6 +1257,14 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
     private val depthScale = FloatArray(state.arcs.size) { skin.depthScale[it.coerceAtMost(3)] }
     private val depthAlpha = FloatArray(state.arcs.size) { skin.depthAlpha[it.coerceAtMost(3)] }
     private val itemIndex = IntArray(state.slots.size)
+    /**
+     * T243 drag preview: the continuous dense rank each item is drawn at while a drag makes room,
+     * and the per-arc item counts the preview uses. -1 means "at its resting rank". Preallocated;
+     * the draw loop still allocates nothing.
+     */
+    private val dragRank = FloatArray(state.slots.size) { -1f }
+    private val dragCount = IntArray(state.arcs.size)
+    private var dragPreview = false
     private val arcAngle0 = FloatArray(state.arcs.size)
     private val arcPitch = FloatArray(state.arcs.size)
     private val arcRadiusPx = FloatArray(state.arcs.size)
@@ -1514,7 +1744,76 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
     private fun slotAngleDeg(i: Int, offsets: FloatArray): Float {
         val a = arcIndex[i]
         return RingAim.normalizeDegrees(RingRotation.windowAngleDeg(arcAngle0[a], arcPitch[a],
-            itemIndex[i], offsets[a], arcCount[a], arcCapacity[a]))
+            previewRank(i), offsets[a], previewCount(a), arcCapacity[a]))
+    }
+
+    /** Resting dense rank, or the rank the T243 preview is sliding this item to. */
+    private fun previewRank(i: Int): Float =
+        if (dragPreview && dragRank[i] >= 0f) dragRank[i] else itemIndex[i].toFloat()
+
+    private fun previewCount(a: Int): Int =
+        if (dragPreview && dragCount[a] >= 0) dragCount[a] else arcCount[a]
+
+    /** Window position using the same rank/count the draw loop uses (T243 preview aware). */
+    private fun previewWindow(i: Int, a: Int, offset: Float): Float =
+        RingRotation.windowPosition(previewRank(i), offset, previewCount(a), arcCapacity[a])
+
+    /** Dense rank of [position] among the items on its arc, independent of holes in the stored indices. */
+    private fun denseRank(position: SlotPosition): Int {
+        var rank = 0
+        for (slot in state.slots) {
+            if (slot.position.arcId == position.arcId && slot.position.index < position.index) rank++
+        }
+        return rank
+    }
+
+    /**
+     * T243: while an app is dragged, map every other item to its place in the final order and
+     * interpolate by [reveal]. A move within one arc shifts the items between the two slots one
+     * place toward the hole the dragged item left; across arcs the old arc closes the hole and the
+     * new arc opens one. The dragged item itself is drawn under the finger and is not in this map.
+     */
+    private fun prepareDragPreview(dragged: Int, drop: SlotPosition?, reveal: Float) {
+        if (dragged !in icons.indices || drop == null || reveal <= 0f) {
+            dragPreview = false
+            return
+        }
+        val source = state.slots[dragged].position
+        if (source == drop) {
+            dragPreview = false
+            return
+        }
+        val sourceArc = arcIndex[dragged]
+        val targetArc = state.arcs.indexOfFirst { it.id == drop.arcId }
+        if (targetArc < 0) {
+            dragPreview = false
+            return
+        }
+        for (a in dragCount.indices) dragCount[a] = arcCount[a]
+        val sourceRank = itemIndex[dragged]
+        val targetRank = denseRank(drop)
+        val targetAtSameHome = targetArc == sourceArc
+        for (i in state.slots.indices) {
+            var destination = itemIndex[i].toFloat()
+            if (i != dragged) {
+                val rank = itemIndex[i]
+                if (targetAtSameHome) {
+                    if (sourceRank < targetRank && rank > sourceRank && rank <= targetRank) destination = (rank - 1).toFloat()
+                    else if (sourceRank > targetRank && rank in targetRank until sourceRank) destination = (rank + 1).toFloat()
+                } else if (arcIndex[i] == sourceArc) {
+                    if (rank > sourceRank) destination = (rank - 1).toFloat()
+                } else if (arcIndex[i] == targetArc) {
+                    if (rank >= targetRank) destination = (rank + 1).toFloat()
+                }
+            }
+            val resting = itemIndex[i].toFloat()
+            dragRank[i] = resting + (destination - resting) * reveal.coerceIn(0f, 1f)
+        }
+        if (!targetAtSameHome) {
+            dragCount[sourceArc] = (arcCount[sourceArc] - 1).coerceAtLeast(0)
+            dragCount[targetArc] = arcCount[targetArc] + 1
+        }
+        dragPreview = true
     }
 
     /**
@@ -1601,7 +1900,12 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
         return best
     }
 
+    /** How many items sit on arc [index] (all of them, not only the visible window). */
+    fun arcItems(index: Int): Int = if (index in arcCount.indices) arcCount[index] else 0
+
     /** The rotating arc whose band contains (x, y), or -1 when no rotating arc is under the finger. */
+    fun arcRotating(index: Int): Boolean = arcRotates.getOrElse(index) { false }
+
     fun rotationArc(x: Float, y: Float): Int {
         val radius = hypot(x * density - cx, y * density - cy) / density
         for (a in state.arcs.indices) {
@@ -1622,6 +1926,33 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
         return if (pitchPx != 0f) tangent / pitchPx else 0f
     }
 
+    /**
+     * T243: the stored position under the finger while the arc may be turned. Occupied slots use
+     * their live (folded, rotated) centre, so a far spot brought round by the self-turn is really
+     * the slot that is under the finger. Empty spots keep their drawn window centres.
+     */
+    fun dropPosition(x: Float, y: Float, offsets: FloatArray): SlotPosition? {
+        val hit = hit(x, y, offsets)
+        if (hit >= 0) return state.slots[hit].position
+        val target = Metrics.touchTargetDp / 2f
+        var best: SlotPosition? = null
+        var distance = target * target
+        for (pos in emptyPositions) {
+            val arc = state.arcs.firstOrNull { it.id == pos.arcId } ?: continue
+            val angle = Math.toRadians(arc.slotAngle(pos.index).toDouble())
+            val dx = x - cx / density - cos(angle).toFloat() * arc.radiusDp
+            val dy = y - cy / density - sin(angle).toFloat() * arc.radiusDp
+            val d = dx * dx + dy * dy
+            if (d <= distance) { best = pos; distance = d }
+        }
+        return best
+    }
+
+    /** Raw screen angle of (x, y) about the hub centre, for the T243 end-turn zone. */
+    fun angleDeg(x: Float, y: Float): Float =
+        Math.toDegrees(atan2((y * density - cy).toDouble(), (x * density - cx).toDouble())).toFloat()
+
+    @Suppress("unused")
     fun position(x: Float, y: Float): SlotPosition? {
         val target = Metrics.touchTargetDp / 2f
         var best: SlotPosition? = null
@@ -1707,11 +2038,13 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
     fun draw(canvas: Canvas, alpha: Float, scale: Float, focus: Int, showFocus: Boolean = true,
         aiming: Boolean = false, editing: Boolean = false, dragged: Int = -1,
         dragX: Float = 0f, dragY: Float = 0f, drop: SlotPosition? = null, allowed: Boolean = false,
+        dragReveal: Float = 1f,
         sweep: Float = 1f, slotsAlpha: Float = 1f, lineAlpha: Float = 1f, pulse: Float = 0f, omitted: Int = -1, growth: FloatArray? = null, touching: Boolean = false,
         pressIndex: Int = -1, pressScale: Float = 1f,
         magnify: MagnifyMotion? = null, magnifyKind: Magnify = Magnify.Off,
         swap: Float = 1f, rotations: FloatArray = settled, showCaptions: Boolean = true) {
         if (alpha <= 0f) return
+        prepareDragPreview(dragged, drop, dragReveal)
         canvas.save(); canvas.translate(cx, cy); canvas.scale(scale * (Metrics.collapsedScale + (1f - Metrics.collapsedScale) * sweep),
             scale * (Metrics.collapsedScale + (1f - Metrics.collapsedScale) * sweep))
         var i = 0
@@ -1757,13 +2090,27 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
                 } else canvas.drawCircle(emptyX[i], emptyY[i], Metrics.editDotRadiusDp * density, editPaint)
                 i++
             }
+            // T243: the slot the dragged app came from stays visible as a "+" while it is lifted.
+            if (dragged in icons.indices && state.layer == Layer.Home) {
+                val radius = Metrics.editPlusRadiusDp * density
+                val x = slotX(dragged, rotations)
+                val y = slotY(dragged, rotations)
+                editPaint.strokeWidth = Metrics.editPlusStrokeDp * density
+                canvas.drawLine(x - radius, y, x + radius, y, editPaint)
+                canvas.drawLine(x, y - radius, x, y + radius, editPaint)
+            }
             if (drop != null) {
                 // Indexed loop: no iterator, geometry object or paint is allocated in draw.
                 i = 0
                 while (i < state.arcs.size) {
                     val arc = state.arcs[i]
                     if (arc.id == drop.arcId && drop.index in 0 until arc.slotCapacity) {
-                        val angle = Math.toRadians(arc.slotAngle(drop.index).toDouble())
+                        // T243: the gap the app will fill is its insertion rank, not the shifted
+                        // neighbour that is sliding out of the way.
+                        val gapRank = denseRank(drop)
+                        val window = RingRotation.windowPosition(gapRank, rotations[i], previewCount(i), arcCapacity[i])
+                        val angle = Math.toRadians(
+                            (if (arcCapacity[i] <= 1) arcAngle0[i] else arcAngle0[i] + window * arcPitch[i]).toDouble())
                         val x = cos(angle).toFloat() * arc.radiusDp * density
                         val y = sin(angle).toFloat() * arc.radiusDp * density
                         editPaint.style = Paint.Style.STROKE
@@ -1803,7 +2150,7 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
         while (i < icons.size) {
             if ((pass == 1) != (i == topSlot)) { i++; continue }
             val a = arcIndex[i]
-            val window = RingRotation.windowPosition(itemIndex[i], rotations[a], arcCount[a], arcCapacity[a])
+            val window = previewWindow(i, a, rotations[a])
             val edge = RingRotation.edgeAlpha(window, arcCapacity[a])
             if (edge <= 0f) { i++; continue }
             val liveX = slotX(i, rotations)
@@ -1878,15 +2225,15 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
         if (showCaptions) {
             // A rotating arc moves its icons, so the caption spots are solved again from the live centres.
             var liveCaptions = false
-            for (a in arcRotates.indices) if (arcRotates[a]) liveCaptions = true
+            for (a in arcRotates.indices) if (dragPreview || arcRotates[a]) liveCaptions = true
             if (liveCaptions) {
                 var k = 0
                 while (k < captions.size) {
                     liveCx[k] = (cx + slotX(k, rotations)) / density
                     liveCy[k] = (cy + slotY(k, rotations)) / density
                     val ka = arcIndex[k]
-                    slotVisible[k] = !arcRotates[ka] || RingRotation.edgeAlpha(
-                        RingRotation.windowPosition(itemIndex[k], rotations[ka], arcCount[ka], arcCapacity[ka]), arcCapacity[ka]) > 0f
+                    slotVisible[k] = dragPreview || !arcRotates[ka] || RingRotation.edgeAlpha(
+                        previewWindow(k, ka, rotations[ka]), arcCapacity[ka]) > 0f
                     k++
                 }
                 solveCaptions(livePlacer)
@@ -1896,7 +2243,7 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
                 val caption = captions[i]
                 if (caption != null && i != selected && i != omitted) {
                     val a = arcIndex[i]
-                    val edge = RingRotation.edgeAlpha(RingRotation.windowPosition(itemIndex[i], rotations[a], arcCount[a], arcCapacity[a]), arcCapacity[a])
+                    val edge = RingRotation.edgeAlpha(previewWindow(i, a, rotations[a]), arcCapacity[a])
                     if (edge > 0f) {
                         var x = captionX[i]
                         var y = captionY[i]
@@ -1936,7 +2283,7 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
                 val s = if (item in bySlot.indices) bySlot[item] else -1
                 val label = if (s >= 0 && s != omitted) labels[s] else null
                 val fade = if (s >= 0 && arcRotates[a])
-                    FrontNames.fade(RingRotation.windowPosition(itemIndex[s], rotations[a], arcCount[a], arcCapacity[a])) else 1f
+                    FrontNames.fade(previewWindow(s, a, rotations[a])) else 1f
                 if (label != null && fade > 0f) {
                     placeLabel(s, label, rotations)
                     val wDp = label.width / density
@@ -1995,6 +2342,7 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
             } else canvas.drawCircle(x, y, r, aimPaint)
         }
         canvas.restore()
+        dragPreview = false
     }
 
     fun folderIndex(id: FolderId?): Int = state.slots.indexOfFirst { (it.slot as? Slot.Folder)?.id == id }
@@ -2013,7 +2361,7 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
     }
 
     fun drawChrome(canvas: Canvas, touching: Boolean, x: Float, y: Float, back: Boolean = false,
-        hint: Float = 0f, showHint: Boolean = false, hubScale: Float = 1f) {
+        hint: Float = 0f, showHint: Boolean = false, hubScale: Float = 1f, hubPulse: Float = 0f) {
         paint.alpha = (255 * chromeDim).toInt()
         val chromeTop = state.chromeTopDp * density
         if (clock != null) {
@@ -2048,6 +2396,11 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
             canvas.drawCircle(cx, cy, Metrics.hubRadiusDp * density * hubScale, hubDisc)
         } else canvas.drawCircle(cx, cy, Metrics.hubRadiusDp * density * hubScale, hub)
         decoration.drawHub(canvas, cx, cy)
+        if (hubPulse > 0f) {
+            // One swell of the notification pulse, on the hub: the same ring, growth and sine alpha an unread app gets.
+            pulsePaint.alpha = (255 * chromeDim * hubPulse).toInt()
+            canvas.drawCircle(cx, cy, Metrics.hubRadiusDp * density * (1f + (Metrics.pulseRadiusScale - 1f) * hubPulse), pulsePaint)
+        }
         if (clock != null && spec.header == HeaderStyle.ruled) {
             canvas.drawLine(Metrics.textGutterDp * density,
                 (Metrics.keepOutTopDp + skin.typography.clock.sizeSp + Metrics.gridDp * 4) * density,
@@ -2167,6 +2520,10 @@ private class RotationRuntime {
 
     /** Edge-hold nudge of a whole slot; no gesture state. */
     fun nudge(arcId: String, tangentialSlots: Float) = write(arcId, offset(arcId) - tangentialSlots)
+
+    /** T243: a self-turn lands on a whole slot even if a settle was still moving when the drag began. */
+    fun nudgeSnapped(arcId: String, tangentialSlots: Float) =
+        write(arcId, round(offset(arcId)) - tangentialSlots)
 
     /** Finger down on [arcId]: a settle in progress is caught where it is, velocity kept. */
     fun grab(arcId: String) {

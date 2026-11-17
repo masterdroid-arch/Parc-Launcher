@@ -33,6 +33,8 @@ class LauncherSession internal constructor(
     private val onPinnedLaunch: () -> Unit = {},
     private val onMenuOpened: () -> Unit = {},
     private val onRotation: (String, Float) -> Unit = { _, _ -> },
+    /** T200: read-only report of a finger turning a Home arc (the arcade's unlock detector). */
+    private val onRotationDrag: (String, Float, Long) -> Unit = { _, _, _ -> },
     private val openAndroidSettings: () -> Unit = {},
     private val appInfo: (AppId) -> Unit = {},
     private val uninstall: (AppId) -> Unit = {},
@@ -52,6 +54,10 @@ class LauncherSession internal constructor(
     private val lockGate: FolderLockGate? = null,
     /** OPUS8 (T133): opens Parc settings on a page (Home menu rows and Settings search results). */
     private val openSettingsAt: (SettingsTarget) -> Unit = { openSettings() },
+    /** T217: every package hidden right now; the folder app picker never offers one. */
+    private val hiddenPackages: () -> Set<String> = { emptySet() },
+    /** T245: the Home edit host records undo steps and reads the live "Lock layout" choice. */
+    private val layoutEditing: RingEditSession? = null,
 ) : RingCallbacks {
     private val hubTaps = HubTapDispatcher(scope, hubDoubleTapEnabled, hubTapClock,
         singleTap = ::toggleAllApps, doubleTap = { lastApp()?.let(::launch) })
@@ -103,7 +109,7 @@ class LauncherSession internal constructor(
     fun onHostPaused() { hubTaps.cancel(); closeEditing() }
 
     /**
-     * OPUS8 (T133): the Home key (a new HOME intent, whether Parc was on screen or another app was).
+     * OPUS8 (T133): a Home key press while Parc is already in front (T241 decides when that is).
      * The ONE place that closes every layer: the session's own (menus, search, folder, All apps,
      * edit mode) through [reset], then the host's and the hub's through [homePresses]. On an
      * already clean Home this still counts, so the hub goes back to its first page.
@@ -127,11 +133,8 @@ class LauncherSession internal constructor(
 
     fun keyboard(visible: Boolean) {
         val current = navigation.state.value
-        // Android handles Back in the IME before the Activity callback. Close its sheet too.
-        if (!visible && current.keyboardOpen && search.isOpen && !search.state.value.abcListOpen) {
-            dismissSearch()
-            return
-        }
+        // Hiding the keyboard is not closing search. Android's IME Back only hides the keyboard;
+        // the sheet stays open with its text until the next Back.
         navigation.show(current.copy(keyboardOpen = visible && current.searchOpen && !current.abcListOpen))
     }
 
@@ -148,11 +151,17 @@ class LauncherSession internal constructor(
             dismissMenu()
             return
         }
+        // First Back with the keyboard up only hides the keyboard; the search sheet and its text
+        // remain. A second Back then closes the sheet.
+        if (navigation.state.value.keyboardOpen) {
+            hideKeyboard()
+            keyboard(false)
+            return
+        }
         if (search.isOpen && !search.state.value.abcListOpen) {
             dismissSearch()
             return
         }
-        if (navigation.state.value.keyboardOpen) hideKeyboard()
         navigation.emit(ShellEvent.Back)
         val next = navigation.state.value
         if (!next.searchOpen) search.close()
@@ -266,17 +275,18 @@ class LauncherSession internal constructor(
     }
 
     /**
-     * OPUS6 (audit F1): the folder menu's "Add apps" list. Apps hidden by the layout, already in the
-     * folder, or inside a folder that is locked right now (by id, and every app of the same package)
-     * are never offered.
+     * OPUS6 (audit F1): the folder menu's "Add apps" list. Apps hidden by the layout, a Focus mode,
+     * a hidden folder, already in the folder, or inside a folder that is locked right now (by id,
+     * and every app of the same package) are never offered.
      */
     internal fun addAppCandidates(all: List<AppEntry>, folder: Folder?, hidden: Set<AppId>): List<AppEntry> {
         val gate = lockGate
         val lockedPackages = if (gate == null) emptySet()
             else all.filter { gate.isAppLocked(it.id) }.mapTo(HashSet()) { it.packageName }
+        val hiddenNow = hiddenPackages()
         return all.filterNot {
-            it.id in folder?.appIds.orEmpty() || it.id in hidden || it.packageName in lockedPackages ||
-                gate?.isAppLocked(it.id) == true
+            it.id in folder?.appIds.orEmpty() || it.id in hidden || it.packageName in hiddenNow ||
+                it.packageName in lockedPackages || gate?.isAppLocked(it.id) == true
         }
     }
 
@@ -340,6 +350,7 @@ class LauncherSession internal constructor(
         val inFolder = navigation.state.value.folderId.takeIf { navigation.state.value.layer == Layer.Folder }
         _menu.value = MenuModel(id, hit.position, hit.xDp, hit.yDp, emptyList(), pinned, isDefaultHome,
             label = entry?.label.orEmpty(), inFolder = inFolder, hidden = id in layout.layout.value.hidden,
+            onArc = navigation.state.value.layer == Layer.Home,
             pinLabel = pinRowLabel(layout.layout.value, hit.position),
             canUninstall = entry != null && uninstallable(entry),
             notifications = entry?.let { peekLines(it.packageName) }.orEmpty())
@@ -386,14 +397,27 @@ class LauncherSession internal constructor(
     fun togglePin() {
         val open = _menu.value ?: return
         val id = open.appId
+        val pinned = id in layout.layout.value.pins
         dismissMenu()
         scope.launch {
-            if (id in layout.layout.value.pins) {
-                layout.unpin(id)
-            } else {
-                pinPosition(layout.layout.value, open.position)?.let { layout.pin(id, it) }
+            // Pinning adds to an arc and unpinning takes an app off one: both are arc changes, so both obey Lock layout.
+            changeLayout(if (pinned) "Unpinned" else "Pinned", guarded = true) {
+                if (pinned) {
+                    layout.unpin(id)
+                } else {
+                    pinPosition(layout.layout.value, open.position)?.let { layout.pin(id, it) }
+                }
             }
         }
+    }
+
+    /**
+     * T245: route every Home layout write through the edit host so it has one undo history and the
+     * live lock check. Without a host (tests of older behaviour) the write is unchanged.
+     */
+    private suspend fun changeLayout(label: String, guarded: Boolean = true, block: suspend () -> Unit) {
+        val editing = layoutEditing
+        if (editing == null) block() else editing.change(label, guarded, block)
     }
 
     /** Dispatches one app-menu row. Pure switch, so every row is unit-testable through the session. */
@@ -438,7 +462,7 @@ class LauncherSession internal constructor(
                     plan == null -> _menu.value = open.copy(nameIssue = ArcsFull)
                     else -> {
                         dismissMenu()
-                        scope.launch { layout.importLayout(LayoutJson.encode(plan)) }
+                        scope.launch { changeLayout("Folder created") { layout.importLayout(LayoutJson.encode(plan)) } }
                     }
                 }
             }
@@ -448,18 +472,30 @@ class LauncherSession internal constructor(
                 val target = FolderId(detail)
                 dismissMenu()
                 scope.launch {
-                    layout.addToFolder(target, open.appId)
-                    open.inFolder?.let { layout.removeFromFolder(it, open.appId) }
+                    // Folder membership only; the arcs do not change, so Lock layout allows it.
+                    changeLayout("Moved to folder", guarded = false) {
+                        layout.addToFolder(target, open.appId)
+                        open.inFolder?.let { layout.removeFromFolder(it, open.appId) }
+                    }
                 }
             }
             MenuAction.RemoveFromFolder -> {
                 val from = open.inFolder ?: return dismissMenu()
                 dismissMenu()
-                scope.launch { layout.removeFromFolder(from, open.appId) }
+                scope.launch { changeLayout("Removed from folder", guarded = false) { layout.removeFromFolder(from, open.appId) } }
+            }
+            MenuAction.RemoveFromArc -> {
+                dismissMenu()
+                scope.launch {
+                    changeLayout("Removed from arc") {
+                        val next = ArcSlotRemoval.remove(layout.layout.value, open.position, open.appId)
+                        if (next != null) layout.importLayout(LayoutJson.encode(next))
+                    }
+                }
             }
             MenuAction.Hide -> {
                 dismissMenu()
-                scope.launch { layout.hide(open.appId) }
+                scope.launch { changeLayout("Hidden") { layout.hide(open.appId) } }
             }
             MenuAction.AppInfo -> {
                 dismissMenu()
@@ -485,7 +521,7 @@ class LauncherSession internal constructor(
             hit.position, hit.xDp, hit.yDp,
             candidates = emptyList(), canMoveEarlier = slotArc != null && earlier, canMoveLater = slotArc != null && later,
             notices = if (lock == FolderMenuLock.LockedNow) emptyList() else folderNoticesFor(snapshot, folder),
-            lock = lock)
+            lock = lock, hidden = folder.hidden)
         onMenuOpened()
     }
 
@@ -540,6 +576,14 @@ class LauncherSession internal constructor(
                 dismissFolderMenu()
                 lockGate?.relock()
             }
+            MenuAction.HideFolder -> {
+                dismissFolderMenu()
+                scope.launch { changeLayout("Folder hidden") { layout.setFolderHiddenFlag(open.folderId, true) } }
+            }
+            MenuAction.UnhideFolder -> {
+                dismissFolderMenu()
+                scope.launch { changeLayout("Folder shown") { layout.setFolderHiddenFlag(open.folderId, false) } }
+            }
             MenuAction.UnlockFolder -> {
                 dismissFolderMenu()
                 val gate = lockGate
@@ -557,7 +601,8 @@ class LauncherSession internal constructor(
                 if (issue.isNotEmpty()) _folderMenu.value = open.copy(nameIssue = issue)
                 else {
                     dismissFolderMenu()
-                    scope.launch { layout.renameFolder(open.folderId, open.draftName.trim()) }
+                    // Renaming does not move anything on the arcs; it is still an undoable folder change.
+                    scope.launch { changeLayout("Folder renamed", guarded = false) { layout.renameFolder(open.folderId, open.draftName.trim()) } }
                 }
             }
             MenuAction.AddApps -> {
@@ -569,19 +614,19 @@ class LauncherSession internal constructor(
             MenuAction.AddApp -> {
                 val id = AppId(detail)
                 _folderMenu.value = open.copy(candidates = open.candidates.filterNot { it.id == id })
-                scope.launch { layout.addToFolder(open.folderId, id) }
+                scope.launch { changeLayout("App added", guarded = false) { layout.addToFolder(open.folderId, id) } }
             }
             MenuAction.MoveEarlier -> {
                 dismissFolderMenu()
-                scope.launch { moveFolder(open.folderId, earlier = true) }
+                scope.launch { changeLayout("Moved") { moveFolder(open.folderId, earlier = true) } }
             }
             MenuAction.MoveLater -> {
                 dismissFolderMenu()
-                scope.launch { moveFolder(open.folderId, earlier = false) }
+                scope.launch { changeLayout("Moved") { moveFolder(open.folderId, earlier = false) } }
             }
             MenuAction.SortAZ -> {
                 dismissFolderMenu()
-                scope.launch { sortFolder(open.folderId) }
+                scope.launch { changeLayout("Folder sorted", guarded = false) { sortFolder(open.folderId) } }
             }
             MenuAction.LaunchApp -> {
                 dismissFolderMenu()
@@ -590,7 +635,7 @@ class LauncherSession internal constructor(
             MenuAction.OpenDelete -> _folderMenu.value = open.copy(page = FolderPage.ConfirmDelete)
             MenuAction.Delete -> {
                 dismissFolderMenu()
-                scope.launch { deleteFolder(open.folderId) }
+                scope.launch { changeLayout("Folder deleted") { deleteFolder(open.folderId) } }
             }
             else -> Unit
         }
@@ -662,6 +707,7 @@ class LauncherSession internal constructor(
     }
     override fun onDrag(hit: SlotHit, phase: DragPhase) = Unit
     override fun onRotate(arcId: String, offset: Float) = onRotation(arcId, offset)
+    override fun onRotateDrag(arcId: String, turns: Float, uptimeMs: Long) = onRotationDrag(arcId, turns, uptimeMs)
 }
 
 /** The unplaced inbox folder (T05): deleted folders return their apps here. */

@@ -2,6 +2,8 @@ package com.brightblu.parc.feature.settings.folders
 
 import com.brightblu.parc.model.AppId
 import com.brightblu.parc.model.Folder
+import com.brightblu.parc.model.hidden
+import com.brightblu.parc.model.withHidden
 
 /**
  * Pure reducer for the folder editor (T11). Same event, same state, same result: no Android types,
@@ -81,6 +83,16 @@ object FolderEditorMachine {
 
             FolderEditorEvent.OpenAppPicker ->
                 if (state.openFolder == null) state else state.copy(page = EditorPage.AppPicker)
+
+            FolderEditorEvent.ToggleFolderHidden -> {
+                val folder = state.openFolder ?: return state
+                val next = folder.withHidden(!folder.hidden)
+                if (next == folder) state else push(
+                    state,
+                    state.document.withFolder(next),
+                    if (next.hidden) "Hide folder" else "Unhide folder",
+                ).copy(notice = if (next.hidden) "Folder hidden. Its apps stay inside." else "Folder shown on Home.")
+            }
 
             is FolderEditorEvent.DragStart -> dragStart(state, event.slot)
 

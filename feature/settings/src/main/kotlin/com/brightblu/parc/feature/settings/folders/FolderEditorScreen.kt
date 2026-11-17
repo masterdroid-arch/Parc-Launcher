@@ -158,6 +158,16 @@ private fun ColumnScope.SlotList(ui: FolderEditorUi, skin: Skin, onEvent: (Folde
                 onClick = if (ui.folderIsFull) ({}) else ({ onEvent(FolderEditorEvent.OpenAppPicker) }),
             )
         }
+        item(key = "hide") {
+            ListRow(
+                label = if (ui.folderHidden) "Unhide folder" else "Hide folder",
+                detail = if (ui.folderHidden) "Show the folder and its apps on Home again"
+                else "Hide the folder and its apps from Home. Lock is separate.",
+                skin = skin,
+                accent = false,
+                onClick = { onEvent(FolderEditorEvent.ToggleFolderHidden) },
+            )
+        }
         items(ui.slots, key = { it.slot }) { row ->
             SlotRow(row, ui.slots.size, rowHeightPx, centers, skin, onEvent)
         }

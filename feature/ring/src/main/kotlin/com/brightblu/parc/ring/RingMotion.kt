@@ -15,6 +15,8 @@ internal class RingMotion(private val skin: Skin) {
     var swap = 1f; private set
     /** One-shot search-button accent swell in `0..1`; repeats never (T35). */
     var hint = 0f; private set
+    /** One-shot swell of the hub in `0..1` (the notification pulse motion, once); 0 when idle. */
+    var hubSwell = 0f; private set
     var glowX = 0f; private set
     var glowY = 0f; private set
     private var vx = 0f
@@ -31,6 +33,8 @@ internal class RingMotion(private val skin: Skin) {
     private var swapStart = 0L
     private var hintEpoch = 0L
     private var hintArmed = false
+    private var hubEpoch = 0L
+    private var hubArmed = false
 
     fun resume(now: Long) {
         wake = now; touch = now; previous = now; pulseEpoch = now
@@ -38,6 +42,9 @@ internal class RingMotion(private val skin: Skin) {
         swapStart = 0L; swap = 1f
         hintEpoch = now; hintArmed = true; hint = 0f
     }
+
+    /** Begin one hub swell: the same sine swell and duration the notification pulse uses. */
+    fun startHubPulse(now: Long) { hubEpoch = now; hubArmed = true }
 
     /** Begin the usage-layer cross-fade + newcomer pulse (T35). */
     fun startSwap(now: Long) { swapStart = now; swap = 0f }
@@ -50,7 +57,7 @@ internal class RingMotion(private val skin: Skin) {
     fun release() { following = false }
     fun settle() {
         sweep = 1f; slots = 1f; lineAlpha = 1f; pulse = 0f
-        swap = 1f; swapStart = 0L; hint = 0f; hintArmed = false
+        swap = 1f; swapStart = 0L; hint = 0f; hintArmed = false; hubSwell = 0f; hubArmed = false
         glowX = targetX; glowY = targetY; vx = 0f; vy = 0f
     }
 
@@ -99,7 +106,11 @@ internal class RingMotion(private val skin: Skin) {
         hint = if (hintArmed && hintActive && hintElapsed < motion.pulseDuration)
             sin(PI * hintElapsed / motion.pulseDuration).toFloat().coerceAtLeast(0f) else 0f
         if (hintElapsed >= motion.pulseDuration) hintArmed = false
-        if (slots < 1f || breathing || spring || swelling || swap < 1f || hint > 0f) return 0L
+        val hubPhase = (now - hubEpoch).coerceAtLeast(0L) / scale
+        hubSwell = if (hubArmed && hubPhase < motion.pulseDuration)
+            sin(PI * hubPhase / motion.pulseDuration).toFloat().coerceAtLeast(0f) else 0f
+        if (hubArmed && hubPhase >= motion.pulseDuration) hubArmed = false
+        if (slots < 1f || breathing || spring || swelling || swap < 1f || hint > 0f || hubArmed) return 0L
         return if (unread) ((motion.pulseRepeat - phase) * scale).toLong().coerceAtLeast(1) else Long.MAX_VALUE
     }
 }

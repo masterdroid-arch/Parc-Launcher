@@ -26,4 +26,11 @@ class NoWeatherTest {
             assertFalse(it, runCatching { Class.forName(it) }.isSuccess)
         }
     }
+
+    /** T194: no internet, so no Translate search mode (and "tr " stays an app search). */
+    @Test fun noTranslateSearchMode() {
+        val modes = com.brightblu.parc.feature.search.SearchModes.standard(WeatherVariant.extraSearchModes())
+        assertFalse(modes.any { it.id == com.brightblu.parc.feature.search.SearchModeIds.Translate })
+        org.junit.Assert.assertNull(com.brightblu.parc.feature.search.SearchModes.detectPrefix("tr hello", modes))
+    }
 }

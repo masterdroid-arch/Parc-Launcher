@@ -29,4 +29,28 @@ internal object ClockDisplay {
         val minutes = ((alarm - now).coerceAtLeast(0L) / 60_000L) + if (alarm > now && (alarm - now) % 60_000L != 0L) 1 else 0
         return if (minutes >= 60) "in ${minutes / 60} h ${minutes % 60} min" else "in $minutes min"
     }
+
+    /** `Europe/Lisbon` or `America/New_York` become the city: `Lisbon`, `New York`. */
+    fun city(zoneId: String): String = zoneId.substringAfterLast('/').replace('_', ' ')
+
+    /** `Today`, `Tomorrow` or `Yesterday` for the second clock's date, as seen from the phone's own date. */
+    fun dayWord(now: Long, phone: ZoneId, other: ZoneId): String {
+        val here = Instant.ofEpochMilli(now).atZone(phone).toLocalDate()
+        val there = Instant.ofEpochMilli(now).atZone(other).toLocalDate()
+        return when (java.time.temporal.ChronoUnit.DAYS.between(here, there)) {
+            0L -> "Today"
+            1L -> "Tomorrow"
+            -1L -> "Yesterday"
+            else -> date(now, other).substringBefore(',')
+        }
+    }
+
+    /** `3 h ahead`, `1 h 30 min behind` or `same time`, as seen from the phone. */
+    fun offsetText(now: Long, phone: ZoneId, other: ZoneId): String {
+        val minutes = (other.rules.getOffset(Instant.ofEpochMilli(now)).totalSeconds - phone.rules.getOffset(Instant.ofEpochMilli(now)).totalSeconds) / 60
+        if (minutes == 0) return "same time"
+        val abs = kotlin.math.abs(minutes)
+        val text = if (abs % 60 == 0) "${abs / 60} h" else if (abs < 60) "$abs min" else "${abs / 60} h ${abs % 60} min"
+        return text + if (minutes > 0) " ahead" else " behind"
+    }
 }

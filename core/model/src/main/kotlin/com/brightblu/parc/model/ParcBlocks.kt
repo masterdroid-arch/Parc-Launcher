@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.mandatorySystemGestures
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -48,10 +50,13 @@ fun rememberPageInsets(): ParcSpacing.PageInsets {
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
     val top = WindowInsets.statusBars.union(WindowInsets.displayCutout)
+    val bottom = WindowInsets.navigationBars
+        .union(WindowInsets.systemGestures)
+        .union(WindowInsets.mandatorySystemGestures)
     val scale = density.density
     return ParcSpacing.page(
         statusTopDp = top.getTop(density) / scale,
-        navBottomDp = WindowInsets.navigationBars.getBottom(density) / scale,
+        navBottomDp = bottom.getBottom(density) / scale,
         startInsetDp = WindowInsets.displayCutout.getLeft(density, direction) / scale,
         endInsetDp = WindowInsets.displayCutout.getRight(density, direction) / scale,
     )
@@ -99,6 +104,20 @@ fun ParcPage(
         }
         if (overlay != null) Box(Modifier.fillMaxSize().padding(bottom = insets.bottomDp.dp), content = overlay)
     }
+}
+
+/**
+ * The safe area of a full-screen dialog or sheet: the same gutter, cutout, right Back strip and bottom
+ * gesture area as [ParcPage], without a page body. A caller that draws edge to edge puts its own
+ * background on [modifier], then its content sits entirely inside this box.
+ */
+@Composable
+fun ParcDialogArea(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+    val insets = rememberPageInsets()
+    Box(modifier.fillMaxSize().padding(
+        start = insets.startDp.dp, top = insets.topDp.dp,
+        end = insets.endDp.dp, bottom = insets.bottomDp.dp,
+    ), content = content)
 }
 
 /** The space a page keeps clear at its bottom (gesture strip or navigation bar), for a scroller inside it to pad with. */

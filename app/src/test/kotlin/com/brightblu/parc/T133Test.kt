@@ -97,10 +97,10 @@ class T133Test {
     }
 
     @Test fun theFirstHubPageFollowsTheSavedOrderAndTheFocusFilter() {
-        assertEquals("power", HomeKey.firstHubPage(false, listOf("power", "clock", "system")))
-        assertEquals("clock", HomeKey.firstHubPage(false, listOf("power", "clock")) { it != "power" })
+        assertEquals("device", HomeKey.firstHubPage(false, listOf("device", "today", "apps")))
+        assertEquals("today", HomeKey.firstHubPage(false, listOf("device", "today")) { it != "device" })
         assertNull(HomeKey.firstHubPage(false, emptyList()))
-        assertEquals(DemoHubPages.first(), HomeKey.firstHubPage(true, listOf("power")))
+        assertEquals(DemoHubPages.first(), HomeKey.firstHubPage(true, listOf("device")))
     }
 
     // ---- Home menu ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ class T133Test {
 
     @Test fun aStoredChoiceIsKeptIncludingNone() {
         listOf(GestureAction.None, GestureAction.Search, GestureAction.LastApp, GestureAction.AllApps,
-            GestureAction.HubPage("power"), GestureAction.OpenApp(app)).forEach { chosen ->
+            GestureAction.HubPage("device"), GestureAction.OpenApp(app)).forEach { chosen ->
             assertEquals(chosen, GestureConfig.decode(chosen.encode(), null).swipeUp)
         }
         assertEquals(GestureAction.Search, GestureConfig.decode("none", "search").hubLongPress)
@@ -192,7 +192,7 @@ class T133Test {
     // ---- Edit mode words ---------------------------------------------------------------------
 
     @Test fun editModeInstructionsAndEmptySpotTitle() {
-        assertEquals("Drag an app to move it. Tap + to add. Tap Done when finished.", EditModeText.Instructions)
+        assertEquals("Drag an app to move it. Drag an empty arc to turn it. Tap + to add. Tap Done when finished.", EditModeText.Instructions)
         assertEquals("Empty spot on the outer arc", EditModeText.emptySpotTitle(3, 4))
         assertEquals("Empty spot on the outer arc", EditModeText.emptySpotTitle(2, 3))
         assertEquals("Empty spot on the inner arc", EditModeText.emptySpotTitle(0, 4))

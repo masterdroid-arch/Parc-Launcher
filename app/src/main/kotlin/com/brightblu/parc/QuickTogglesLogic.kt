@@ -26,7 +26,8 @@ internal object QuickToggleCatalog {
 
 /** Shared tile names for the options sheet: Quick toggles uses product spellings (Wi-Fi). */
 internal fun hubTileLabel(page: String, tile: String): String =
-    if (page == QuickToggleCatalog.PageId) QuickToggleCatalog.label(tile) else tile.replaceFirstChar { it.uppercase() }
+    if (HubCatalog.canonicalPage(page) == ControlsPage.Id && tile in QuickToggleCatalog.tiles) QuickToggleCatalog.label(tile)
+    else tile.replaceFirstChar { it.uppercase() }
 
 internal enum class TorchState { Off, On, Busy, Missing }
 

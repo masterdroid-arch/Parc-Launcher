@@ -141,7 +141,7 @@ private fun TimersTile(book: TimerBook, now: Long, skin: Skin, onPreset: (Int) -
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
                         TimerCountdownRing(timerFraction(timer, now), skin)
                         Column(Modifier.weight(1f)) {
-                            HubHero(TimerFormat.countdown(timerRemainingMs(timer, now)), "$total · ${TimerFormat.statusText(status)}", skin)
+                            HubHero(TimerFormat.countdown(timerRemainingMs(timer, now)), (if (timer.label.isEmpty()) "" else "${timer.label} · ") + "$total · ${TimerFormat.statusText(status)}", skin)
                         }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -209,7 +209,7 @@ private fun TimerCountdownRing(fraction: Float, skin: Skin) {
 }
 
 @Composable
-private fun TimerAction(text: String, skin: Skin, description: String = text, enabled: Boolean = true, click: () -> Unit) {
+internal fun TimerAction(text: String, skin: Skin, description: String = text, enabled: Boolean = true, click: () -> Unit) {
     Box(Modifier.heightIn(min = Metrics.touchTargetDp.dp).widthIn(min = Metrics.menuRowHeightDp.dp)
         .semantics { contentDescription = description }.clickable(enabled = enabled, onClick = click)
         .padding(horizontal = Metrics.lineGapDp.dp), contentAlignment = Alignment.Center) {
@@ -219,7 +219,7 @@ private fun TimerAction(text: String, skin: Skin, description: String = text, en
 
 /** Hours, minutes and seconds with plus and minus buttons; Start is disabled for a zero duration. */
 @Composable
-private fun CustomTimerDialog(skin: Skin, onDismiss: () -> Unit, onStart: (Long) -> Unit) {
+internal fun CustomTimerDialog(skin: Skin, onDismiss: () -> Unit, title: String = "Custom timer", onStart: (Long) -> Unit) {
     var hours by remember { mutableIntStateOf(0) }
     var minutes by remember { mutableIntStateOf(20) }
     var seconds by remember { mutableIntStateOf(0) }
@@ -227,7 +227,7 @@ private fun CustomTimerDialog(skin: Skin, onDismiss: () -> Unit, onStart: (Long)
     val zero = hours == 0 && minutes == 0 && seconds == 0
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss, containerColor = Color(skin.colors.surface.toInt()),
-        title = { BasicText("Custom timer", style = settingsText(skin)) },
+        title = { BasicText(title, style = settingsText(skin)) },
         text = { Column {
             Stepper("Hours", hours, 23, skin) { hours = it }
             Stepper("Minutes", minutes, 59, skin) { minutes = it }
@@ -244,11 +244,11 @@ private fun CustomTimerDialog(skin: Skin, onDismiss: () -> Unit, onStart: (Long)
 }
 
 @Composable
-private fun Stepper(label: String, value: Int, max: Int, skin: Skin, change: (Int) -> Unit) {
+internal fun Stepper(label: String, value: Int, max: Int, skin: Skin, step: Int = 1, text: String = "%02d".format(value), change: (Int) -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = Metrics.touchTargetDp.dp), verticalAlignment = Alignment.CenterVertically) {
         BasicText(label, Modifier.weight(1f), style = settingsText(skin))
-        TimerAction("−", skin, "Fewer $label".lowercase().replaceFirstChar { it.uppercase() }, enabled = value > 0) { change(value - 1) }
-        BasicText("%02d".format(value), Modifier.widthIn(min = Metrics.menuRowHeightDp.dp), style = hudValueStyle(skin))
-        TimerAction("+", skin, "More $label".lowercase().replaceFirstChar { it.uppercase() }, enabled = value < max) { change(value + 1) }
+        TimerAction("−", skin, "Fewer $label".lowercase().replaceFirstChar { it.uppercase() }, enabled = value > 0) { change((value - step).coerceAtLeast(0)) }
+        BasicText(text, Modifier.widthIn(min = Metrics.menuRowHeightDp.dp), style = hudValueStyle(skin))
+        TimerAction("+", skin, "More $label".lowercase().replaceFirstChar { it.uppercase() }, enabled = value < max) { change((value + step).coerceAtMost(max)) }
     }
 }

@@ -6,15 +6,24 @@ package com.brightblu.parc.core.data.timers
  * `running,startedAt,accumulated|lap,lap,...`.
  */
 object TimerCodec {
+    private const val MaxNoteId = 80
+
     fun encodeBook(book: TimerBook): String =
-        book.timers.joinToString(";") { "${it.id},${it.totalMs},${it.status.name},${it.endAtMs},${it.remainingMs}" }
+        book.timers.joinToString(";") {
+            val base = "${it.id},${it.totalMs},${it.status.name},${it.endAtMs},${it.remainingMs}"
+            // T183: a timer started from a note carries two more fields; ordinary timers keep the old five.
+            if (it.label.isEmpty() && it.noteId.isEmpty()) base else "$base,${escape(it.label)},${escape(it.noteId)}"
+        }
+
+    private fun escape(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
+    private fun unescape(value: String): String = try { java.net.URLDecoder.decode(value, "UTF-8") } catch (_: Exception) { "" }
 
     fun decodeBook(raw: String?): TimerBook {
         if (raw.isNullOrBlank()) return TimerBook()
         val seen = HashSet<Int>()
         val timers = raw.split(';').mapNotNull { line ->
             val p = line.split(',')
-            if (p.size != 5) return@mapNotNull null
+            if (p.size != 5 && p.size != 7) return@mapNotNull null
             val id = p[0].toIntOrNull() ?: return@mapNotNull null
             val total = p[1].toLongOrNull() ?: return@mapNotNull null
             val status = TimerStatus.entries.firstOrNull { it.name == p[2] } ?: return@mapNotNull null
@@ -22,7 +31,9 @@ object TimerCodec {
             val remaining = p[4].toLongOrNull() ?: return@mapNotNull null
             if (id !in 1..TimerRules.MaxTimers || total !in TimerRules.MinMs..TimerRules.MaxMs || !seen.add(id)) return@mapNotNull null
             if (status == TimerStatus.Running && end <= 0L) return@mapNotNull null
-            CountdownTimer(id, total, status, end.coerceAtLeast(0L), remaining.coerceIn(0L, total))
+            CountdownTimer(id, total, status, end.coerceAtLeast(0L), remaining.coerceIn(0L, total),
+                label = if (p.size == 7) unescape(p[5]).take(TimerRules.MaxLabel) else "",
+                noteId = if (p.size == 7) unescape(p[6]).take(MaxNoteId) else "")
         }
         return TimerBook(timers.sortedBy { it.id })
     }

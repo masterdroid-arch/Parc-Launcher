@@ -83,5 +83,271 @@
         "text": "Backup and about shows the version and build time."
       }
     ]
+  },
+  {
+    "versionName": "1.2.0",
+    "versionCode": 10200,
+    "date": "2026-11-10",
+    "items": [
+      {
+        "headline": "Better notes",
+        "text": "View and edit modes, lists and formatting. A note can remind you or start a timer."
+      },
+      {
+        "headline": "Weather days and cities",
+        "text": "In the Weather build: seven days with hours, better city search and up to six places."
+      },
+      {
+        "headline": "Longer periods",
+        "text": "Network and Screen time switch between today, 7 days, 30 days, this year and all time."
+      },
+      {
+        "headline": "All time starts small",
+        "text": "All time begins with what Android still remembered, then Parc keeps its own record."
+      },
+      {
+        "headline": "Drag to reorder",
+        "text": "Hold a page tab and drag it to a new place. Settings has drag handles too."
+      },
+      {
+        "headline": "Six new pages",
+        "text": "Today, Steps, Rhythm, Sky, Year and Lightly. Today is on; switch on the other five in Settings."
+      }
+    ]
+  },
+  {
+    "versionName": "1.2.1",
+    "versionCode": 10201,
+    "date": "2026-11-10",
+    "items": [
+      {
+        "headline": "Rhythm explains itself",
+        "text": "The day ring now has hour labels, your screen-on time in the middle and a short legend."
+      },
+      {
+        "headline": "Today has labels",
+        "text": "Each line says where it comes from. A quote fills the page when there is little to show."
+      },
+      {
+        "headline": "Hub pages settings",
+        "text": "The list of pages is the first thing in Stats hub pages. Tap a page for its options."
+      },
+      {
+        "headline": "Hold to drag",
+        "text": "A row moves only after you press and hold its handle, so scrolling is easy again."
+      },
+      {
+        "headline": "Swipe-up exit removed",
+        "text": "Settings no longer closes with a swipe up. Use Back."
+      }
+    ]
+  },
+  {
+    "versionName": "1.3.0",
+    "versionCode": 10300,
+    "date": "2026-11-11",
+    "items": [
+      {
+        "headline": "Search modes",
+        "text": "Search now has four modes: Apps, Translate, Note and Calculate. Pick one under the search box."
+      },
+      {
+        "headline": "Quick notes",
+        "text": "Type a thought in search and save it as a note without opening anything else."
+      },
+      {
+        "headline": "Calculator",
+        "text": "Calculate does sums right in search, including percentages such as 15% of 80."
+      },
+      {
+        "headline": "Records page",
+        "text": "Your personal bests: most steps, least screen time and more. Off until you switch it on."
+      },
+      {
+        "headline": "Translation",
+        "text": "In the internet build, Translate uses DeepL with your own free key. Nothing is sent until you type a phrase."
+      }
+    ]
+  },
+  {
+    "versionName": "1.4.0",
+    "versionCode": 10400,
+    "date": "2026-11-11",
+    "items": [
+      {
+        "headline": "Library",
+        "text": "A shelf of the books you chose, with a Continue mark and a thin line showing how far you have read."
+      },
+      {
+        "headline": "Find books",
+        "text": "Pick file types, search by name, and tick the files to show on the shelf. Reopen it any time to change them."
+      },
+      {
+        "headline": "Reader",
+        "text": "EPUB and plain text open full screen in Parc's own reader, with page turns and your place kept."
+      },
+      {
+        "headline": "PDF too",
+        "text": "PDFs open in the same reader, page by page or continuously, with zoom and dark pages."
+      },
+      {
+        "headline": "Open from other apps",
+        "text": "Tap a PDF, EPUB or text file in another app and it opens in Parc without joining the library."
+      },
+      {
+        "headline": "Files in search",
+        "text": "Search finds books by name and opens them. Translation history now stays on the phone, out of backups."
+      }
+    ]
+  },
+  {
+    "versionName": "1.4.1",
+    "versionCode": 10401,
+    "date": "2026-11-11",
+    "items": [
+      {
+        "headline": "Messages kept on your phone",
+        "text": "WhatsApp, Telegram and Instagram history keeps text and links, no images. You delete it; backups leave it out."
+      },
+      {
+        "headline": "Clearer replies",
+        "text": "Reply is easy to find. If a message cannot be answered here, open its app. Search saved messages in History."
+      },
+      {
+        "headline": "Hide apps and folders",
+        "text": "Hidden apps also leave Messages and Media. Hide a folder and its apps together; unhide them when you want."
+      },
+      {
+        "headline": "Clearer Focus",
+        "text": "A chip shows the running mode. Focus hides messages from the apps it hides, unless you choose otherwise."
+      },
+      {
+        "headline": "Settings in five groups",
+        "text": "Home, Appearance, Gestures & search, Notifications & Focus, and Data & about, with related choices together."
+      },
+      {
+        "headline": "Better text",
+        "text": "Clearer labels, more readable text on cards, and matching headings in Settings and version notes."
+      }
+    ]
+  },
+  {
+    "versionName": "1.4.2",
+    "versionCode": 10402,
+    "date": "2026-11-11",
+    "items": [
+      {
+        "headline": "Books open again",
+        "text": "Opening a book no longer crashes. The reader keeps your place, so you pick up where you left off."
+      },
+      {
+        "headline": "Find books remembers",
+        "text": "Your folders and results are saved, so Find books opens quicker and refreshes in the background."
+      },
+      {
+        "headline": "Choose folders to scan",
+        "text": "Pick the folders Parc may search, such as Download, Documents or Books. Only those are scanned."
+      },
+      {
+        "headline": "A clearer Find books",
+        "text": "One compact filter, one search field, results grouped by folder, and a clear Add button."
+      },
+      {
+        "headline": "Add books from the shelf",
+        "text": "A plus tile after the last book opens Find books. It is there on an empty shelf too."
+      }
+    ]
+  },
+  {
+    "versionName": "1.4.3",
+    "versionCode": 10403,
+    "date": "2026-11-11",
+    "items": [
+      {
+        "headline": "Small fixes",
+        "text": "A few small fixes and quiet improvements across Parc."
+      }
+    ]
+  },
+  {
+    "versionName": "1.4.4",
+    "versionCode": 10404,
+    "date": "2026-11-11",
+    "items": [
+      {
+        "headline": "Reader keeps your place",
+        "text": "Open a book again and it carries on where you stopped. PDFs keep your page and zoom too."
+      },
+      {
+        "headline": "Bookmarks and highlights",
+        "text": "Bookmark pages and highlight passages. Use Add to Lightly to send a highlight on."
+      },
+      {
+        "headline": "Clearer notes",
+        "text": "Notes now have titles, and the saved message tells you plainly that your note is safe."
+      },
+      {
+        "headline": "Year colours",
+        "text": "The Year page uses clearer colours, so you can tell the weeks apart at a glance."
+      },
+      {
+        "headline": "Smoother library",
+        "text": "Scrolling the library and the shelf no longer jumps or catches."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.0",
+    "versionCode": 10500,
+    "date": "2026-11-17",
+    "items": [
+      {
+        "headline": "Pages that belong together",
+        "text": "Clock joins Today; System, Power and Network become Device; Sound joins Controls; Lightly becomes Commonplace."
+      },
+      {
+        "headline": "Arrange with a hold",
+        "text": "Drag apps and folders, undo changes, lock the layout. Left hand mirrors Home; Remove leaves a + spot."
+      },
+      {
+        "headline": "Pages and search",
+        "text": "Tap or scroll page names, hold for options, set a page size. Search adds icons, aliases, sections, Cyrillic."
+      },
+      {
+        "headline": "Today and notes",
+        "text": "Today rows show an icon, a figure and a label, plus Continue reading. Notes gain search, share-in and undo."
+      },
+      {
+        "headline": "Library and reader",
+        "text": "Shelves sort by rules, comics open, and the reader searches, changes light, defines, translates, reads aloud."
+      },
+      {
+        "headline": "Free, with a backup",
+        "text": "Parc is free everywhere; internet only for Weather and Translate. Weekly backups run while charging and idle."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.1",
+    "versionCode": 10501,
+    "date": "2026-11-17",
+    "items": [
+      {
+        "headline": "Clearer hub pages",
+        "text": "Today, Records and Rhythm now show a small label, a big number and a quiet date on every row."
+      },
+      {
+        "headline": "Library shelves",
+        "text": "Shelves scroll sideways so you can reach every one, and sorting is a small button."
+      },
+      {
+        "headline": "Smaller search",
+        "text": "Search in Notes and Commonplace is one slim line, so more passages fit."
+      },
+      {
+        "headline": "Easier to read",
+        "text": "Labels are brighter on the glass, and More below no longer covers your text."
+      }
+    ]
   }
 ]

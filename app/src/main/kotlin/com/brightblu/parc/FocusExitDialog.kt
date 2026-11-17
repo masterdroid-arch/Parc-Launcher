@@ -179,7 +179,7 @@ internal fun FocusExitDialog(repository: FocusRepository, exit: FocusExit, skin:
                             }
                         }
                         if (issue.isNotEmpty()) SettingsSection(issue, skin)
-                        if (request == null && repository.paidUnlockAvailable) SettingRow("Pay to unlock", skin, SettingKind.Action) {
+                        if (request == null && repository.paidUnlockAvailable) SettingRow("Unlock another way", skin, SettingKind.Action) {
                             scope.launch {
                                 try { request = repository.beginExit(exit, paid = true); issue = "" }
                                 catch (_: Exception) { issue = "Unlock provider unavailable" }

@@ -7,7 +7,7 @@ import com.brightblu.parc.core.data.backup.StoreAccess
 internal class NotesBackupAccess(private val delegate: StoreAccess) : StoreAccess {
     override suspend fun read(spec: BackupStoreSpec): Map<String, Any> = delegate.read(spec)
     override suspend fun write(spec: BackupStoreSpec, values: Map<String, Any>) {
-        (values[NotesJson.Key] as? String)?.let { NotesJson.decode(it) }
-        delegate.write(spec, values)
+        val migrated = (values[NotesJson.Key] as? String)?.let { NotesJson.migrate(it) } // also validates
+        delegate.write(spec, if (migrated == null) values else values + (NotesJson.Key to migrated))
     }
 }

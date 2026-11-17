@@ -3,6 +3,7 @@ package com.brightblu.parc.feature.settings.folders
 import com.brightblu.parc.model.AppEntry
 import com.brightblu.parc.model.AppId
 import com.brightblu.parc.model.FolderId
+import com.brightblu.parc.model.withHidden
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -118,6 +119,13 @@ class FolderEditorUiTest {
         assertEquals("Rename folder", rename.prompt?.title)
         assertEquals("Done", rename.prompt?.confirmLabel)
         assertEquals("That name is already used", rename.prompt?.issue)
+    }
+
+    @Test
+    fun `the open folder hide flag is projected`() {
+        assertFalse(state().toUi(apps).folderHidden)
+        val hidden = state().copy(document = FolderDocument(listOf(social.withHidden(true)))).toUi(apps)
+        assertTrue(hidden.folderHidden)
     }
 
     @Test

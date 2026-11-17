@@ -16,6 +16,8 @@ enum class MatchKind(val score: Double) {
 /** Searched fields with their weights; the same match kind on a label outranks the other fields. */
 enum class SearchField(val weight: Double) {
     Label(1.0),
+    /** T259: the same name in the other script, just under the name the user sees. */
+    Transliteration(0.95),
     Package(0.6),
     Keyword(0.5),
 }
@@ -89,9 +91,12 @@ object SearchRanker {
         if (docs.isEmpty()) return emptyList()
         val folded = TextNormalizer.fold(query)
         if (folded.isBlank()) return emptyList()
+        // T259: search the typed form and its spelling in the other script, so Latin typing reaches a
+        // Cyrillic name and Cyrillic typing reaches a Latin one.
+        val variants = Transliteration.queryVariants(folded)
         val candidates = ArrayList<HitCandidate>(docs.size)
         for (doc in docs) {
-            val best = bestMatch(doc, folded) ?: continue
+            val best = bestMatch(doc, variants) ?: continue
             val score = best.score + (boosts[doc.doc.appId] ?: 0.0)
             val ranges =
                 if (best.field == SearchField.Label) rangesFor(doc.label, best.match.matched) else emptyList()
@@ -101,11 +106,19 @@ object SearchRanker {
         return candidates.map { it.hit }
     }
 
-    /** Label first, then package, then every keyword; the first field wins a tie. */
-    private fun bestMatch(doc: NormalizedDoc, query: String): ScoredMatch? {
-        var best = match(SearchField.Label, doc.label, query)
-        best = pick(best, match(SearchField.Package, doc.packageName, query))
-        for (keyword in doc.keywords) best = pick(best, match(SearchField.Keyword, keyword, query))
+    /** Label first, then transliteration, package, then every keyword; the first field wins a tie. */
+    private fun bestMatch(doc: NormalizedDoc, queries: List<String>): ScoredMatch? {
+        var best: ScoredMatch? = null
+        for (query in queries) {
+            best = pick(best, match(SearchField.Label, doc.label, query))
+            best = pick(best, match(SearchField.Transliteration, doc.labelLatin, query))
+            best = pick(best, match(SearchField.Package, doc.packageName, query))
+            best = pick(best, match(SearchField.Package, doc.packageNameLatin, query))
+            for (index in doc.keywords.indices) {
+                best = pick(best, match(SearchField.Keyword, doc.keywords[index], query))
+                best = pick(best, match(SearchField.Keyword, doc.keywordsLatin[index], query))
+            }
+        }
         return best
     }
 
@@ -125,6 +138,7 @@ object SearchRanker {
      */
     private fun usable(field: SearchField, kind: MatchKind): Boolean = when (field) {
         SearchField.Label -> true
+        SearchField.Transliteration -> kind != MatchKind.Subsequence
         SearchField.Package -> kind == MatchKind.WordPrefix || kind == MatchKind.Exact
         SearchField.Keyword -> kind != MatchKind.Subsequence
     }

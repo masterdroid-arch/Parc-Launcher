@@ -60,16 +60,16 @@ class T79Test {
     }
     @Test fun graphsStartHiddenAndOldConfigurationKeepsThemHidden() {
         listOf(HubConfig(), HubConfig.decode("system:true:battery,ram:;power:true:charging:")).forEach { config ->
-            assertTrue(config.hiddenTiles["system"].orEmpty().containsAll(HubCatalog.systemHistoryTiles.keys))
-            assertTrue(config.hiddenTiles["power"].orEmpty().containsAll(HubCatalog.powerHistoryTiles.keys))
+            assertTrue(config.hiddenTiles[DevicePage.Id].orEmpty().containsAll(HubCatalog.systemHistoryTiles.keys))
+            assertTrue("battery history" in config.hiddenTiles[DevicePage.Id].orEmpty())
         }
     }
     @Test fun optionalGraphVisibilityAndOrderSurviveRoundTrip() {
-        val config = HubConfig().showTile("power", "battery history", true).move("power", "battery history", -5)
+        val config = HubConfig().showTile(DevicePage.Id, "battery history", true).move(DevicePage.Id, "battery history", -5)
         val restored = HubConfig.decode(config.encode())
-        assertFalse("battery history" in restored.hiddenTiles["power"].orEmpty())
-        assertEquals("battery history", restored.tiles("power").first())
-        assertTrue("temperature history" in restored.hiddenTiles["power"].orEmpty())
+        assertFalse("battery history" in restored.hiddenTiles[DevicePage.Id].orEmpty())
+        assertEquals("battery history", restored.tiles(DevicePage.Id).first())
+        assertEquals("battery temperature", restored.tiles(DevicePage.Id).last())
     }
     @Test fun historyUsesActual24HourWindowAndRejectsFutureSamples() {
         val now = StatsHistoryWindowMillis * 2

@@ -1,7 +1,6 @@
 package com.brightblu.parc.core.data.lock
 
 import com.brightblu.parc.core.data.comms.CommsInbox
-import com.brightblu.parc.core.data.comms.CommsHistory
 import com.brightblu.parc.core.data.notifications.NotificationPeekStore
 
 /** Listener fails closed until the launcher has loaded its lock policy. Content is never logged. */
@@ -24,7 +23,8 @@ object NotificationLockPolicy {
     fun mayRead(packageName: String): Boolean = packages != null && !blocked(packageName)
     fun refilter() {
         CommsInbox.shared.refilterLocks()
-        CommsHistory.shared.refilterLocks()
+        // Persistent history rows are never deleted when an app locks (T214). The Messages view
+        // filters locked packages at read time; the on-disk record stays until the user deletes it.
         NotificationPeekStore.shared.refilterLocks()
     }
 }

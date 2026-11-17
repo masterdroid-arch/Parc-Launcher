@@ -90,17 +90,46 @@ internal object CommsReplyPlanner {
 }
 
 /**
- * Turns a [RawNotification] into a [ParsedNotification], or null when the card says ignore it.
+ * Why a notification was not shown as a live card. The values are package-only diagnostics: the
+ * parser and the listener never keep a title, sender or message body for a drop.
+ */
+enum class CommsDropReason(val label: String) {
+    Category("category"),
+    GroupSummary("group summary"),
+    Ongoing("ongoing"),
+    Blank("blank"),
+    NotAllowed("not allowed"),
+
+    /** Notification access is off, so the listener cannot see anything. Added by the UI. */
+    AccessOff("access off"),
+}
+
+/** One dropped notification, reduced to the posting package and the reason. Never any content. */
+internal data class CommsDrop(val packageName: String, val reason: CommsDropReason)
+
+/** Outcome of [CommsParser.evaluate]: kept, dropped with a package-only reason, or ignored. */
+internal sealed interface CommsParseResult {
+    data class Kept(val notification: ParsedNotification) : CommsParseResult
+    data class Dropped(val reason: CommsDropReason) : CommsParseResult
+    data object Ignored : CommsParseResult
+}
+
+/**
+ * Turns a [RawNotification] into a [ParsedNotification], or says why it was dropped.
  *
  * Rules, in this order:
- * 1. Comms must be enabled and the package on the allow-list (an empty list shows nothing).
- * 2. Ongoing notifications, group summaries and `VISIBILITY_SECRET` are ignored.
- * 3. A category other than message/social/email is not a conversation. A missing category is
- *    accepted, because some messaging apps omit it while still posting a MessagingStyle body.
+ * 1. Comms must be enabled (otherwise [CommsParseResult.Ignored]) and the package on the
+ *    allow-list ([CommsDropReason.NotAllowed]).
+ * 2. Ongoing notifications, group summaries and `VISIBILITY_SECRET` are ignored. The first two
+ *    carry their own reason; a secret notification counts as not allowed to read.
+ * 3. A category other than message/social/email is not a conversation
+ *    ([CommsDropReason.Category]). A missing category is accepted, because some messaging apps omit
+ *    it while still posting a MessagingStyle body.
  * 4. MessagingStyle messages win. Each one keeps its sender, text, time, notification key, own
  *    image and extracted links. `EXTRA_PICTURE` fills the newest message that has no image.
  * 5. Without a style, `bigText` (if present) else `text` becomes one message; title is the sender.
- * 6. Blank messages without an image are dropped. A notification with nothing left is ignored.
+ * 6. Blank messages without an image are dropped. A notification with nothing left is
+ *    [CommsDropReason.Blank].
  *
  * Pure: no clock, no Android type, no I/O. The platform flag and visibility values used here are
  * compile-time constants of `android.app.Notification` (`FLAG_ONGOING_EVENT` = 2,
@@ -114,13 +143,19 @@ internal class CommsParser(
         require(maxMessagesPerNotification >= 1) { "maxMessagesPerNotification must be positive" }
     }
 
-    fun parse(raw: RawNotification, policy: CommsPolicy): ParsedNotification? {
-        if (!policy.enabled) return null
-        if (raw.packageName !in policy.allowedPackages) return null
-        if (raw.isOngoing || raw.flags and FlagOngoing != 0) return null
-        if (raw.flags and FlagGroupSummary != 0) return null
-        if (raw.visibility == VisibilitySecret) return null
-        if (raw.category != null && raw.category !in CommsCategories.Accepted) return null
+    /** Kept for callers that only need the notification; [evaluate] also returns the drop reason. */
+    fun parse(raw: RawNotification, policy: CommsPolicy): ParsedNotification? =
+        (evaluate(raw, policy) as? CommsParseResult.Kept)?.notification
+
+    fun evaluate(raw: RawNotification, policy: CommsPolicy): CommsParseResult {
+        if (!policy.enabled) return CommsParseResult.Ignored
+        if (raw.packageName !in policy.allowedPackages) return CommsParseResult.Dropped(CommsDropReason.NotAllowed)
+        if (raw.isOngoing || raw.flags and FlagOngoing != 0) return CommsParseResult.Dropped(CommsDropReason.Ongoing)
+        if (raw.flags and FlagGroupSummary != 0) return CommsParseResult.Dropped(CommsDropReason.GroupSummary)
+        if (raw.visibility == VisibilitySecret) return CommsParseResult.Dropped(CommsDropReason.NotAllowed)
+        if (raw.category != null && raw.category !in CommsCategories.Accepted) {
+            return CommsParseResult.Dropped(CommsDropReason.Category)
+        }
 
         val canReply = CommsReplyPlanner.canReply(raw.actions)
         val canMarkRead = CommsReplyPlanner.canMarkAsRead(raw.actions)
@@ -155,7 +190,7 @@ internal class CommsParser(
             attachPicture(styled, raw.picture).takeLast(maxMessagesPerNotification)
         } else {
             val text = (raw.bigText?.clean() ?: raw.text?.clean()).orEmpty()
-            if (text.isEmpty() && raw.picture == null) return null
+            if (text.isEmpty() && raw.picture == null) return CommsParseResult.Dropped(CommsDropReason.Blank)
             val fallbackSender = raw.title?.clean().orEmpty()
             listOf(
                 CommsMessage(
@@ -172,13 +207,15 @@ internal class CommsParser(
         }
 
         val updated = messages.maxOfOrNull { it.timeMs } ?: raw.postTimeMs
-        return ParsedNotification(
-            notificationKey = raw.key,
-            app = raw.packageName,
-            conversationKey = conversationKey,
-            title = title,
-            messages = messages,
-            updatedAtMs = maxOf(updated, raw.postTimeMs),
+        return CommsParseResult.Kept(
+            ParsedNotification(
+                notificationKey = raw.key,
+                app = raw.packageName,
+                conversationKey = conversationKey,
+                title = title,
+                messages = messages,
+                updatedAtMs = maxOf(updated, raw.postTimeMs),
+            ),
         )
     }
 

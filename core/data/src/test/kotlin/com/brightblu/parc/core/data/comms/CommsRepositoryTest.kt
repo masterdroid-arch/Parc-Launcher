@@ -52,6 +52,7 @@ class CommsRepositoryTest {
             actions = FakeCommsActions(),
             io = Dispatchers.Unconfined,
             scope = linkScope(this),
+            historyStore = historyStore(),
         )
         advanceUntilIdle()
 
@@ -76,6 +77,7 @@ class CommsRepositoryTest {
             actions = FakeCommsActions(),
             io = Dispatchers.Unconfined,
             scope = linkScope(this),
+            historyStore = historyStore(),
         )
         advanceUntilIdle()
 
@@ -94,6 +96,7 @@ class CommsRepositoryTest {
             actions = FakeCommsActions(),
             io = Dispatchers.Unconfined,
             scope = linkScope(this),
+            historyStore = historyStore(),
         )
         repo.setAllowedApps(setOf("  ${CommsPackages.WhatsApp}  ", "", "   "))
         advanceUntilIdle()
@@ -114,6 +117,7 @@ class CommsRepositoryTest {
             actions = FakeCommsActions(),
             io = Dispatchers.Unconfined,
             scope = linkScope(this),
+            historyStore = historyStore(),
         )
         repo.setAllowedApps(emptySet())
         advanceUntilIdle()
@@ -133,6 +137,7 @@ class CommsRepositoryTest {
             actions = FakeCommsActions(),
             io = Dispatchers.Unconfined,
             scope = linkScope(this),
+            historyStore = historyStore(),
         )
         advanceUntilIdle()
         assertEquals(1, repo.conversations.value.size)
@@ -149,6 +154,28 @@ class CommsRepositoryTest {
     }
 
     @Test
+    fun `switching Messages off keeps stored rows and pauses history writes`() = runTest {
+        val inbox = CommsInbox()
+        val history = historyStore()
+        val repo = extrasRepo(this, inbox = inbox, history = history)
+        advanceUntilIdle()
+        inbox.post(rawNotification(key = "n1", text = "kept"))
+        history.record(inbox.entryFor("n1")!!)
+        advanceUntilIdle()
+
+        repo.setEnabled(false)
+        advanceUntilIdle()
+
+        assertEquals(1, repo.storedMessages.value.size)
+        val later = CommsParser().parse(
+            rawNotification(key = "n2", text = "while messages are off"),
+            CommsPolicy(),
+        )!!
+        assertEquals(0, history.record(later))
+        assertEquals(1, repo.storedMessages.value.size)
+    }
+
+    @Test
     fun `reply goes through the newest message that still has a reply action`() = runTest {
         val actions = FakeCommsActions()
         val repo = CommsRepositoryImpl(
@@ -157,6 +184,7 @@ class CommsRepositoryTest {
             actions = actions,
             io = Dispatchers.Unconfined,
             scope = linkScope(this),
+            historyStore = historyStore(),
         )
         val target = conversation(
             message("n1", "old", 1_000L, canReply = true),
@@ -178,6 +206,7 @@ class CommsRepositoryTest {
             actions = actions,
             io = Dispatchers.Unconfined,
             scope = linkScope(this),
+            historyStore = historyStore(),
         )
 
         assertEquals(ReplyResult.Failed, repo.reply(conversation(message("n1", "x", 1L, true)), "   "))
@@ -193,6 +222,7 @@ class CommsRepositoryTest {
             actions = actions,
             io = Dispatchers.Unconfined,
             scope = linkScope(this),
+            historyStore = historyStore(),
         )
 
         assertEquals(
@@ -211,6 +241,7 @@ class CommsRepositoryTest {
             actions = actions,
             io = Dispatchers.Unconfined,
             scope = linkScope(this),
+            historyStore = historyStore(),
         )
 
         assertEquals(
@@ -229,6 +260,7 @@ class CommsRepositoryTest {
             actions = actions,
             io = Dispatchers.Unconfined,
             scope = linkScope(this),
+            historyStore = historyStore(),
         )
 
         assertEquals(
@@ -246,6 +278,7 @@ class CommsRepositoryTest {
             actions = actions,
             io = Dispatchers.Unconfined,
             scope = linkScope(this),
+            historyStore = historyStore(),
         )
 
         repo.dismiss(message("n7", "x", 1L))
@@ -262,6 +295,7 @@ class CommsRepositoryTest {
             actions = actions,
             io = Dispatchers.Unconfined,
             scope = linkScope(this),
+            historyStore = historyStore(),
         )
         val target = conversation(
             message("n1", "one", 1L),
@@ -276,11 +310,13 @@ class CommsRepositoryTest {
 
     // ---- T76 extras -------------------------------------------------------------------------
 
+    private fun historyStore(): CommsHistoryStore = CommsHistoryStore(FakeCommsMessageDao())
+
     private fun extrasRepo(
         test: TestScope,
         inbox: CommsInbox = CommsInbox(),
         actions: FakeCommsActions = FakeCommsActions(),
-        history: CommsHistory = CommsHistory(),
+        history: CommsHistoryStore = historyStore(),
         store: FakePreferencesStore = FakePreferencesStore(),
     ): CommsRepositoryImpl = CommsRepositoryImpl(
         inbox = inbox,
@@ -299,6 +335,7 @@ class CommsRepositoryTest {
         assertEquals(CommsCannedReplies.Default, repo.cannedReplies.value)
         assertTrue(repo.keepHistory.value)
         assertTrue(repo.history.value.isEmpty())
+        assertTrue(repo.storedMessages.value.isEmpty())
     }
 
     @Test
@@ -333,37 +370,50 @@ class CommsRepositoryTest {
     }
 
     @Test
-    fun `turning keep history off clears the held history and stops recording`() = runTest {
+    fun `turning keep history off pauses recording and keeps the stored rows`() = runTest {
         val inbox = CommsInbox()
-        val history = CommsHistory()
+        val history = historyStore()
         val actions = FakeCommsActions()
         val repo = extrasRepo(this, inbox = inbox, actions = actions, history = history)
         advanceUntilIdle()
         inbox.post(rawNotification(key = "n1", text = "hello"))
-
-        repo.dismiss(message("n1", "hello", 1_000L))
+        history.record(inbox.entryFor("n1")!!)
+        advanceUntilIdle()
         assertEquals(1, repo.history.value.size)
 
         repo.setKeepHistory(false)
+        advanceUntilIdle()
 
-        assertTrue(repo.history.value.isEmpty())
-        repo.dismiss(message("n1", "hello", 1_000L))
-        assertTrue(repo.history.value.isEmpty())
+        assertEquals(1, repo.history.value.size)
+        inbox.post(rawNotification(key = "n2", text = "later"))
+        assertEquals(0, history.record(inbox.entryFor("n2")!!))
+        assertEquals(1, repo.storedMessages.value.size)
+
+        repo.setKeepHistory(true)
+        advanceUntilIdle()
+        assertEquals(1, history.record(inbox.entryFor("n2")!!))
+        advanceUntilIdle()
+        assertEquals(2, repo.history.value.size)
     }
 
     @Test
-    fun `dismissing a message files it in the history before cancelling`() = runTest {
+    fun `dismissing a message does not duplicate or delete its stored row`() = runTest {
         val inbox = CommsInbox()
-        val repo = extrasRepo(this, inbox = inbox)
+        val history = historyStore()
+        val repo = extrasRepo(this, inbox = inbox, history = history)
         advanceUntilIdle()
         inbox.post(rawNotification(key = "n7", title = "Sam", text = "bye"))
+        history.record(inbox.entryFor("n7")!!)
+        advanceUntilIdle()
 
         repo.dismiss(message("n7", "bye", 1_000L))
+        advanceUntilIdle()
 
         val entry = repo.history.value.single()
         assertEquals(CommsConversationId(CommsPackages.Telegram, "Sam"), entry.conversation)
         assertEquals("bye", entry.message.text)
         assertEquals("n7", entry.message.notificationKey)
+        assertEquals(1, repo.storedMessages.value.size)
     }
 
     @Test
@@ -383,12 +433,15 @@ class CommsRepositoryTest {
     }
 
     @Test
-    fun `without the platform action mark as read clears and files history`() = runTest {
+    fun `without the platform action mark as read clears notifications and keeps history`() = runTest {
         val inbox = CommsInbox()
+        val history = historyStore()
         val actions = FakeCommsActions()
-        val repo = extrasRepo(this, inbox = inbox, actions = actions)
+        val repo = extrasRepo(this, inbox = inbox, actions = actions, history = history)
         advanceUntilIdle()
         inbox.post(rawNotification(key = "n1", title = "Sam", text = "unread"))
+        history.record(inbox.entryFor("n1")!!)
+        advanceUntilIdle()
 
         assertEquals(
             MarkReadResult.Dismissed,
@@ -427,16 +480,72 @@ class CommsRepositoryTest {
     }
 
     @Test
-    fun `clear history empties the list without changing the switch`() = runTest {
+    fun `clear history empties the stored rows without changing the switch`() = runTest {
         val inbox = CommsInbox()
-        val repo = extrasRepo(this, inbox = inbox)
+        val history = historyStore()
+        val repo = extrasRepo(this, inbox = inbox, history = history)
         advanceUntilIdle()
         inbox.post(rawNotification(key = "n1", text = "hello"))
-        repo.dismiss(message("n1", "hello", 1_000L))
+        history.record(inbox.entryFor("n1")!!)
+        advanceUntilIdle()
+        assertEquals(1, repo.history.value.size)
 
         repo.clearHistory()
+        advanceUntilIdle()
 
         assertTrue(repo.history.value.isEmpty())
+        assertTrue(repo.storedMessages.value.isEmpty())
         assertTrue(repo.keepHistory.value)
+    }
+
+    @Test
+    fun `deleting one row, one conversation or all follows the stored count`() = runTest {
+        val inbox = CommsInbox()
+        val history = historyStore()
+        val repo = extrasRepo(this, inbox = inbox, history = history)
+        advanceUntilIdle()
+        inbox.post(rawNotification(key = "t1", title = "Sam", text = "one", postTimeMs = 1_000L))
+        inbox.post(rawNotification(key = "w1", packageName = CommsPackages.WhatsApp,
+            title = "Alex", text = "two", postTimeMs = 2_000L))
+        history.record(inbox.entryFor("t1")!!)
+        history.record(inbox.entryFor("w1")!!)
+        advanceUntilIdle()
+        assertEquals(2, repo.storedMessages.value.size)
+
+        repo.deleteHistoryMessage(repo.storedMessages.value.first { it.text == "one" }.id)
+        advanceUntilIdle()
+        assertEquals(1, repo.storedMessages.value.size)
+        assertEquals("two", repo.storedMessages.value.single().text)
+
+        repo.deleteHistoryConversation(CommsPackages.WhatsApp, "Alex")
+        advanceUntilIdle()
+        assertTrue(repo.storedMessages.value.isEmpty())
+
+        inbox.post(rawNotification(key = "t2", text = "three"))
+        history.record(inbox.entryFor("t2")!!)
+        advanceUntilIdle()
+        assertEquals(1, repo.storedMessages.value.size)
+        repo.clearHistory()
+        advanceUntilIdle()
+        assertTrue(repo.storedMessages.value.isEmpty())
+    }
+
+    @Test
+    fun `removing an app from the allow list keeps its stored rows and pauses its writes`() = runTest {
+        val inbox = CommsInbox()
+        val history = historyStore()
+        val repo = extrasRepo(this, inbox = inbox, history = history)
+        advanceUntilIdle()
+        inbox.post(rawNotification(key = "t1", packageName = CommsPackages.Telegram, text = "kept"))
+        val parsed = inbox.entryFor("t1")!!
+        history.record(parsed)
+        advanceUntilIdle()
+
+        repo.setAllowedApps(setOf(CommsPackages.WhatsApp))
+        advanceUntilIdle()
+
+        assertEquals(1, repo.storedMessages.value.size)
+        assertEquals(0, history.record(parsed))
+        assertEquals(1, repo.storedMessages.value.size)
     }
 }

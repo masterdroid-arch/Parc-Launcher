@@ -174,7 +174,7 @@ internal object QuickToggleSystem {
  * so screenshots never show or change the device's real state.
  */
 @Composable
-internal fun QuickTogglesHubPage(tiles: List<String>, active: Boolean, skin: Skin, demo: Boolean) {
+internal fun QuickTogglesHubPage(tiles: List<String>, active: Boolean, skin: Skin, demo: Boolean, scroll: Boolean = true) {
     val context = LocalContext.current
     val view = LocalView.current
     val feel = rememberFeelPlayer()
@@ -245,8 +245,10 @@ internal fun QuickTogglesHubPage(tiles: List<String>, active: Boolean, skin: Ski
     val rows = (shown.size + columns - 1) / columns
     val gap = Metrics.hudCellGapDp
     val room = LocalHubContentHeight.current - (if (size == HubSize.Tall) TallNoteRoomDp else 0f)
-    val tileHeight = ((room - gap * (rows - 1)) / rows).coerceIn(Metrics.touchTargetDp, TileMaxHeightDp)
-    Column(Modifier.fillMaxSize().hubPageScroll(), verticalArrangement = Arrangement.spacedBy(gap.dp)) {
+    val tileHeight = if (scroll) ((room - gap * (rows - 1)) / rows).coerceIn(Metrics.touchTargetDp, TileMaxHeightDp)
+    else Metrics.hudCellHeightDp
+    Column(Modifier.fillMaxWidth().then(if (scroll) Modifier.fillMaxSize().hubPageScroll() else Modifier),
+        verticalArrangement = Arrangement.spacedBy(gap.dp)) {
         shown.chunked(columns).forEach { row ->
             Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(gap.dp)) {
                 row.forEach { tile ->

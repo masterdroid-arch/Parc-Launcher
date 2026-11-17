@@ -28,6 +28,7 @@ internal object AppBackup {
         return BackupStores.core(app) + listOf(
             BackupStore(HubSpec, HubAppearanceBackupAccess(com.brightblu.parc.core.data.backup.PreferencesStoreAccess(app.hubDataStore))),
             BackupStore(BackupSpecs.notes, NotesBackupAccess(com.brightblu.parc.core.data.backup.PreferencesStoreAccess(app.notesDataStore))),
+            BackupStore(BackupSpecs.quotes, QuotesBackupAccess(com.brightblu.parc.core.data.backup.PreferencesStoreAccess(app.quotesDataStore))),
             BackupStores.of(BackupSpecs.gestures, app.gestureDataStore),
             // The Look document also carries panel opacity and wallpaper readability.
             BackupStores.of(LookSpec, app.lookDataStore),
@@ -38,7 +39,8 @@ internal object AppBackup {
                 BackupSpecs.uiPrefs,
                 SharedPreferencesStoreAccess(app.getSharedPreferences(UiPrefsFile, Context.MODE_PRIVATE)),
             ),
-        ) + listOfNotNull(customSkins?.let { BackupStore(CustomSkinsSpec, CustomSkinsStoreAccess(it)) })
+        ) + WeatherVariant.backupStores(app) + PersonalExtras.backupStores(app) +
+            listOfNotNull(customSkins?.let { BackupStore(CustomSkinsSpec, CustomSkinsStoreAccess(it)) })
     }
 
     fun install(context: Context, customSkins: com.brightblu.parc.core.data.skins.CustomSkinStore? = null) {

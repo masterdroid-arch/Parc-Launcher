@@ -22,8 +22,12 @@ data class SearchDoc(
 /** Pure build of the search index from the installed apps and the current layout. */
 object SearchIndexBuilder {
 
-    /** Hidden apps (F-17) are not searchable and are not in the ABC list. */
-    fun build(apps: List<AppEntry>, layout: ParcLayout): List<SearchDoc> {
+    /**
+     * Hidden apps (F-17) are not searchable and are not in the ABC list. T259: [aliases] (stable app
+     * id to the name the user gave it) join the folder keywords, so a typed alias finds the app
+     * through the existing keyword rules without changing what the row displays.
+     */
+    fun build(apps: List<AppEntry>, layout: ParcLayout, aliases: Map<String, String> = emptyMap()): List<SearchDoc> {
         val keywords = keywordsByApp(layout)
         return apps
             .filterNot { it.id in layout.hidden }
@@ -32,7 +36,9 @@ object SearchIndexBuilder {
                     appId = entry.id,
                     label = entry.label,
                     packageName = entry.packageName,
-                    keywords = keywords[entry.id].orEmpty(),
+                    keywords = (keywords[entry.id].orEmpty() + aliases[entry.id.value].orEmpty())
+                        .filter { it.isNotBlank() }
+                        .distinct(),
                 )
             }
     }

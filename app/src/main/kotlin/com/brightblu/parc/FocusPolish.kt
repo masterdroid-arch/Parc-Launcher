@@ -21,7 +21,8 @@ internal fun focusSectionSummary(section: String, mode: FocusMode): String = whe
             if (folders == 0) "" else " · $folders ${if (folders == 1) "folder" else "folders"}"
     }
     "Notifications" -> "${if (mode.silenceBadges) "Silent badges" else "Badges on"} · DND ${if (mode.syncDnd) "on" else "off"}" +
-        if (mode.hiddenComms.isEmpty()) "" else " · ${mode.hiddenComms.size} Comms hidden"
+        (if (mode.hiddenComms.isEmpty()) "" else " · ${mode.hiddenComms.size} Comms hidden") +
+        (if (mode.alwaysShowMessagePackages.isEmpty()) "" else " · ${focusAppCount(mode.alwaysShowMessagePackages.size)} always shown")
     "Look" -> "${mode.skinId ?: "Current skin"} · ${mode.iconTreatment.name}" +
         (mode.hubPages?.let { " · ${it.size} hub pages" } ?: " · Global hub pages") +
         if (mode.mainAndAllowedOnly) " · Main apps only" else ""

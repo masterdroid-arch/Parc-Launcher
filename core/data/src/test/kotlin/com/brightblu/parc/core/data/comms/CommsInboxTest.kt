@@ -203,6 +203,28 @@ class CommsInboxTest {
     }
 
     @Test
+    fun `the post outcome keeps the package-only reason for a filtered notification`() {
+        val inbox = CommsInbox()
+        val outcome = inbox.postWithOutcome(message("n1", "not allowed", 1_000L)
+            .copy(packageName = "com.example.other"))
+        assertFalse(outcome.accepted)
+        assertEquals(CommsDrop("com.example.other", CommsDropReason.NotAllowed), outcome.drop)
+
+        val kept = inbox.postWithOutcome(message("n2", "hello", 2_000L))
+        assertTrue(kept.accepted)
+        assertNull(kept.drop)
+    }
+
+    @Test
+    fun `the pre-extractor skip reason is package only and null when Comms is off`() {
+        val inbox = CommsInbox()
+        assertEquals(CommsDropReason.NotAllowed, inbox.policyDropReason("com.example.other"))
+        assertNull(inbox.policyDropReason(telegram))
+        inbox.setPolicy(CommsPolicy(enabled = false))
+        assertNull(inbox.policyDropReason("com.example.other"))
+    }
+
+    @Test
     fun `an identical repost keeps the published snapshot instance`() {
         val inbox = CommsInbox()
         inbox.post(message("n1", "hello", 1_000L))

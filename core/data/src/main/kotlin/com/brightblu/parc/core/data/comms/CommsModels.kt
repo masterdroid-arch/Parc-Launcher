@@ -159,16 +159,29 @@ object CommsPackages {
     const val Discord = "com.discord"
     const val Imo = "com.imo.android.imoim"
 
-    /** The card's default allow-list, in the order the settings UI should show it. */
+    /**
+     * The three messaging apps: the default allow-list for a fresh install, in the
+     * order the settings UI shows them. Other known messaging apps stay available as opt-ins.
+     */
     val Default: Set<String> = linkedSetOf(
         Telegram,
         WhatsApp,
         Instagram,
+    )
+
+    /**
+     * The four apps that are always offered as opt-ins even when their package is not installed.
+     * They are not part of [Default]; an existing stored allow-list that names them is unchanged.
+     */
+    val FixedOptIns: List<String> = listOf(
         Messages,
         Signal,
         Discord,
         Imo,
     )
+
+    /** Every app Parc knows how to label. Used only for picker grouping and known-app defaults. */
+    val Known: Set<String> = Default + FixedOptIns
 }
 
 /**

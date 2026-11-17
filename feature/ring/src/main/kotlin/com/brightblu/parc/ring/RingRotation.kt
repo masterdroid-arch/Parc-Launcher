@@ -51,8 +51,15 @@ object RingRotation {
      * bottom as a negative value, so an item slides out of the bottom before the ring wraps it back
      * to the top (T37).
      */
-    fun windowPosition(itemIndex: Int, offset: Float, count: Int, capacity: Int): Float {
-        if (count <= capacity) return itemIndex.toFloat()
+    fun windowPosition(itemIndex: Int, offset: Float, count: Int, capacity: Int): Float =
+        windowPosition(itemIndex.toFloat(), offset, count, capacity)
+
+    /**
+     * Continuous form used by the T243 move preview, where an item can sit between two ranks while
+     * the neighbours slide. The arithmetic is the same folded residue as the integer form.
+     */
+    fun windowPosition(itemIndex: Float, offset: Float, count: Int, capacity: Int): Float {
+        if (count <= capacity) return itemIndex
         val period = count.toFloat()
         val p = itemIndex - offset
         val folded = p - floor(p / period) * period
@@ -97,8 +104,25 @@ object RingRotation {
      */
     fun windowAngleDeg(angle0Deg: Float, pitchDeg: Float, itemIndex: Int, offset: Float,
         count: Int, capacity: Int): Float =
+        windowAngleDeg(angle0Deg, pitchDeg, itemIndex.toFloat(), offset, count, capacity)
+
+    /** Continuous item rank form of [windowAngleDeg], mirroring the T243 move preview. */
+    fun windowAngleDeg(angle0Deg: Float, pitchDeg: Float, itemIndex: Float, offset: Float,
+        count: Int, capacity: Int): Float =
         if (capacity <= 1) angle0Deg
         else angle0Deg + windowPosition(itemIndex, offset, count, capacity) * pitchDeg
+
+    /**
+     * T269: the angle a free spot with stored index [stored] is drawn at. [occupied] are the stored
+     * indices that hold something on this arc. A non-rotating arc keeps the plain slot angle; a rotating
+     * one draws the spot where an item of that rank sits under the settled [offset], so a "+" never
+     * floats at the unturned place.
+     */
+    fun spotAngleDeg(arc: ArcSpec, stored: Int, occupied: Collection<Int>, offset: Float): Float {
+        val count = occupied.size
+        if (!rotates(count, arc.slotCapacity)) return arc.slotAngle(stored)
+        return windowAngleDeg(arc, occupied.count { it < stored }, offset, count)
+    }
 
     /** Centre (dx, dy in dp relative to the origin) of `itemIndex` inside its window slot. */
     fun slotPoint(arc: ArcSpec, itemIndex: Int, offset: Float, count: Int): Pair<Float, Float> {

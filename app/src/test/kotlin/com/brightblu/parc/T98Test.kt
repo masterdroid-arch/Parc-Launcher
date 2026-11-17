@@ -375,7 +375,7 @@ class T98Test {
         // No gate, no lock rows: the menu is exactly what it was before T98.
         val none = rig(null)
         holdFolder(none, daily)
-        assertEquals(listOf("Rename", "Add apps", "Sort A to Z", "Move earlier", "Move later", "Delete"),
+        assertEquals(listOf("Rename", "Add apps", "Sort A to Z", "Move earlier", "Move later", "Hide folder", "Delete"),
             labels(folderMenuRootItems(none.session.folderMenu.value!!)))
     }
 

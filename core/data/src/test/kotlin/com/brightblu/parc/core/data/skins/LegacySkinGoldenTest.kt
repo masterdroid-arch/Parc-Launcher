@@ -109,6 +109,8 @@ class LegacySkinGoldenTest {
                 scrim = 0xB8000000L,
                 surface = 0xFF070609L,
                 moduleSurface = 0xFF1A1526L,
+                // T191: the new reading surface has its own palette; all older tokens remain pinned.
+                paper = 0xFFB7A8A1L, ink = 0xFF241E20L,
                 accent2 = 0xFFB79CDBL,
                 warn = 0xFFFFB000L),
             iconStyle = IconStyle.plain,

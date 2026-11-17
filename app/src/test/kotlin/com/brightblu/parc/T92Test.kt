@@ -9,7 +9,7 @@ class T92Test {
         org.junit.Assert.assertEquals(HubCatalog.pages.toSet(), hubPageOptions.keys)
         org.junit.Assert.assertTrue(SettingsRegistry.byId.getValue("HubPages").help.contains("options"))
         assertTrue("time zone" in SettingsRegistry.byId.getValue("HubPages").words)
-        assertTrue(hubPageOptions.getValue("clock").tap.contains("Long press"))
+        assertTrue(hubPageOptions.getValue(TodayPage.Id).tap.contains("Long press"))
         hubPageOptions.values.forEach { org.junit.Assert.assertTrue(it.fullSettings in SettingsPage.entries) }
     }
     @Test fun sharedEditorsKeepEveryExistingDestination() {
@@ -25,13 +25,14 @@ class T92Test {
 
 
     @Test fun nestedPagesReturnToTheirParent() {
-        // T177: an editor returns to the page whose row opened it; the seven pages return to the root.
-        assertEquals(SettingsPage.Comms, settingsParent(SettingsPage.CommsApps))
-        assertEquals(SettingsPage.Comms, settingsParent(SettingsPage.QuickReplies))
-        assertEquals(SettingsPage.SearchNotifications, settingsParent(SettingsPage.Comms))
-        assertEquals(SettingsPage.Layout, settingsParent(SettingsPage.Folders))
-        assertEquals(SettingsPage.BackupAbout, settingsParent(SettingsPage.WhatsNew))
-        assertEquals(SettingsPage.StatsPages, settingsParent(SettingsPage.HubOptions))
-        SettingsHome.entries.forEach { assertEquals(SettingsPage.Root, settingsParent(it.settingsPage)) }
+        // T220: a nested editor returns to its page, a sub-page to its group, and a group to the root.
+        assertEquals(SettingsScreen.Page(SettingsPage.Messages), settingsParent(SettingsPage.CommsApps))
+        assertEquals(SettingsScreen.Page(SettingsPage.Messages), settingsParent(SettingsPage.QuickReplies))
+        assertEquals(SettingsScreen.Group(SettingsGroup.NotificationsFocus), settingsParent(SettingsPage.Messages))
+        assertEquals(SettingsScreen.Page(SettingsPage.HomeApps), settingsParent(SettingsPage.Folders))
+        assertEquals(SettingsScreen.Page(SettingsPage.DataBuild), settingsParent(SettingsPage.WhatsNew))
+        assertEquals(SettingsScreen.Page(SettingsPage.HubPages), settingsParent(SettingsPage.HubOptions))
+        assertNull(SettingsPage.Root.group)
+        SettingsGroup.entries.forEach { assertEquals(SettingsScreen.Root, settingsParent(SettingsScreen.Group(it))) }
     }
 }

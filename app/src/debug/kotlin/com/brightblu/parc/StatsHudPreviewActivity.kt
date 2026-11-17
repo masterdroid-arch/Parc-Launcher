@@ -135,14 +135,13 @@ class StatsHudPreviewActivity : ComponentActivity() {
                     hubBottomDp = RingHudBounds.bottomDp(scene,
                         (skin.typography.label.sizeSp + Metrics.labelPaddingVerticalDp * 2) * density.fontScale),
                     hubTopDp = HubPanelLayout.topDp(androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(density) / density.density),
-                    clock = { ClockHubPage(skin, LookSettings(), "09:41", ClockDetail(), true) },
                     source = source,
                     alertState = alerts,
                     onDismissAlert = { alerts = alerts.dismiss(it) },
                     archive = archive,
                     powerSource = remember { ReviewPowerSource(intent.getBooleanExtra("unavailable", false), t79) },
                     networkRepository = remember { ReviewNetworkRepository(intent.getBooleanExtra("unavailable", false)) },
-                    screenTime = remember { ReviewScreenTime(intent.getBooleanExtra("unavailable", false)) },
+                    dayLedger = remember { reviewLedger(lifecycleScope, intent.getBooleanExtra("unavailable", false)) },
                     newApps = remember { object : NewAppsProvider {
                         override suspend fun recent(limit: Int) = reviewEntries.take(limit).map { NewApp(it, System.currentTimeMillis()) }
                     } },
@@ -254,10 +253,20 @@ private val reviewEntries = listOf(
     AppEntry(AppId("com.android.settings/.Settings"), "Settings", "com.android.settings", true, 0),
     AppEntry(AppId("com.brightblu.parc.t54fixture/.MainActivity"), "T54 sample", "com.brightblu.parc.t54fixture", false, 0),
 )
-private class ReviewScreenTime(private val unavailable: Boolean) : ScreenTimeRepository {
-    override suspend fun read(): ScreenTimeResult = if (unavailable) ScreenTimeResult.Unavailable else ScreenTimeResult.Available(
-        reviewEntries.mapIndexed { i, a -> AppScreenTime(a.id, a.label, a.packageName, 3_600_000L / (i + 1), 25_200_000L / (i + 1)) },
-        8_220_000L, 57_540_000L)
+/** T185: ten fixture days (made-up numbers) so the Network and Apps period switch has something to add up. */
+private fun reviewLedger(scope: kotlinx.coroutines.CoroutineScope, unavailable: Boolean): com.brightblu.parc.core.data.ledger.DayLedgerRepository {
+    val today = java.time.LocalDate.now()
+    val days = (0L..9L).map { n ->
+        val date = today.minusDays(n)
+        com.brightblu.parc.core.data.ledger.LedgerDay(
+            date = date, wifiBytes = 400_000_000L + n * 30_000_000L, mobileBytes = 60_000_000L + n * 5_000_000L,
+            screenOnMillis = 8_220_000L + n * 600_000L, closed = n > 0,
+            appData = reviewEntries.mapIndexed { i, a -> a.packageName to 200_000_000L / (i + 1) }.toMap(),
+            appScreen = reviewEntries.mapIndexed { i, a -> a.packageName to 3_600_000L / (i + 1) }.toMap(),
+        )
+    }
+    val ledger = days.fold(com.brightblu.parc.core.data.ledger.DayLedger()) { l, d -> l.withDay(d) }
+    return com.brightblu.parc.core.data.ledger.DayLedgerRepository.preview(scope, ledger, accessGranted = !unavailable)
 }
 private class ReviewVolume(private val refuse: Boolean) : VolumeRepository {
     override val state = MutableStateFlow(VolumeState(VolumeStream.All.map { StreamVolume(it, 5, 15) }, "Pixel speaker · review"))

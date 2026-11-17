@@ -43,6 +43,13 @@ interface LayoutRepository {
 interface UsageRepository {
     fun recordLaunch(id: AppId)
     fun recents(limit: Int): Flow<List<AppId>>
+
+    /**
+     * T248: the most-used apps, highest decayed score first, at most [limit]. Derived from the same
+     * local launch log as [recents], so it adds no storage. The default has no usage data.
+     */
+    fun mostUsed(limit: Int): List<AppId> = emptyList()
+
     fun rank(folderId: FolderId): List<AppId>
 }
 

@@ -44,8 +44,8 @@ class ParcSettingsSearchTest {
         val parc = ParcSettingsRanking.rank("settings", entries)
         val phone = ExtraResults(phoneSettings = listOf(PhoneSettingHit("Settings", "android.settings.SETTINGS", 1.0)))
         val items = SearchSheetItems.build("settings", emptyList(), null, listOf(app), emptyList(), phone, parc)
-        assertEquals(listOf(app.appId.value, "parc-setting-root", "header-${ParcSettingsRanking.Header}",
-            "extra-setting-android.settings.SETTINGS", "header-${ExtraText.SettingsHeader}"), items.map { it.key })
+        assertEquals(listOf(app.appId.value, "header-${SearchSheetItems.AppsSection}", "parc-setting-root",
+            "extra-setting-android.settings.SETTINGS", "header-${SearchSheetItems.ActionsSection}"), items.map { it.key })
     }
 
     @Test fun withoutParcSettingsTheListIsUnchanged() {

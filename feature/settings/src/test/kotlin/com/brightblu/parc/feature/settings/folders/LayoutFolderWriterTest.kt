@@ -1,8 +1,11 @@
 package com.brightblu.parc.feature.settings.folders
 
 import com.brightblu.parc.model.fakes.FakeLayoutRepository
+import com.brightblu.parc.model.hidden
+import com.brightblu.parc.model.withHidden
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -103,6 +106,18 @@ class LayoutFolderWriterTest {
         assertTrue(deleteRecorder.calls.isEmpty())
         assertEquals("Social", deleteRepository.layout.value.folders.first { it.id.value == "social" }.name)
         assertEquals(listOf(tools), deleteRepository.layout.value.folders.filter { it.id.value == "tools" })
+    }
+
+    @Test
+    fun `hiding and unhiding reach the layout and keep every member`() = runTest {
+        val hidden = FolderDocument(listOf(social.withHidden(true)))
+        assertEquals(FolderEditResult.Applied, writer.apply(before, hidden))
+        assertTrue(storedFolder("social").hidden)
+        assertEquals(listOf(a, b, c), storedFolder("social").appIds)
+
+        assertEquals(FolderEditResult.Applied, writer.apply(hidden, before))
+        assertFalse(storedFolder("social").hidden)
+        assertEquals(listOf(a, b, c), storedFolder("social").appIds)
     }
 
     @Test

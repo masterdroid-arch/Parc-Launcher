@@ -6,14 +6,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+/** One post outcome: accepted, or dropped with a package-only reason. */
+internal data class CommsPostOutcome(val accepted: Boolean, val drop: CommsDrop?)
+
 /**
  * In-memory aggregation behind [CommsRepository] (T55). The listener feeds raw notifications in;
  * the inbox keeps only parsed conversations, publishes an immutable snapshot, and forgets
  * everything when the listener disconnects or Comms is switched off.
  *
- * Nothing here touches disk, a database, a file or a log. The only state is a map of the active
- * notifications' parsed messages, bounded by [maxNotifications] and by the per-conversation
- * message cap, so a misbehaving app cannot grow memory without bound.
+ * Nothing here touches disk, a database, a file or a log. Persistence is
+ * [CommsHistoryStore], not this class: the listener writes accepted posts there separately. The
+ * only state here is a map of the active notifications' parsed messages, bounded by
+ * [maxNotifications] and by the per-conversation message cap, so a misbehaving app cannot grow
+ * memory without bound.
  *
  * Threading: listener callbacks arrive on a binder thread and the UI reads on main. Every mutation
  * and the published value happen under one lock, so a collector never sees a half-updated
@@ -44,6 +49,18 @@ internal class CommsInbox(
     }
 
     /**
+     * Why [packageName] would be skipped before the extractor reads it, or null when it is allowed
+     * (or Comms is off, which is a page state rather than a dropped notification). Package only.
+     */
+    fun policyDropReason(packageName: String): CommsDropReason? = synchronized(lock) {
+        when {
+            !policy.enabled -> null
+            packageName !in policy.allowedPackages -> CommsDropReason.NotAllowed
+            else -> null
+        }
+    }
+
+    /**
      * Applies a new allow-list/switch. Disabling clears the inbox; removing a package drops its
      * conversations and keeps the rest. Returns whether the published snapshot changed.
      */
@@ -65,8 +82,15 @@ internal class CommsInbox(
      * a conversation; false when the card's filters dropped it (an earlier contribution for the
      * same key is removed, because a notification update can stop being a message).
      */
-    fun post(raw: RawNotification): Boolean = synchronized(lock) {
-        val parsed = if (NotificationLockPolicy.blocked(raw.packageName)) null else parser.parse(raw, policy)
+    fun post(raw: RawNotification): Boolean = postWithOutcome(raw).accepted
+
+    /**
+     * The [post] path with the package-only drop reason the listener needs for the Why sheet.
+     * A locked package or Comms being off is ignored, not reported as a filter drop.
+     */
+    internal fun postWithOutcome(raw: RawNotification): CommsPostOutcome = synchronized(lock) {
+        val result = if (NotificationLockPolicy.blocked(raw.packageName)) null else parser.evaluate(raw, policy)
+        val parsed = (result as? CommsParseResult.Kept)?.notification
         val changed = if (parsed == null) {
             entries.remove(raw.key) != null
         } else {
@@ -75,13 +99,23 @@ internal class CommsInbox(
             trimNotificationsLocked()
             true
         }
-        if (changed) publishLocked() else false
-        return parsed != null && !NotificationLockPolicy.blocked(parsed.app)
+        if (changed) publishLocked()
+        when (result) {
+            null, CommsParseResult.Ignored -> CommsPostOutcome(accepted = false, drop = null)
+            is CommsParseResult.Dropped -> CommsPostOutcome(
+                accepted = false,
+                drop = CommsDrop(raw.packageName, result.reason),
+            )
+            is CommsParseResult.Kept -> CommsPostOutcome(
+                accepted = !NotificationLockPolicy.blocked(result.notification.app),
+                drop = null,
+            )
+        }
     }
 
     /**
-     * The parsed notification behind [notificationKey], or null. The listener reads it just before
-     * a removal so [CommsHistory] can keep the messages that are about to disappear (T76).
+     * The parsed notification behind [notificationKey], or null. The listener reads it on post or
+     * connect so [CommsHistoryStore] can write the accepted messages (T214).
      */
     fun entryFor(notificationKey: String): ParsedNotification? = synchronized(lock) {
         entries[notificationKey]?.takeUnless { NotificationLockPolicy.blocked(it.app) }

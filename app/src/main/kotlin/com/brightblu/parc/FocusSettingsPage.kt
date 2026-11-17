@@ -36,6 +36,7 @@ import com.brightblu.parc.core.data.focus.*
 import com.brightblu.parc.feature.settings.ui.*
 import com.brightblu.parc.model.*
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -44,7 +45,7 @@ import kotlinx.coroutines.sync.withLock
 internal fun FocusSettingsPage(
     skin: Skin, focus: FocusState, modes: List<FocusMode>, repository: FocusRepository,
     apps: List<AppEntry>, onBack: () -> Unit,
-    folders: List<Folder> = emptyList(), skins: List<Skin> = emptyList(),
+    folders: List<Folder> = emptyList(), layout: ParcLayout = ParcLayout(), skins: List<Skin> = emptyList(),
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -114,6 +115,7 @@ internal fun FocusSettingsPage(
                 page == "Always allowed" -> { page = "Apps"; query = "" }
                 page == "Customise" -> page = "How strict"
                 page == "Messages" -> { page = "Quiet notifications"; query = "" }
+                page == "Always show" -> { page = "Quiet notifications"; query = "" }
                 page == "Focus skin" -> page = "Look"
                 page.isNotEmpty() -> page = ""
                 else -> editing = null
@@ -147,13 +149,15 @@ internal fun FocusSettingsPage(
                         "Customise" -> "What should happen when you need a pause?"
                         "Quiet notifications" -> "What should stay quiet?"
                         "Messages" -> "Which messages should stay out of Parc?"
+                        "Always show" -> "Which hidden apps should still show their messages?"
                         "Focus skin" -> "Which colours should Home use?"
                         else -> "How should Home look?"
                     }, skin, true)
                     if (notice.isNotEmpty()) FocusCopy(notice, skin)
                     when (page) {
                         "" -> {
-                            FocusRow("${mode.glyph} ${mode.name}", "Name and colour", false, skin) { navigate("Name and colour") }
+                            FocusRow(mode.name, "Name and colour", false, skin,
+                                leading = { FocusModeIcon(mode.glyph, skin.colors.textPrimary) }) { navigate("Name and colour") }
                             FocusCopy(focusModeSentence(mode, apps, folders), skin)
                             FocusControls(mode, focus, skin, start = { scope.focusAction({ issue = it }) { if (save()) repository.quickStart(original) } }, pause = { exit = FocusExit.Pass }, end = { exit = FocusExit.End })
                             listOf("Apps" to focusAppsValue(mode, apps, folders), "When" to focusWhenValue(mode),
@@ -175,7 +179,7 @@ internal fun FocusSettingsPage(
                             FocusText(name, skin, "Mode name") { if (!focus.strictSession) { name = it.take(FocusDisplay.MaxNameLength); update(mode) } }
                             FocusCopy("Choose a symbol", skin)
                             FocusGlyphs.chunked(3).forEach { choices -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
-                                choices.forEach { (glyph, label) -> FocusChoice("$glyph $label", mode.glyph == glyph, skin, Modifier.weight(1f)) { update(mode.copy(glyph = glyph)) } }
+                                choices.forEach { (glyph, label) -> FocusChoice(label, mode.glyph == glyph, skin, Modifier.weight(1f), glyph = glyph) { update(mode.copy(glyph = glyph)) } }
                             } }
                             FocusCopy("Choose a colour", skin)
                             FocusRow("Match my skin", "Follows your Home colours", mode.accent == null, skin, SettingKind.Choice) { update(mode.copy(accent = null)) }
@@ -265,13 +269,33 @@ internal fun FocusSettingsPage(
                         "Quiet notifications" -> {
                             FocusRow("Quiet badges", "Hide the dots and counts on app icons", mode.silenceBadges, skin, SettingKind.Toggle) { update(mode.copy(silenceBadges = !mode.silenceBadges)) }
                             FocusRow("Do Not Disturb", "Ask Android to quiet interruptions. Allow access in Parc Settings → Permissions first.", mode.syncDnd, skin, SettingKind.Toggle) { update(mode.copy(syncDnd = !mode.syncDnd)) }
-                            FocusRow("Messages in Parc", if (mode.hiddenComms.isEmpty()) "All shown. Choose apps whose messages should stay hidden in Parc." else "Hidden from ${focusAppCount(mode.hiddenComms.size)}. Choose which apps.", false, skin) { navigate("Messages") }
+                            FocusRow("Hide messages from apps Focus leaves visible",
+                                if (mode.hiddenComms.isEmpty()) "All shown. Choose apps whose messages should stay hidden in Parc."
+                                else "Hidden from ${focusAppCount(mode.hiddenComms.size)}. Choose which apps.", false, skin) { navigate("Messages") }
+                            FocusRow("Always show messages",
+                                if (mode.alwaysShowMessagePackages.isEmpty()) "Messages from hidden apps are hidden by default."
+                                else "Shown from ${focusAppCount(mode.alwaysShowMessagePackages.size)} even while Focus hides the app.",
+                                false, skin) { navigate("Always show") }
                             FocusCopy("Android’s notification shade stays available.", skin)
                         }
                         "Messages" -> {
                             FocusCopy("Hide messages in Parc from these apps. Android’s notification shade stays available.", skin)
                             FocusText(query, skin, "Search apps") { query = it }
                             filterFocusApps(installed, query).forEach { app -> FocusRow(app.label, "", app.packageName in mode.hiddenComms, skin, SettingKind.Toggle) { update(mode.copy(hiddenComms = toggle(mode.hiddenComms, app.packageName))) } }
+                        }
+                        "Always show" -> {
+                            FocusCopy("Messages from apps this Mode hides stay visible in Parc. A permanently hidden, locked or hidden-folder app still stays hidden.", skin)
+                            val blocked = focusBlockedPackages(mode, installed, layout)
+                            if (blocked.isEmpty()) FocusCopy("This Mode hides no apps yet.", skin)
+                            FocusText(query, skin, "Search apps") { query = it }
+                            filterFocusApps(installed, query)
+                                .filter { it.packageName in blocked && it.packageName !in mode.hiddenComms }
+                                .forEach { app ->
+                                    FocusRow(app.label, "", app.packageName in mode.alwaysShowMessagePackages, skin, SettingKind.Toggle) {
+                                        update(mode.copy(alwaysShowMessagePackages = toggle(mode.alwaysShowMessagePackages, app.packageName)))
+                                    }
+                                }
+                            if (mode.hiddenComms.isNotEmpty()) FocusCopy("Apps in the hide list above stay hidden.", skin)
                         }
                         "Focus skin" -> {
                             FocusHomePreview(mode, skins.firstOrNull { it.id == mode.skinId } ?: skin)
@@ -286,7 +310,10 @@ internal fun FocusSettingsPage(
                             FocusRow("More options", "Main apps and Home pages", more, skin) { more = !more }
                             if (more) {
                                 FocusRow("Main and allowed apps only", "Keep your main apps and the apps chosen in this Mode", mode.mainAndAllowedOnly, skin, SettingKind.Toggle) { update(mode.copy(mainAndAllowedOnly = !mode.mainAndAllowedOnly)) }
-                                HubCatalog.pages.forEach { home -> val pages = mode.hubPages ?: HubCatalog.pages.toSet()
+                                // T200: the arcade is listed here only once a game is unlocked.
+                                val focusContext = LocalContext.current
+                                val arcadeOpen by remember(focusContext) { HubConfigStore(focusContext).arcade.map { it.open } }.collectAsState(initial = false)
+                                HubCatalog.pages.filter { it != com.brightblu.parc.arcade.ArcadePage.Id || arcadeOpen }.forEach { home -> val pages = mode.hubPages?.let(HubCatalog::canonicalPages) ?: HubCatalog.pages.toSet()
                                     FocusRow(home.replaceFirstChar { it.uppercase() }, if (home == "comms") "Show messages and calls on Home" else "Show this Home page", home in pages, skin, SettingKind.Toggle) { update(mode.copy(hubPages = toggle(pages, home))) }
                                 }
                                 FocusRow("Use my usual Home pages", "Follow Parc Settings", mode.hubPages == null, skin, SettingKind.Action) { update(mode.copy(hubPages = null)) }
@@ -326,7 +353,8 @@ internal fun FocusSettingsPage(
                                 }, verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
                                 SettingsCard(skin) {
                                     Column(Modifier.fillMaxWidth().clickable(role = Role.Button) { open(item) }) {
-                                        FocusModeChip(item, skins.firstOrNull { it.id == item.skinId } ?: skin, if (focus.activeName == item.name) FocusDisplay.clockLine(focus) else "${item.glyph} ${item.name}")
+                                        FocusModeChip(item, skins.firstOrNull { it.id == item.skinId } ?: skin,
+                                            if (focus.activeName == item.name) FocusDisplay.clockLine(focus) else item.name)
                                         Box(Modifier.padding(start = Metrics.settingsRowInsetDp.dp, end = Metrics.settingsRowInsetDp.dp, bottom = Metrics.rowGapDp.dp)) {
                                             FocusCopy(focusModeSentence(item, apps, folders), skin)
                                         }
@@ -362,34 +390,46 @@ private fun <T> toggle(values: Set<T>, value: T): Set<T> = if (value in values) 
     BasicText(text, style = settingsText(skin, if (title) skin.colors.textPrimary else skin.colors.textSecondary),
         modifier = Modifier.fillMaxWidth().then(if (title) Modifier.semantics { heading() } else Modifier))
 }
-@Composable private fun FocusRow(label: String, detail: String, selected: Boolean, skin: Skin, kind: SettingKind = SettingKind.Page, click: () -> Unit) {
-    SettingsCard(skin) { SettingRow(label, skin, kind, description = detail, checked = selected, value = if (selected && kind == SettingKind.Choice) "Selected" else "", descriptionMaxLines = Int.MAX_VALUE, divider = false, onClick = click) }
+@Composable private fun FocusRow(label: String, detail: String, selected: Boolean, skin: Skin, kind: SettingKind = SettingKind.Page,
+    leading: (@Composable () -> Unit)? = null, click: () -> Unit) {
+    SettingsCard(skin) { SettingRow(label, skin, kind, description = detail, checked = selected, value = if (selected && kind == SettingKind.Choice) "Selected" else "", descriptionMaxLines = Int.MAX_VALUE, divider = false, leading = leading, onClick = click) }
 }
-@Composable private fun FocusChoice(label: String, chosen: Boolean, skin: Skin, modifier: Modifier = Modifier, click: () -> Unit) {
+@Composable private fun FocusChoice(label: String, chosen: Boolean, skin: Skin, modifier: Modifier = Modifier,
+    glyph: String? = null, click: () -> Unit) {
     Box(modifier.heightIn(min = Metrics.focusControlDp.dp).widthIn(min = Metrics.focusControlDp.dp)
         .background(Color((if (chosen) skin.colors.accent else skin.colors.surface).toInt()), RoundedCornerShape(Metrics.menuCornerDp.dp))
         .border((if (chosen) skin.lineWidths.activeDp * 2 else skin.lineWidths.baseDp).dp,
             Color((if (chosen) skin.colors.textPrimary else skin.colors.lineBase).toInt()), RoundedCornerShape(Metrics.menuCornerDp.dp))
         .semantics { contentDescription = label; selected = chosen; role = Role.RadioButton }.clickable(onClick = click)
         .padding(Metrics.itemGapDp.dp), contentAlignment = Alignment.Center) {
-        BasicText(label, style = settingsText(skin, if (chosen) skin.colors.bg else skin.colors.textPrimary))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (glyph != null) {
+                FocusModeIcon(glyph, if (chosen) skin.colors.bg else skin.colors.textPrimary)
+                BasicText(label, style = settingsText(skin, if (chosen) skin.colors.bg else skin.colors.textPrimary),
+                    modifier = Modifier.padding(start = Metrics.lineGapDp.dp))
+            } else BasicText(label, style = settingsText(skin, if (chosen) skin.colors.bg else skin.colors.textPrimary))
+        }
     }
 }
 @Composable private fun FocusControls(mode: FocusMode, state: FocusState, skin: Skin, start: () -> Unit, pause: () -> Unit, end: () -> Unit) {
     if (state.activeName == mode.name) {
         FocusCopy(focusRemaining(state), skin)
-        FocusRow("Pause", "Emergency pass · opens all apps temporarily", false, skin, SettingKind.Action, pause)
-        FocusRow("End", "Your chosen wait and challenge apply", false, skin, SettingKind.Action, end)
-    } else if (mode.enabled && !state.strictSession && state.breakUntilMillis == null) FocusRow("Start", "${mode.name} · 1 hour", false, skin, SettingKind.Action, start)
+        FocusRow("Pause", "Emergency pass · opens all apps temporarily", false, skin, SettingKind.Action, click = pause)
+        FocusRow("End", "Your chosen wait and challenge apply", false, skin, SettingKind.Action, click = end)
+    } else if (mode.enabled && !state.strictSession && state.breakUntilMillis == null) FocusRow("Start", "${mode.name} · 1 hour", false, skin, SettingKind.Action, click = start)
 }
 @Composable internal fun FocusPreviewChip(mode: FocusMode, skin: Skin) {
-    FocusModeChip(mode, skin, "${mode.glyph} ${mode.name} · until 14:07")
+    FocusModeChip(mode, skin, "${mode.name} · until 14:07")
 }
 @Composable internal fun FocusModeChip(mode: FocusMode, skin: Skin, text: String) {
     Box(Modifier.fillMaxWidth().background(Color(skin.colors.surface.toInt()), RoundedCornerShape(Metrics.menuCornerDp.dp)).parcSettingsPadding()) {
         val tint = com.brightblu.parc.core.data.skins.ColorMath.ensureContrast(mode.accent ?: skin.colors.accent,
             listOf(skin.colors.surface), com.brightblu.parc.core.data.skins.ColorMath.TextContrast, skin.colors.textPrimary)
-        BasicText(text, style = settingsText(skin, tint))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FocusModeIcon(mode.glyph, tint)
+            BasicText(text, style = settingsText(skin, tint),
+                modifier = Modifier.padding(start = Metrics.itemGapDp.dp))
+        }
     }
 }
 @Composable private fun FocusHomePreview(mode: FocusMode, skin: Skin) {

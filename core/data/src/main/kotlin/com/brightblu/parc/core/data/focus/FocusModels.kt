@@ -119,6 +119,12 @@ data class FocusMode(
     val confirmationPhrase: String = "END FOCUS",
     val friction: FocusFriction = FocusFriction(),
     val ledger: FocusLedger = FocusLedger(),
+    /**
+     * T217: apps whose messages stay visible even while this Focus mode hides the app itself. The
+     * serialized default keeps every old Focus JSON and backup decoding unchanged. Permanent hide,
+     * Lock, a hidden folder and [hiddenComms] outrank this exception.
+     */
+    val alwaysShowMessagePackages: Set<String> = emptySet(),
 ) {
     init {
         require(name.isNotBlank()) { "Focus mode name must not be blank" }

@@ -7,8 +7,10 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.ContactsContract
+import androidx.compose.foundation.Image
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -26,6 +28,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.platform.LocalDensity
@@ -36,6 +40,34 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.SideEffect
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import com.brightblu.parc.model.Springs
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
@@ -55,10 +87,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -91,6 +125,7 @@ import com.brightblu.parc.feature.search.extras.PhoneSettingHit
 import com.brightblu.parc.model.AppId
 import com.brightblu.parc.model.MatchRange
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.rememberPageInsets
 import com.brightblu.parc.model.parcMinTouch
 import com.brightblu.parc.model.parcPress
 import com.brightblu.parc.model.Skin
@@ -148,6 +183,19 @@ fun SearchSheet(
     /** OPUS8 (T133): Parc's own settings pages; empty offers none. */
     parcSettings: List<com.brightblu.parc.feature.search.extras.ParcSettingEntry> = emptyList(),
     onOpenParcSetting: (String) -> Unit = {},
+    /**
+     * T247: the launcher's cached arc bitmaps. The sheet never rasterises an icon itself; a miss is
+     * scheduled by the cache and arrives again through [iconRevision].
+     */
+    icon: (AppId) -> Bitmap? = { null },
+    /** T247: bumped when the icon cache has something new, so a row asks for it again. */
+    iconRevision: Int = 0,
+    /** T247: a long press on an app row opens the app actions. */
+    onAppLongPress: ((SearchRow) -> Unit)? = null,
+    /** T259: matching notes shown under the Apps section; the app owns the notes store. */
+    notes: List<SearchNote> = emptyList(),
+    /** T259: tapping a note result, or a "Notes" row, opens it in Parc's notes editor. */
+    onOpenNote: (String) -> Unit = {},
     /** T157: 0 (below the screen) to 1 (shown), on `Springs.sheet`; read only inside layer and draw lambdas. */
     progress: () -> Float = { 1f },
     /** T157: the state has closed but the sheet is still springing away; it keeps the last open content and takes no touches. */
@@ -156,8 +204,16 @@ fun SearchSheet(
     val live = state.state.collectAsState().value
     val lastOpen = remember { arrayOfNulls<SearchUiState>(1) }
     if (live.isOpen) lastOpen[0] = live
-    val ui = if (live.isOpen) live else lastOpen[0] ?: return
+    val current = if (live.isOpen) live else lastOpen[0] ?: return
     if (!live.isOpen && !closing) return
+    // T194: `ui` is the Apps view of the sheet. While another mode is active it stays frozen at the
+    // last Apps state, so the Apps results settle away instead of emptying under the fade.
+    val inApps = current.mode == SearchModeIds.Apps
+    val lastApps = remember { arrayOfNulls<SearchUiState>(1) }
+    if (inApps) lastApps[0] = current
+    val ui = if (inApps) current else lastApps[0] ?: current.copy(query = "")
+    val lastMode = remember { arrayOfNulls<String>(1) }
+    if (!inApps) lastMode[0] = current.mode
     val focus = remember { FocusRequester() }
     LaunchedEffect(live.isOpen) { if (live.isOpen) focus.requestFocus() }
 
@@ -240,9 +296,22 @@ fun SearchSheet(
         com.brightblu.parc.feature.search.extras.ParcSettingsRanking.rank(ui.query, parcSettings)
     }
     val hasResults = ui.rows.isNotEmpty() || contacts.isNotEmpty() || ui.calculation != null || !extraResults.isEmpty ||
-        parcHits.isNotEmpty()
+        parcHits.isNotEmpty() || notes.isNotEmpty()
 
-    val statusBarDp = WindowInsets.statusBars.getTop(LocalDensity.current) / LocalDensity.current.density
+    val host = remember(context, state) {
+        object : SearchModeHost {
+            override val context: Context = context
+            override fun setText(text: String) = state.onQueryChange(text)
+        }
+    }
+    val sheetSpring = spring<Float>(Springs.sheet.damping, Springs.sheet.stiffness)
+    val sizeSpring = spring(Springs.sheet.damping, Springs.sheet.stiffness, IntSize.VisibilityThreshold)
+
+    val density = LocalDensity.current
+    val statusBarDp = WindowInsets.statusBars.getTop(density) / density.density
+    // T230: the sheet owns the keyboard and navigation-bar clearance, so a host cannot forget it.
+    val pageInsets = rememberPageInsets()
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
     val scrim = Color((if (skin.style.header == com.brightblu.parc.model.HeaderStyle.ruled) skin.colors.bg else skin.colors.scrim).toInt())
     Box(modifier.fillMaxSize()
         .drawBehind { drawRect(scrim, alpha = progress().coerceIn(0f, 1f)) }
@@ -259,137 +328,196 @@ fun SearchSheet(
                 .align(Alignment.BottomCenter)
                 .padding(top = SearchSheetLayout.topClearanceDp(statusBarDp).dp)
                 .fillMaxWidth()
+                // T262: always track the IME inset. During the keyboard's opening frames the
+                // conditional version could leave the mode chips under the IME, so a tap meant for
+                // "Calculate" landed on a key. imePadding is 0 when the keyboard is hidden.
+                .imePadding()
+                .padding(bottom = if (imeVisible) Metrics.itemGapDp.dp else pageInsets.bottomDp.dp)
                 .graphicsLayer { translationY = (1f - progress().coerceIn(0f, 1f)) * size.height }
                 .surface(skin),
         ) {
-            // OPUS3: links and permission prompts sit above the results, so the best result is the
-            // row right above the field, under the thumb.
-            if (showExtrasPrompt) {
-                LinkRow(extrasPromptLabel(wantFiles, wantCalendar), skin) {
-                    val wanted = ArrayList<String>(4)
-                    if (wantFiles) wanted += com.brightblu.parc.feature.search.extras.FilePermissions.all
-                    if (wantCalendar) wanted += Manifest.permission.READ_CALENDAR
-                    extrasRequest.launch(wanted.toTypedArray())
-                }
-            }
-            if (contactsEnabled && !contactsGranted) {
-                LinkRow("Allow contacts: find names and open contact cards on this phone", skin) {
-                    permissionRequest.launch(Manifest.permission.READ_CONTACTS)
-                }
-            }
-            ui.webQuery?.let { query ->
-                WebRow(query, skin) {
-                    record()
-                    prefsSnapshot.webEngine.searchUrl(query)?.let { url -> openWeb(context, url) }
-                }
-            }
-            LinkRow("All apps", skin, state::openAbcList)
-            val items = remember(ui.query, earlierQueries, ui.calculation, ui.rows, contacts, extraResults, parcHits) {
-                SearchSheetItems.build(ui.query, earlierQueries, ui.calculation, ui.rows, contacts, extraResults, parcHits)
-            }
-            val listState = rememberLazyListState()
-            // OPUS3: back to the first (best) item whenever the query or the best item changes. The
-            // request is applied in the same frame's layout, so stale rows never flash.
-            val lastShown = remember { arrayOfNulls<String>(2) }
-            SideEffect {
-                val firstKey = items.firstOrNull()?.key
-                if (SearchSheetItems.resetScroll(lastShown[0], lastShown[1], ui.query, firstKey)) {
-                    lastShown[0] = ui.query
-                    lastShown[1] = firstKey
-                    listState.requestScrollToItem(0)
-                }
-            }
-            val hidden by remember(listState) {
-                derivedStateOf {
-                    val info = listState.layoutInfo
-                    SearchSheetItems.hiddenAbove(info.totalItemsCount,
-                        info.visibleItemsInfo.lastOrNull { it.offset + it.size <= info.viewportEndOffset }?.index ?: -1)
-                }
-            }
-            if (hidden > 0) MoreAboveRow(hidden, skin) {
-                scope.launch { listState.animateScrollToItem((listState.firstVisibleItemIndex + 1).coerceAtMost(items.lastIndex)) }
-            }
-            LazyColumn(
-                Modifier
-                    .weight(1f, fill = false)
-                    .fillMaxWidth()
-                    .heightIn(max = (Metrics.searchRowHeightDp * SheetVisibleRows).dp),
-                state = listState,
-                reverseLayout = true,
+            AnimatedVisibility(
+                visible = inApps,
+                modifier = Modifier.weight(1f, fill = false),
+                enter = fadeIn(sheetSpring) + expandVertically(sizeSpring, expandFrom = Alignment.Bottom),
+                exit = fadeOut(sheetSpring) + shrinkVertically(sizeSpring, shrinkTowards = Alignment.Bottom),
             ) {
-                items(items, key = { it.key }) { item ->
-                    when (item) {
-                        SheetItem.RecentHeader -> Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.weight(1f)) { SheetCaption("Recent searches", skin) }
-                            Box(Modifier.weight(1f)) {
-                                LinkRow("Clear", skin) { scope.launch { prefs.clearRecentSearches() } }
+                Column {
+                // OPUS3: links and permission prompts sit above the results, so the best result is the
+                // row right above the field, under the thumb.
+                if (showExtrasPrompt) {
+                    LinkRow(extrasPromptLabel(wantFiles, wantCalendar), skin) {
+                        val wanted = ArrayList<String>(4)
+                        if (wantFiles) wanted += com.brightblu.parc.feature.search.extras.FilePermissions.all
+                        if (wantCalendar) wanted += Manifest.permission.READ_CALENDAR
+                        extrasRequest.launch(wanted.toTypedArray())
+                    }
+                }
+                if (contactsEnabled && !contactsGranted) {
+                    LinkRow("Allow contacts: find names and open contact cards on this phone", skin) {
+                        permissionRequest.launch(Manifest.permission.READ_CONTACTS)
+                    }
+                }
+                ui.webQuery?.let { query ->
+                    WebRow(query, skin) {
+                        record()
+                        prefsSnapshot.webEngine.searchUrl(query)?.let { url -> openWeb(context, url) }
+                    }
+                }
+                LinkRow("All apps", skin, state::openAbcList)
+                val items = remember(ui.query, earlierQueries, ui.calculation, ui.rows, contacts, extraResults, parcHits, notes) {
+                    SearchSheetItems.build(ui.query, earlierQueries, ui.calculation, ui.rows, contacts, extraResults, parcHits, notes)
+                }
+                val listState = rememberLazyListState()
+                // OPUS3: back to the first (best) item whenever the query or the best item changes. The
+                // request is applied in the same frame's layout, so stale rows never flash.
+                val lastShown = remember { arrayOfNulls<String>(2) }
+                SideEffect {
+                    val firstKey = items.firstOrNull()?.key
+                    if (SearchSheetItems.resetScroll(lastShown[0], lastShown[1], ui.query, firstKey)) {
+                        lastShown[0] = ui.query
+                        lastShown[1] = firstKey
+                        listState.requestScrollToItem(0)
+                    }
+                }
+                val hidden by remember(listState) {
+                    derivedStateOf {
+                        val info = listState.layoutInfo
+                        SearchSheetItems.hiddenAbove(info.totalItemsCount,
+                            info.visibleItemsInfo.lastOrNull { it.offset + it.size <= info.viewportEndOffset }?.index ?: -1)
+                    }
+                }
+                if (hidden > 0) MoreAboveRow(hidden, skin) {
+                    scope.launch { listState.animateScrollToItem((listState.firstVisibleItemIndex + 1).coerceAtMost(items.lastIndex)) }
+                }
+                LazyColumn(
+                    Modifier
+                        .weight(1f, fill = false)
+                        .fillMaxWidth()
+                        .heightIn(max = (Metrics.searchRowHeightDp * SheetVisibleRows).dp),
+                    state = listState,
+                    reverseLayout = true,
+                ) {
+                    items(items, key = { it.key }) { item ->
+                        when (item) {
+                            SheetItem.RecentHeader -> Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.weight(1f)) { SheetCaption("Recent searches", skin) }
+                                Box(Modifier.weight(1f)) {
+                                    LinkRow("Clear", skin) { scope.launch { prefs.clearRecentSearches() } }
+                                }
                             }
-                        }
-                        is SheetItem.RecentQuery -> LinkRow(item.text, skin) { state.onQueryChange(item.text) }
-                        is SheetItem.Calculator -> CalculatorRow(item.calculation, skin, copied) {
-                            copyToClipboard(context, item.calculation.display)
-                            copied = true
-                        }
-                        is SheetItem.App -> ResultRow(item.row, skin) {
-                            record()
-                            onLaunch(item.row.appId)
-                        }
-                        is SheetItem.Shortcut -> ShortcutRow(item.shortcut.label, skin) {
-                            record()
-                            onLaunchShortcut(item.appId, item.shortcut.id)
-                        }
-                        is SheetItem.Contact -> ContactRow(
-                            hit = item.hit,
-                            skin = skin,
-                            onOpen = {
-                                record()
-                                openContactCard(context, item.hit.contact.id)
-                            },
-                            onCall = { number ->
-                                record()
-                                dial(context, number)
-                            },
-                            onMessage = { number ->
-                                record()
-                                message(context, number)
-                            },
-                        )
-                        is SheetItem.Header -> SheetCaption(item.title, skin)
-                        is SheetItem.Setting -> RowBox({
-                            record()
-                            startSafely(context, ExtraIntents.settings(item.hit.action))
-                        }) { BasicText(item.hit.title, style = searchStyle(skin), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                        is SheetItem.ParcSetting -> RowBox({
-                            record()
-                            onOpenParcSetting(item.hit.key)
-                        }) { BasicText(item.hit.title, style = searchStyle(skin), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                        is SheetItem.File -> TwoLineRow(item.hit.file.name, ExtraText.fileKind(item.hit.file.kind), skin) {
-                            record()
-                            startSafely(context, ExtraIntents.file(item.hit.file))
-                        }
-                        is SheetItem.Event -> {
-                            val whenText = remember(item.hit) {
-                                ExtraText.eventWhen(item.hit.event, System.currentTimeMillis(), java.time.ZoneId.systemDefault(),
-                                    android.text.format.DateFormat.is24HourFormat(context))
+                            is SheetItem.RecentQuery -> LinkRow(item.text, skin) { state.onQueryChange(item.text) }
+                            is SheetItem.Calculator -> CalculatorRow(item.calculation, skin, copied) {
+                                copyToClipboard(context, item.calculation.display)
+                                copied = true
                             }
-                            TwoLineRow(item.hit.event.title, whenText, skin) {
+                            is SheetItem.App -> ResultRow(
+                                row = item.row,
+                                skin = skin,
+                                icon = icon,
+                                iconRevision = iconRevision,
+                                onClick = {
+                                    record()
+                                    onLaunch(item.row.appId)
+                                },
+                                onLongClick = onAppLongPress,
+                            )
+                            is SheetItem.Shortcut -> ShortcutRow(item.shortcut.label, skin) {
                                 record()
-                                ExtraIntents.event(item.hit.event)?.let { startSafely(context, it) }
+                                onLaunchShortcut(item.appId, item.shortcut.id)
+                            }
+                            is SheetItem.Contact -> ContactRow(
+                                hit = item.hit,
+                                skin = skin,
+                                onOpen = {
+                                    record()
+                                    openContactCard(context, item.hit.contact.id)
+                                },
+                                onCall = { number ->
+                                    record()
+                                    dial(context, number)
+                                },
+                                onMessage = { number ->
+                                    record()
+                                    message(context, number)
+                                },
+                            )
+                            is SheetItem.Note -> TwoLineRow(item.note.title, item.note.detail, skin) {
+                                record()
+                                onOpenNote(item.note.id)
+                            }
+                            is SheetItem.Header -> SheetCaption(item.title, skin)
+                            is SheetItem.Setting -> RowBox({
+                                record()
+                                startSafely(context, ExtraIntents.settings(item.hit.action))
+                            }) { BasicText(item.hit.title, style = searchStyle(skin), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            is SheetItem.ParcSetting -> RowBox({
+                                record()
+                                onOpenParcSetting(item.hit.key)
+                            }) { BasicText(item.hit.title, style = searchStyle(skin), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            is SheetItem.File -> TwoLineRow(item.hit.file.name, ExtraText.fileKind(item.hit.file.kind), skin) {
+                                record()
+                                startSafely(context, ExtraIntents.file(item.hit.file))
+                            }
+                            is SheetItem.Event -> {
+                                val whenText = remember(item.hit) {
+                                    ExtraText.eventWhen(item.hit.event, System.currentTimeMillis(), java.time.ZoneId.systemDefault(),
+                                        android.text.format.DateFormat.is24HourFormat(context))
+                                }
+                                TwoLineRow(item.hit.event.title, whenText, skin) {
+                                    record()
+                                    ExtraIntents.event(item.hit.event)?.let { startSafely(context, it) }
+                                }
                             }
                         }
                     }
                 }
+                if (ui.query.isNotBlank() && !hasResults) {
+                    SheetMessage("No matches", skin)
+                }
+                }
             }
-            if (ui.query.isNotBlank() && !hasResults) {
-                SheetMessage("No matches", skin)
+            // T194: the active mode's result area; it cross-settles with the Apps results on the sheet spring.
+            AnimatedVisibility(
+                visible = !inApps,
+                modifier = Modifier.weight(1f, fill = false),
+                enter = fadeIn(sheetSpring) + expandVertically(sizeSpring, expandFrom = Alignment.Bottom),
+                exit = fadeOut(sheetSpring) + shrinkVertically(sizeSpring, shrinkTowards = Alignment.Bottom),
+            ) {
+                AnimatedContent(
+                    targetState = lastMode[0] ?: "",
+                    transitionSpec = {
+                        (fadeIn(sheetSpring) togetherWith fadeOut(sheetSpring))
+                            .using(SizeTransform(clip = false) { _, _ -> sizeSpring })
+                    },
+                    label = "Search mode",
+                ) { id ->
+                    state.modeOf(id)?.Body(current.query, skin, host)
+                }
             }
+            val activeMode = if (inApps) null else state.modeOf(current.mode)
             SearchField(
-                query = ui.query,
+                query = current.query,
                 skin = skin,
                 focus = focus,
+                placeholder = activeMode?.hint ?: "Search",
+                multiline = activeMode?.multiline == true,
                 onValueChange = state::onQueryChange,
-                onSubmit = { state.topHit()?.let(onLaunch) },
+                onBackspaceOnEmpty = state::backspaceOnEmpty,
+                onSubmit = {
+                    if (activeMode == null) {
+                        state.topHit()?.let { id ->
+                            record()
+                            onLaunch(id)
+                        }
+                    } else {
+                        activeMode.onEnter(current.query, host)
+                    }
+                },
             )
+            if (state.modes.isNotEmpty()) {
+                ModeChips(state.modes, current.mode, skin, state::setMode)
+            }
         }
     }
 }
@@ -418,11 +546,52 @@ fun SearchHandle(skin: Skin, onClick: () -> Unit, modifier: Modifier = Modifier)
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ResultRow(row: SearchRow, skin: Skin, onClick: () -> Unit) {
+private fun ResultRow(
+    row: SearchRow,
+    skin: Skin,
+    icon: (AppId) -> Bitmap?,
+    iconRevision: Int,
+    onClick: () -> Unit,
+    onLongClick: ((SearchRow) -> Unit)?,
+) {
     val text = remember(row, skin) { highlighted(row.label, row.matchRanges, skin) }
-    RowBox(onClick) {
-        BasicText(text, style = searchStyle(skin))
+    // T247: the same cached bitmap the arcs use. A miss reserves the slot and asks the cache again
+    // when it announces the load; no rasterising happens in the typing path.
+    val bitmap = remember(row.appId, iconRevision) { icon(row.appId) }
+    val source = remember { MutableInteractionSource() }
+    val press = if (onLongClick == null) {
+        Modifier.clickable(interactionSource = source, indication = LocalIndication.current, onClick = onClick)
+    } else {
+        Modifier.combinedClickable(
+            interactionSource = source,
+            indication = LocalIndication.current,
+            onClick = onClick,
+            onLongClick = { onLongClick(row) },
+        )
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .parcPress(source)
+            .then(press)
+            .heightIn(min = Metrics.searchRowHeightDp.dp)
+            .padding(horizontal = Metrics.textGutterDp.dp, vertical = Metrics.rowGapDp.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp),
+    ) {
+        Box(Modifier.size(Metrics.searchRowIconDp.dp), contentAlignment = Alignment.Center) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = remember(bitmap) { bitmap.asImageBitmap() },
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                )
+            }
+        }
+        BasicText(text, style = searchStyle(skin), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -679,7 +848,10 @@ private fun SearchField(
     query: String,
     skin: Skin,
     focus: FocusRequester,
+    placeholder: String,
+    multiline: Boolean,
     onValueChange: (String) -> Unit,
+    onBackspaceOnEmpty: () -> Boolean,
     onSubmit: () -> Unit,
 ) {
     val textStyle = searchStyle(skin).copy(fontSize = Metrics.searchFieldTextSp.sp)
@@ -690,21 +862,36 @@ private fun SearchField(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = Metrics.rowGapDp.dp, vertical = Metrics.rowGapDp.dp)
-            .height(Metrics.searchFieldHeightDp.dp)
+            .then(
+                if (multiline) Modifier.heightIn(min = Metrics.searchFieldHeightDp.dp)
+                else Modifier.height(Metrics.searchFieldHeightDp.dp),
+            )
             .background(Color(skin.colors.bg.toInt()), pill)
             .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), pill)
             .padding(horizontal = Metrics.screenGutterDp.dp)
-            .focusRequester(focus),
+            .focusRequester(focus)
+            .onPreviewKeyEvent { event ->
+                // T194: Backspace on an empty field leaves the mode (soft keyboards send it as a key event).
+                when {
+                    event.type == KeyEventType.KeyDown && event.key == Key.Backspace && query.isEmpty() -> onBackspaceOnEmpty()
+                    // T195: in a multi-line mode the hardware Enter key saves; Shift+Enter adds a line (so does pasting several lines).
+                    event.type == KeyEventType.KeyDown && SearchFieldRules.hardwareEnterSubmits(
+                        multiline, event.key == Key.Enter || event.key == Key.NumPadEnter, event.isShiftPressed) -> {
+                        onSubmit(); true
+                    }
+                    else -> false
+                }
+            },
         textStyle = textStyle,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+        keyboardOptions = KeyboardOptions(imeAction = SearchFieldRules.imeAction),
         keyboardActions = KeyboardActions(onGo = { onSubmit() }),
-        singleLine = true,
+        singleLine = !multiline,
         cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
         decorationBox = { innerTextField ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
                 if (query.isEmpty()) {
                     BasicText(
-                        "Search",
+                        placeholder,
                         style = textStyle.copy(color = Color(skin.colors.textSecondary.toInt())),
                     )
                 }
@@ -795,4 +982,59 @@ private fun Modifier.surface(skin: Skin): Modifier {
     }
     return fill
         .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), corner)
+}
+
+/**
+ * T194: the row of mode chips under the field, directly above the keyboard. One accent pill slides
+ * to the chosen chip on `Springs.sheet` and can be caught mid-way; the group is one selectable group
+ * for TalkBack and each chip is named by its label.
+ */
+@Composable
+private fun ModeChips(modes: List<SearchMode>, selectedId: String, skin: Skin, onSelect: (String) -> Unit) {
+    val entries = remember(modes) { listOf(SearchModeIds.Apps to "Apps") + modes.map { it.id to it.label } }
+    val selectedIndex = entries.indexOfFirst { it.first == selectedId }.coerceAtLeast(0)
+    val slide = remember { Animatable(selectedIndex.toFloat()) }
+    LaunchedEffect(selectedIndex) {
+        slide.animateTo(selectedIndex.toFloat(), spring(Springs.sheet.damping, Springs.sheet.stiffness))
+    }
+    val pill = Color(skin.colors.accent.toInt()).copy(alpha = Metrics.searchModeHighlightAlpha)
+    val corner = Metrics.minTouchDp / 2f
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Metrics.rowGapDp.dp)
+            .drawBehind {
+                val chip = size.width / entries.size
+                drawRoundRect(
+                    pill,
+                    topLeft = Offset(slide.value * chip, 0f),
+                    size = Size(chip, size.height),
+                    cornerRadius = CornerRadius(corner.dp.toPx()),
+                )
+            }
+            .selectableGroup(),
+    ) {
+        entries.forEachIndexed { index, (id, label) ->
+            ModeChip(label, index == selectedIndex, skin) { onSelect(id) }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.ModeChip(label: String, selected: Boolean, skin: Skin, onClick: () -> Unit) {
+    val fraction by animateFloatAsState(
+        if (selected) 1f else 0f,
+        spring(Springs.sheet.damping, Springs.sheet.stiffness),
+        label = "Mode chip",
+    )
+    val color = lerp(Color(skin.colors.textSecondary.toInt()), Color(skin.colors.accent.toInt()), fraction)
+    Box(
+        Modifier
+            .weight(1f)
+            .heightIn(min = Metrics.minTouchDp.dp)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        BasicText(label, style = captionStyle(skin).copy(color = color), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }

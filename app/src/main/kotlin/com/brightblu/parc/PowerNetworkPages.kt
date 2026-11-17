@@ -24,6 +24,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.brightblu.parc.core.data.power.*
 import com.brightblu.parc.core.data.network.*
+import com.brightblu.parc.core.data.ledger.DayLedgerRepository
+import com.brightblu.parc.core.data.ledger.LedgerAppKind
+import com.brightblu.parc.core.data.ledger.LedgerMath
+import com.brightblu.parc.core.data.ledger.LedgerTopApps
 import com.brightblu.parc.core.data.stats.StatsFormat
 import com.brightblu.parc.core.data.stats.StatsHistory
 import com.brightblu.parc.model.Metrics
@@ -33,97 +37,94 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
+/** T263: one Power reading, shared by the old page and the Device page so the two cannot drift. */
 @Composable
-internal fun PowerHubPage(source: PowerStatsSource?, active: Boolean, tiles: List<String>, expanded: Boolean, skin: Skin,
-    alerts: Set<com.brightblu.parc.core.data.stats.StatsAlertMetric> = emptySet(),
-    archive: com.brightblu.parc.core.data.stats.StatsArchive = com.brightblu.parc.core.data.stats.StatsArchive.Empty,
-    batteryPercent: Int? = null) {
-    DisposableEffect(source, active) {
-        source?.setActive(active)
-        onDispose { source?.setActive(false) }
-    }
-    val stats = source?.stats?.collectAsState()?.value ?: PowerStats.Empty
-    // T159: the overview replaces the "charging", "screen on today" and "time to full" tiles; the other tiles follow it.
-    val charging = stats.chargingPower?.direction == PowerDirection.Charging
-    val bars = remember(archive) { PowerPage.hourBars(archive.series(StatsArchiveMetric.BatteryPercent), System.currentTimeMillis(), ZoneId.systemDefault()) }
-    val rest = remember(tiles) { tiles.filterNot { it in PowerOverviewTiles } }
-    PageTiles(rest, expanded, skin, alerts, primaryFirst = false, emptyHint = false, leading = {
-        PowerOverview(batteryPercent, charging, stats.chargeTimeRemainingMillis, stats.screenOnTodayMillis, bars, skin)
-    }) { tile ->
-        val warning = alertForTile(tile, alerts) != null
-        val tileSkin = remember(skin, warning) { if (warning) skin.copy(colors = skin.colors.copy(accent = skin.colors.warn)) else skin }
-        when (tile) {
-            in HubCatalog.powerHistoryTiles -> StatsArchiveGraph(tile, HubCatalog.powerHistoryTiles.getValue(tile), archive, tileSkin)
-            "charging" -> Column {
-                HubHero(StatsFormat.percent(batteryPercent), "Battery · ${PowerNetworkFormat.watts(stats.chargingPower)}", tileSkin)
-                if (stats.chargeTimeRemainingMillis != null) CellLabel("Full in ${PowerNetworkFormat.duration(stats.chargeTimeRemainingMillis)}", tileSkin)
-            }
-            "time to full" -> Readout("Time to full", PowerNetworkFormat.duration(stats.chargeTimeRemainingMillis), tileSkin)
-            "health and cycles" -> Readout("Battery health / cycles", "${PowerNetworkFormat.health(stats.health)} · ${stats.cycleCount ?: "—"} cycles", tileSkin)
-            "battery temperature" -> Column {
-                Readout("Battery temperature · last 5 min", StatsFormat.temperature(stats.temperatureHistoryC.lastOrNull()), tileSkin)
-                TemperatureHistory(stats.temperatureHistoryC, tileSkin)
-            }
-            "screen on today" -> Column {
-                Readout("Screen on today", PowerNetworkFormat.duration(stats.screenOnTodayMillis), tileSkin)
-                if (stats.screenOnTodayMillis == null) UsageAccessRow(skin)
-            }
+internal fun PowerTileContent(tile: String, stats: PowerStats, batteryPercent: Int?,
+    archive: com.brightblu.parc.core.data.stats.StatsArchive, skin: Skin) {
+    when (tile) {
+        in HubCatalog.powerHistoryTiles -> StatsArchiveGraph(tile, HubCatalog.powerHistoryTiles.getValue(tile), archive, skin)
+        "charging" -> Column {
+            HubHero(StatsFormat.percent(batteryPercent), "Battery · ${PowerNetworkFormat.watts(stats.chargingPower)}", skin)
+            if (stats.chargeTimeRemainingMillis != null) CellLabel("Full in ${PowerNetworkFormat.duration(stats.chargeTimeRemainingMillis)}", skin)
+        }
+        "time to full" -> Readout("Time to full", PowerNetworkFormat.duration(stats.chargeTimeRemainingMillis), skin)
+        "health and cycles" -> Readout("Battery health / cycles", "${PowerNetworkFormat.health(stats.health)} · ${stats.cycleCount ?: "—"} cycles", skin)
+        "battery temperature" -> Column {
+            Readout("Battery temperature · last 5 min", StatsFormat.temperature(stats.temperatureHistoryC.lastOrNull()), skin)
+            TemperatureHistory(stats.temperatureHistoryC, skin)
+        }
+        "screen on today" -> Column {
+            Readout("Screen on today", PowerNetworkFormat.duration(stats.screenOnTodayMillis), skin)
+            if (stats.screenOnTodayMillis == null) UsageAccessRow(skin)
         }
     }
 }
 
+/** The readings one Network tile needs; Device and the old page share the same value. */
+internal data class NetworkTileContext(
+    val snapshot: NetworkUsageStats?,
+    val stored: com.brightblu.parc.core.data.ledger.DayLedger?,
+    val access: Boolean?,
+    val period: com.brightblu.parc.core.data.ledger.LedgerPeriod,
+    val cycle: () -> Unit,
+    val entries: List<com.brightblu.parc.model.AppEntry>,
+    val ownPackage: String,
+    val today: java.time.LocalDate?,
+)
+
+/** T263: one Network reading, shared by the old page and the Device page so the two cannot drift. */
 @Composable
-internal fun NetworkHubPage(repository: NetworkStatsRepository?, active: Boolean, tiles: List<String>, expanded: Boolean,
-    presentation: StatsPresentation, history: StatsHistory, skin: Skin) {
-    var snapshot by remember(repository) { mutableStateOf<NetworkUsageStats?>(null) }
-    LaunchedEffect(repository, active) {
-        if (active && repository != null) while (isActive) {
-            snapshot = withContext(Dispatchers.IO) { repository.read() }
-            delay(Metrics.hubNetworkRefreshMillis)
-        }
+internal fun NetworkTileContent(tile: String, c: NetworkTileContext, presentation: StatsPresentation,
+    history: StatsHistory, skin: Skin) {
+    val summary = remember(c.stored, c.period, c.today) {
+        if (c.stored != null && c.today != null) LedgerMath.summary(c.stored, c.period, c.today) else null
     }
-    val today = snapshot?.today as? TodayDataUsage.Available
-    PageTiles(tiles, expanded, skin) { tile ->
-        when (tile) {
-            "traffic" -> Column {
-                CellLabel("Live traffic · ↓ down / ↑ up", skin)
-                NetworkCell(presentation, history, skin)
-            }
-            "today totals" -> Column {
-                Readout("Today · Wi-Fi / mobile", "${PowerNetworkFormat.bytes(today?.wifi?.totalBytes)} / ${PowerNetworkFormat.bytes(today?.mobile?.totalBytes)}", skin)
-                if (snapshot?.today == TodayDataUsage.Unavailable) UsageAccessRow(skin)
-            }
-            "top apps" -> Column(verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
-                CellLabel("Top apps · data today", skin)
-                val apps = today?.topApps
-                if (apps == null) {
-                    CellLabel(if (snapshot == null) "Loading…" else "—", skin)
-                    if (snapshot?.today == TodayDataUsage.Unavailable) UsageAccessRow(skin)
-                } else if (apps.isEmpty()) CellLabel("No app data today", skin)
-                else {
-                    val max = apps.maxOf { it.totalBytes }.coerceAtLeast(1L)
-                    apps.take(NetworkStatsRepository.TopCount).forEach { app ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
-                            BasicText(app.label, Modifier.weight(1f), style = hudValueStyle(skin), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            BasicText(PowerNetworkFormat.bytes(app.totalBytes), style = hudLabelStyle(skin))
-                        }
-                        DataBar((app.totalBytes.toDouble() / max).toFloat(), skin)
+    when (tile) {
+        "traffic" -> Column {
+            CellLabel("Live traffic · ↓ down / ↑ up", skin)
+            NetworkCell(presentation, history, skin)
+        }
+        "data totals" -> Column {
+            PeriodLabel(summary?.networkLabel() ?: c.period.label, skin, c.cycle)
+            val shown = summary != null && c.access != false && summary.networkDays > 0
+            Readout("Wi-Fi / mobile", "${PowerNetworkFormat.bytes(summary?.wifiBytes.takeIf { shown })} / ${PowerNetworkFormat.bytes(summary?.mobileBytes.takeIf { shown })}", skin)
+            if (c.access == false) UsageAccessRow(skin)
+        }
+        "top apps" -> Column(verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
+            CellLabel("Top apps · data", skin)
+            PeriodLabel(summary?.networkLabel() ?: c.period.label, skin, c.cycle)
+            val apps = if (c.stored != null && c.today != null && c.access != false)
+                LedgerTopApps.of(LedgerMath.appTotals(c.stored, c.period, c.today, LedgerAppKind.Data), c.entries, c.ownPackage, NetworkStatsRepository.TopCount) else null
+            if (c.access == false) {
+                CellLabel("—", skin)
+                UsageAccessRow(skin)
+            } else if (apps == null) CellLabel("Loading…", skin)
+            else if (apps.isEmpty()) CellLabel("No app data recorded", skin)
+            else {
+                val max = apps.maxOf { it.value }.coerceAtLeast(1L)
+                apps.forEach { app ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
+                        BasicText(app.label, Modifier.weight(1f), style = hudValueStyle(skin), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        BasicText(PowerNetworkFormat.bytes(app.value), style = hudLabelStyle(skin))
                     }
+                    DataBar((app.value.toDouble() / max).toFloat(), skin)
                 }
             }
-            "wifi link" -> Readout("Wi-Fi · speed / signal", "${snapshot?.link?.wifiLinkSpeedMbps?.let { "$it Mbps" } ?: "—"} / ${snapshot?.link?.wifiRssiDbm?.let { "$it dBm" } ?: "—"}", skin)
-            "network type" -> Readout("Mobile network type", PowerNetworkFormat.network(snapshot?.link?.mobileNetworkType), skin)
         }
+        "wifi link" -> Readout("Wi-Fi · speed / signal", "${c.snapshot?.link?.wifiLinkSpeedMbps?.let { "$it Mbps" } ?: "—"} / ${c.snapshot?.link?.wifiRssiDbm?.let { "$it dBm" } ?: "—"}", skin)
+        "network type" -> Readout("Mobile network type", PowerNetworkFormat.network(c.snapshot?.link?.mobileNetworkType), skin)
     }
 }
 
 @Composable
 internal fun PageTiles(tiles: List<String>, expanded: Boolean, skin: Skin,
     alerts: Set<com.brightblu.parc.core.data.stats.StatsAlertMetric> = emptySet(),
-    centreSingleTile: Boolean = false, primaryFirst: Boolean = true, emptyHint: Boolean = true, leading: @Composable () -> Unit = {}, content: @Composable (String) -> Unit) {
+    centreSingleTile: Boolean = false, primaryFirst: Boolean = true, emptyHint: Boolean = true, scroll: Boolean = true,
+    leading: @Composable () -> Unit = {}, content: @Composable (String) -> Unit) {
     val height = if (centreSingleTile) Metrics.hudCellHeightDp else LocalHubTileHeight.current
     androidx.compose.runtime.CompositionLocalProvider(LocalHubTileHeight provides height) {
-        Column(Modifier.fillMaxWidth().hubPageScroll(), verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
+        Column(Modifier.fillMaxWidth().then(if (scroll) Modifier.hubPageScroll() else Modifier),
+            verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
             leading()
             // T83: the hub scrolls inside its arc bound; a collapsed two-tile list is not a mode.
             tiles.forEachIndexed { index, tile ->
@@ -181,9 +182,6 @@ private fun TemperatureHistory(values: List<Float>, skin: Skin) {
     }
 }
 
-/** Tiles the T159 overview already shows; hiding or reordering them in the page options changes nothing. */
-private val PowerOverviewTiles = setOf("charging", "screen on today", "time to full")
-
 /**
  * T159, DESIGN S22: big battery number, 20-dot meter, two pebbles (screen on, charging) and the last 8 hours.
  * Stateless: every value comes in, so the demo page and the real page draw the same thing. Compact shows the
@@ -191,7 +189,7 @@ private val PowerOverviewTiles = setOf("charging", "screen on today", "time to f
  */
 @Composable
 internal fun PowerOverview(percent: Int?, charging: Boolean, fullInMillis: Long?, screenOnMillis: Long?,
-    bars: List<HourBar>, skin: Skin) {
+    bars: List<HourBar>, skin: Skin, chargingPower: com.brightblu.parc.core.data.power.ChargingPower? = null) {
     val size = LocalHubSize.current
     val typography = skin.typography
     val ink = Color(skin.colors.textPrimary.toInt())
@@ -203,12 +201,19 @@ internal fun PowerOverview(percent: Int?, charging: Boolean, fullInMillis: Long?
             DotNumerals(if (percent == null) "--%" else "$percent%", DotRole.bigDot, typography, ink)
         }
         DotMeter(percent, skin)
-        if (size == HubSize.Compact) return@Column
+        val state = PowerPage.chargingState(charging) + if (charging && chargingPower != null) " · ${PowerNetworkFormat.watts(chargingPower)}" else ""
+        if (size == HubSize.Compact) {
+            // T270: Compact keeps the charging state, wattage and time to full on one line (T263 had dropped them).
+            val full = PowerPage.fullIn(charging, fullInMillis)
+            BasicText(if (full != null) "$state · $full" else state, style = hudValueStyle(skin), maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            return@Column
+        }
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
             HudCell(skin, Modifier.weight(1f).fillMaxHeight()) { ScreenOnPebble(screenOnMillis, skin) }
             HudCell(skin, Modifier.weight(1f).fillMaxHeight()) {
                 Column {
-                    BasicText(PowerPage.chargingState(charging), style = hudValueStyle(skin))
+                    BasicText(state, style = hudValueStyle(skin))
                     PowerPage.fullIn(charging, fullInMillis)?.let { CellLabel(it, skin) }
                 }
             }

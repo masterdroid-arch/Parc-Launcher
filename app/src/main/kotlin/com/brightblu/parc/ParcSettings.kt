@@ -1,9 +1,11 @@
 package com.brightblu.parc
 
 import android.content.ComponentName
+import android.content.pm.ApplicationInfo
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -39,6 +43,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import com.brightblu.parc.core.data.ParcSettings
+import com.brightblu.parc.core.data.comms.CommsPackages
 import com.brightblu.parc.core.data.backup.AndroidBackupFileStore
 import com.brightblu.parc.core.data.notifications.ParcNotificationListenerService
 import com.brightblu.parc.core.data.skins.SkinNaming
@@ -47,6 +52,9 @@ import com.brightblu.parc.feature.settings.backup.LayoutBackupScreen
 import com.brightblu.parc.feature.settings.backup.LayoutBackupService
 import com.brightblu.parc.feature.settings.hidden.HiddenApps
 import com.brightblu.parc.feature.settings.hidden.HiddenAppsController
+import com.brightblu.parc.feature.settings.hidden.HiddenFolders
+import com.brightblu.parc.feature.settings.hidden.HiddenFoldersController
+import com.brightblu.parc.feature.settings.hidden.HiddenFoldersText
 import com.brightblu.parc.feature.settings.notifications.NotificationAccessLink
 import com.brightblu.parc.feature.settings.notifications.NotificationAccessStatus
 import com.brightblu.parc.feature.settings.onboarding.AndroidOnboardingIntents
@@ -66,7 +74,7 @@ import com.brightblu.parc.feature.settings.ui.EditorSpec
 import com.brightblu.parc.feature.settings.ui.SettingKind
 import com.brightblu.parc.feature.settings.ui.SettingRow
 import com.brightblu.parc.feature.settings.ui.SettingsCard
-import com.brightblu.parc.feature.settings.ui.SettingsGroup
+import com.brightblu.parc.feature.settings.ui.SettingsGroupGlyph
 import com.brightblu.parc.feature.settings.ui.SettingsSearch
 import com.brightblu.parc.feature.settings.ui.SettingsTheme
 import com.brightblu.parc.feature.settings.ui.settingsText
@@ -78,9 +86,12 @@ import com.brightblu.parc.model.ParcPage
 import com.brightblu.parc.model.Skin
 import com.brightblu.parc.model.SkinSafety
 import com.brightblu.parc.model.Springs
+import com.brightblu.parc.model.hidden
 import com.brightblu.parc.model.locked
 import com.brightblu.parc.model.rememberPageInsets
 import com.brightblu.parc.model.textFamily
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import com.brightblu.parc.ring.FeelEvent
 import com.brightblu.parc.ring.FeelPlayer
 import com.brightblu.parc.ring.FeelPrefs
@@ -88,28 +99,28 @@ import com.brightblu.parc.ring.HapticPreset
 import com.brightblu.parc.ring.SoundTheme
 import kotlinx.coroutines.launch
 
-/**
- * Pages of the Parc Settings host. The first eight are the root and the seven pages of T177 ([SettingsHome]); the rest are
- * editors and lists those pages open.
- */
-internal enum class SettingsPage {
-    Root, Look, Hubs, Layout, Gestures, StatsPages, SearchNotifications, BackupAbout,
-    SkinStudio, MainApps, Rotation, Folders, LockedFolders, Hidden, HubPages, HubOptions, Agenda, StatsAlerts, Search,
-    Comms, CommsApps, QuickReplies, Focus, Permissions, Onboarding, Diagnostics, Backup, WhatsNew, VersionHistory, SwipeUp, HubLongPress,
+/** T220: the Settings host is one of these three screens. The group/page enums hold the content. */
+internal sealed interface SettingsScreen {
+    data object Root : SettingsScreen
+    data class Group(val group: SettingsGroup) : SettingsScreen
+    data class Page(val page: SettingsPage) : SettingsScreen
 }
 
-internal val SettingsHome.settingsPage: SettingsPage get() = SettingsPage.valueOf(name)
-internal val SettingsPage.home: SettingsHome? get() = SettingsHome.entries.firstOrNull { it.name == name }
-
-/** One step out, shared by the Back arrow and system Back: an editor goes back to the page whose row opened it. */
-internal fun settingsParent(page: SettingsPage): SettingsPage = when (page) {
-    SettingsPage.Root -> SettingsPage.Root
-    SettingsPage.CommsApps, SettingsPage.QuickReplies -> SettingsPage.Comms
-    SettingsPage.HubOptions -> SettingsPage.StatsPages
-    SettingsPage.Onboarding -> SettingsPage.BackupAbout
-    else -> if (page.home != null) SettingsPage.Root
-        else SettingsRegistry.all.firstOrNull { it.opens == page }?.page?.settingsPage ?: SettingsPage.Root
+/** One step out, shared by the Back arrow and system Back. The nested chain is page → page → group → root. */
+internal fun settingsParent(screen: SettingsScreen): SettingsScreen = when (screen) {
+    SettingsScreen.Root -> SettingsScreen.Root
+    is SettingsScreen.Group -> SettingsScreen.Root
+    is SettingsScreen.Page -> when {
+        screen.page.parent != null -> SettingsScreen.Page(screen.page.parent)
+        screen.page.group != null -> SettingsScreen.Group(screen.page.group)
+        else -> SettingsScreen.Root
+    }
 }
+
+internal fun settingsParent(page: SettingsPage): SettingsScreen = settingsParent(SettingsScreen.Page(page))
+
+/** The registry row's actual destination. Hidden apps/folders/locked folders are own pages under Hidden & locked. */
+internal fun settingsPageForRow(def: SettingDef): SettingsPage = def.page
 
 /** Stable navigation identities of the editor scaffolds. */
 internal val editorDestinations = mapOf(
@@ -140,6 +151,12 @@ internal fun ParcSettings(
     onSetBadgesInAllApps: (Boolean) -> Unit,
     markWorkApps: Boolean = true,
     onSetMarkWorkApps: (Boolean) -> Unit = {},
+    /** T245: Lock layout lives in Settings > Home and is mirrored by Home at once. */
+    layoutLocked: Boolean = false,
+    onSetLayoutLocked: (Boolean) -> Unit = {},
+    /** T261: Left hand mirrors Home at once. */
+    leftHand: Boolean = false,
+    onSetLeftHand: (Boolean) -> Unit = {},
     onSetAlignedArcs: (Boolean) -> Unit,
     onSetJoystick: (Boolean) -> Unit,
     onAndroidSettings: () -> Unit,
@@ -156,6 +173,17 @@ internal fun ParcSettings(
     val context = LocalContext.current
     val view = LocalView.current
     val apps by services.unlockedApps.collectAsState()
+    // T213: installed messaging/social apps are offered first, then the fixed opt-ins, then the rest.
+    val commsApps = remember(apps, context) {
+        val packageManager = context.packageManager
+        apps.map { app ->
+            val known = app.packageName in CommsPackages.Known
+            val social = runCatching {
+                packageManager.getApplicationInfo(app.packageName, 0).category == ApplicationInfo.CATEGORY_SOCIAL
+            }.getOrDefault(false)
+            CommsAppEntry(app.packageName, app.label, known || social)
+        }
+    }
     val lockGate = rememberFolderLockGate(services)
     val lockWindows by services.folderLock.windows.collectAsState()
     val lockedPickerPackages by services.lockedPackages.collectAsState()
@@ -189,11 +217,19 @@ internal fun ParcSettings(
         onDispose { lifecycle.removeObserver(observer) }
     }
     val settings by services.prefs.settings.collectAsState(initial = ParcSettings())
+    val commsEnabled by services.comms.enabled.collectAsState()
+    val commsRecordHistory by services.comms.keepHistory.collectAsState()
+    val commsStored by services.comms.storedMessages.collectAsState()
     val focus by services.focus.state.collectAsState()
     val focusModes by services.focus.modes.collectAsState()
-    var page by remember { mutableStateOf(initialPage) }
+    var screen by remember { mutableStateOf<SettingsScreen>(
+        if (initialPage == SettingsPage.Root) SettingsScreen.Root else SettingsScreen.Page(initialPage)) }
     var target by remember { mutableStateOf(initialRow) }
-    var hubOptions by remember { mutableStateOf("system") }
+    var hubOptions by remember { mutableStateOf(TodayPage.Id) }
+    // T262: the Hub pages list keeps one scroll state for the whole Settings visit, so returning
+    // from a page's options does not move the rows under the finger.
+    val hubPagesScroll = rememberScrollState()
+    var hubPagesViewport by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     val menuPrefs = remember(context) { ParcUiPrefs(context) }
     var menuNotifications by remember { mutableStateOf(menuPrefs.menuNotifications()) }
     var menuNotificationText by remember { mutableStateOf(menuPrefs.menuNotificationText()) }
@@ -206,15 +242,28 @@ internal fun ParcSettings(
     }
     val settingsState by settingsController.state.collectAsState()
     val hiddenController = remember(services) { HiddenAppsController(services.layout, services.unlockedApps, scope) }
+    val hiddenAppsState by hiddenController.state.collectAsState()
+    val hiddenFoldersController = remember(services) { HiddenFoldersController(services.layout, scope) }
     val backupController = remember(services) {
         BackupController(LayoutBackupService(services.layout, AndroidBackupFileStore(context)), scope)
     }
+    val weeklyBackupStore = remember(context) { WeeklyBackupStore(context) }
+    val weeklyBackup by weeklyBackupStore.state.collectAsState(initial = weeklyBackupStore.read())
+    val weeklyBackupUi = com.brightblu.parc.feature.settings.backup.WeeklyBackupUiState(
+        enabled = weeklyBackup.enabled,
+        folderName = weeklyBackup.folderName,
+        lastBackupLabel = WeeklyBackupText.lastBackup(
+            weeklyBackup.lastSuccessMillis, System.currentTimeMillis(), java.time.ZoneId.systemDefault()),
+        failureLabel = weeklyBackup.lastFailure?.let(WeeklyBackupText::failure),
+    )
     val onboardingController = remember(services) {
         OnboardingController(services.prefs.asOnboardingStore(), AndroidOnboardingProbe.of(context), scope)
     }
     val onboardingState by onboardingController.state.collectAsState()
     LaunchedEffect(onboardingState.completed) {
-        if (onboardingState.completed && page == SettingsPage.Onboarding) page = SettingsPage.BackupAbout
+        if (onboardingState.completed && screen == SettingsScreen.Page(SettingsPage.Onboarding)) {
+            screen = SettingsScreen.Page(SettingsPage.DataPermissions)
+        }
     }
     val maxIcons = remember(services.geometry, alignedArcs) {
         val g = services.geometry
@@ -232,19 +281,24 @@ internal fun ParcSettings(
         searchFiles = searchSnapshot.filesEnabled, searchEvents = searchSnapshot.eventsEnabled,
         fileSearchAvailable = BuildConfig.FILE_SEARCH_ENABLED, badges = badgesEnabled, badgesInAllApps = badgesInAllApps,
         menuNotifications = menuNotifications, menuNotificationText = menuNotificationText, markWorkApps = markWorkApps,
-        notificationAccess = notificationAccess, wallpaperSkinSupported = services.wallpaperSkin.supported,
+        layoutLocked = layoutLocked, leftHand = leftHand, notificationAccess = notificationAccess, wallpaperSkinSupported = services.wallpaperSkin.supported,
         wallpaperMode = settings.wallpaperMode, wallpaperLook = settings.wallpaperLook,
         focusSummary = FocusDisplay.summary(focus, focusModes),
+        hiddenFoldersSummary = HiddenFoldersText.summary(settingsLayout.folders.count { it.hidden }),
         lockedFoldersSummary = com.brightblu.parc.core.data.lock.LockedFolderText.summary(settingsLayout.folders.count { it.locked }),
         agendaSummary = AgendaSettingsText.summary(agendaSettings),
         swipeUpLabel = gestureActionLabel(gestures.swipeUp, appLabel), hubLongPressLabel = gestureActionLabel(gestures.hubLongPress, appLabel),
+        commsEnabled = commsEnabled, commsRecordHistory = commsRecordHistory,
+        commsStoredCount = commsStored.size,
+        commsStorageLine = CommsExtrasPresentation.storageLine(commsStored.size, CommsExtrasPresentation.storageBytes(commsStored)),
     )
     val lookStore = remember(context) { ParcLookStore(context) }
     val writer = remember(services) {
         SettingsWriter(look = { change -> onChangeLook(change) }, hub = { change -> appearanceStore.update(change) },
             prefs = services.prefs, ui = menuPrefs, hubStore = hubStore, search = searchPrefs, feel = feelStore,
-            iconPacks = services.appIndex.iconPacks, layout = services.layout,
-            live = LiveSinks(onSetAlignedArcs, onSetJoystick, onSetHubDoubleTap, onSetBadgesEnabled, onSetBadgesInAllApps, onSetMarkWorkApps))
+            iconPacks = services.appIndex.iconPacks, layout = services.layout, comms = services.comms,
+            live = LiveSinks(onSetAlignedArcs, onSetJoystick, onSetHubDoubleTap, onSetBadgesEnabled, onSetBadgesInAllApps,
+                onSetMarkWorkApps, onSetLayoutLocked, onSetLeftHand))
     }
     val player = remember { FeelPlayer() }
     DisposableEffect(player) { onDispose { player.release() } }
@@ -258,165 +312,264 @@ internal fun ParcSettings(
         scope.launch { writer.persist(snapshot, next.copy(skinId = if (next.skinId != snapshot.skinId) snapshot.skinId else next.skinId)) }
     }
     var chooseWallpaper by remember { mutableStateOf(0) }
+    var previewSkin by remember { mutableStateOf<Skin?>(null) }
     val onOpen: (SettingDef) -> Unit = { def ->
         when (def.id) {
             "NotificationAccess" -> context.startActivity(access.settingsIntent())
             "AndroidSettings" -> onAndroidSettings()
+            "ShowHintsAgain" -> {
+                com.brightblu.parc.ParcUiPrefs(context).resetGestureHints()
+                android.widget.Toast.makeText(context, "Hints will show again.", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            "CommsClearHistory" -> scope.launch { services.comms.clearHistory() }
             "RerunOnboarding" -> {
                 scope.launch { services.prefs.setOnboardingCompleted(false) }
                 onboardingController.goTo(com.brightblu.parc.feature.settings.onboarding.OnboardingStep.DefaultHome)
-                page = SettingsPage.Onboarding
+                screen = SettingsScreen.Page(SettingsPage.Onboarding)
             }
-            "Agenda" -> { agendaSettings = menuPrefs.agenda(); page = SettingsPage.Agenda }
-            else -> def.opens?.let { page = it }
+            "Agenda" -> { agendaSettings = menuPrefs.agenda(); screen = SettingsScreen.Page(SettingsPage.Agenda) }
+            else -> def.opens?.let { screen = SettingsScreen.Page(it) }
         }
+    }
+    val customRow: @Composable (SettingDef) -> Unit = { def ->
+        RegistryCustom(def, snapshot, skin, services, look, onChangeLook, chooseWallpaper,
+            onChoose = { chooseWallpaper++ }, onValue = onValue,
+            onPreviewSkin = { previewSkin = it }, onEditSkin = { screen = SettingsScreen.Page(SettingsPage.SkinStudio) },
+            onWhatsNew = { screen = SettingsScreen.Page(SettingsPage.WhatsNew) })
     }
 
     val backTarget = remember { SettingsBackTarget() }
-    var previewSkin by remember { mutableStateOf<Skin?>(null) }
-    val goBack = { if (previewSkin != null) previewSkin = null else if (page == SettingsPage.Root) onClose() else { page = settingsParent(page) } }
+    val goBack = {
+        if (previewSkin != null) previewSkin = null
+        else when (val shown = screen) {
+            SettingsScreen.Root -> onClose()
+            else -> screen = settingsParent(shown)
+        }
+    }
     BackHandler { goBack() }
 
     androidx.compose.runtime.CompositionLocalProvider(LocalSettingsBackTarget provides backTarget) {
-    Box(Modifier.fillMaxSize().background(Color(skin.colors.bg.toInt())).settingsExit {
-        if (previewSkin != null) previewSkin = null else (backTarget.action ?: goBack).invoke()
-    }) {
-        androidx.compose.animation.Crossfade(targetState = page,
-            animationSpec = androidx.compose.animation.core.spring(Springs.sheet.damping, Springs.sheet.stiffness), label = "Settings page") { shownPage ->
-        val back = { page = settingsParent(shownPage) }
-        val home = shownPage.home
-        if (home != null) {
-            // T177/T178: Look, Hubs and Layout carry the live Home preview, drawn by Home's own code with the values being edited.
-            val body: @Composable () -> Unit = {
-                SettingsIntro(skin, home.intro)
-                RegistryRows(home, snapshot, skin, target, onValue, onOpen,
-                    custom = { def -> RegistryCustom(def, snapshot, skin, services, look, onChangeLook, chooseWallpaper,
-                        onChoose = { chooseWallpaper++ }, onValue = onValue,
-                        onPreviewSkin = { previewSkin = it }, onEditSkin = { page = SettingsPage.SkinStudio },
-                        onWhatsNew = { page = SettingsPage.WhatsNew }) },
-                    footer = { group -> when (group) {
-                        "Glass, both hubs" -> "One glass for both cards, in every skin. Off gives flat cards at their opacity."
-                        "Wallpaper" -> if (look.wallpaper == com.brightblu.parc.model.WallpaperStyle.System)
-                            "Parc cannot read the phone wallpaper's picture, so glass frosts its main colour." else ""
-                        else -> ""
-                    } })
-                if (home == SettingsHome.StatsPages && settings.statsVisible) SettingsGroup("Pages", skin,
-                    footer = "Tap a page to change what it shows. Swipe the hub on Home to move between pages.") {
-                    hubConfig.orderedPages.forEachIndexed { index, id ->
-                        SettingRow(id.replaceFirstChar { it.uppercase() }, skin, SettingKind.Page, "Change what this hub page shows",
-                            value = if (id in hubConfig.hiddenPages) "Hidden" else "Shown",
-                            divider = index < hubConfig.orderedPages.lastIndex) { hubOptions = id; page = SettingsPage.HubOptions }
+    Box(Modifier.fillMaxSize().background(Color(skin.colors.bg.toInt()))) {
+        androidx.compose.animation.Crossfade(targetState = screen,
+            animationSpec = androidx.compose.animation.core.spring(Springs.sheet.damping, Springs.sheet.stiffness), label = "Settings page") { shown ->
+        val back = { screen = settingsParent(shown) }
+        when (shown) {
+            SettingsScreen.Root -> RootPage(skin, snapshot, hubConfig.takeIf { settings.statsVisible },
+                onOpen = { group -> target = null; screen = SettingsScreen.Group(group) },
+                onJump = { def -> target = if (def.id in SettingsRegistry.selfEntryIds) null else def.id
+                    screen = SettingsScreen.Page(settingsPageForRow(def)) },
+                onHubPage = { id -> hubOptions = id; screen = SettingsScreen.Page(SettingsPage.HubOptions) }, onClose = onClose)
+            is SettingsScreen.Group -> SettingsGroupPage(shown.group, skin, back,
+                onOpenPage = { page -> target = null; screen = SettingsScreen.Page(page) })
+            is SettingsScreen.Page -> when (val page = shown.page) {
+                SettingsPage.HubOptions -> SettingsPageFrame(skin, onBack = back) {
+                    ParcPage(safeTop = false, scroll = false, padBottom = false) {
+                        HubPageOptionsContent(hubOptions, skin, hubConfig, { change -> scope.launch { hubStore.update(change) } },
+                            onFullSettings = { screen = SettingsScreen.Page(it) }, showEditPages = false)
                     }
                 }
-            }
-            if (home == SettingsHome.Look || home == SettingsHome.Hubs || home == SettingsHome.Layout) {
-                PreviewSettingsPage(skin, home.title, back, preview = {
-                    HomePreview(services, activeSkin, look, counts = counts, aligned = alignedArcs, appearance = hubAppearance)
-                }) { body() }
-            } else SettingsPageFrame(skin, onBack = back) { SettingsContent(skin, home.title) { body() } }
-        } else when (shownPage) {
-            SettingsPage.Root -> RootPage(skin, snapshot, hubConfig.takeIf { settings.statsVisible },
-                onOpen = { home -> target = null; page = home.settingsPage },
-                onJump = { def -> target = def.id; page = def.page.settingsPage },
-                onHubPage = { id -> hubOptions = id; page = SettingsPage.HubOptions }, onClose = onClose)
-            SettingsPage.HubOptions -> SettingsPageFrame(skin, onBack = back) {
-                ParcPage(safeTop = false, scroll = false, padBottom = false) {
-                    HubPageOptionsContent(hubOptions, skin, hubConfig, { change -> scope.launch { hubStore.update(change) } },
-                        onFullSettings = { page = it })
-                }
-            }
-            SettingsPage.Search -> SettingsPageFrame(skin, onBack = back) { SettingsContent(skin, "Search") { SearchSettingsSection(skin) } }
-            SettingsPage.MainApps -> SettingsPageFrame(skin, onBack = back) {
-                ParcPage(safeTop = false, scroll = false, padBottom = false) { MainAppsSettingsSection(skin, lockedPickerPackages) { back() } }
-            }
-            SettingsPage.Rotation -> SettingsPageFrame(skin, onBack = back) {
-                ParcPage(safeTop = false, scroll = false, padBottom = false) {
-                    EditorScaffold(EditorSpec.Rotation, skin, empty = true,
-                        preview = { HomePreview(services, activeSkin, look, caption = "Your arcs as they are turned now", appearance = hubAppearance) }) {
-                        BasicText("Each arc remembers its position. Apps stay upright.", style = settingsText(skin))
+                SettingsPage.HubPages -> {
+                    SettingsPageFrame(skin, onBack = back) {
+                        ParcPage(Modifier.onGloballyPositioned { hubPagesViewport = it.boundsInWindow() }, safeTop = false, scrollState = hubPagesScroll) {
+                            BasicText(page.title, style = style(skin, skin.colors.textPrimary, skin.typography.title))
+                            SettingsIntro(skin, page.intro)
+                            if (settings.statsVisible) SettingsAnchor("HubPages", target) {
+                                Column(verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+                                    HubPagesMainList(skin, hubConfig, { change -> scope.launch { hubStore.update(change) } },
+                                        hubPagesScroll, { hubPagesViewport }) { id -> hubOptions = id; screen = SettingsScreen.Page(SettingsPage.HubOptions) }
+                                }
+                            }
+                            RegistryRows(SettingsPage.HubPages, snapshot, skin, target, onValue, onOpen, customRow)
+                        }
                     }
                 }
-            }
-            SettingsPage.VersionHistory -> SettingsPageFrame(skin, onBack = back) {
-                val entries = remember(context) { loadChangelog(context) }
-                SettingsContent(skin, "Version history") { entries.forEach { ReleaseEntry(skin, it) } }
-            }
-            SettingsPage.WhatsNew -> SettingsPageFrame(skin, onBack = back) {
-                val entries = remember(context) { loadChangelog(context) }
-                SettingsContent(skin, "What's new") { ReleaseEntry(skin, entries.last()) }
-            }
-            SettingsPage.StatsAlerts -> SettingsPageFrame(skin, onBack = back) {
-                ParcPage(safeTop = false, scroll = false, padBottom = false) { StatsAlertSettings(services.statsAlerts, skin) }
-            }
-            SettingsPage.Comms, SettingsPage.CommsApps, SettingsPage.QuickReplies -> SettingsPageFrame(skin, onBack = back) {
-                ParcPage(safeTop = false, scroll = false, padBottom = false) {
-                    CommsSettings(services.comms, skin, apps.map { it.packageName to it.label },
-                        section = when (shownPage) { SettingsPage.CommsApps -> CommsSettingsSection.Apps
-                            SettingsPage.QuickReplies -> CommsSettingsSection.Replies
-                            else -> CommsSettingsSection.Summary },
-                        onOpenApps = { page = SettingsPage.CommsApps }, onOpenReplies = { page = SettingsPage.QuickReplies })
+                SettingsPage.Search -> SettingsRegistryPage(page, snapshot, skin, target, back, onValue, onOpen, customRow)
+                SettingsPage.SearchPreferences -> SettingsPageFrame(skin, onBack = back) {
+                    SettingsContent(skin, page.title) { SearchSettingsSection(skin) }
                 }
-            }
-            SettingsPage.HubPages -> SettingsPageFrame(skin, onBack = back) {
-                ParcPage(safeTop = false, scroll = false, padBottom = false) {
-                    androidx.compose.runtime.CompositionLocalProvider(LocalHubSettings provides { page = it }) {
-                        HubPageSettings(skin, hubConfig) { change -> scope.launch { hubStore.update(change) } }
+                SettingsPage.Messages -> SettingsRegistryPage(page, snapshot, skin, target, back, onValue, onOpen, customRow,
+                    footerFor = { card -> if (card == "History") "Messages from WhatsApp, Telegram and Instagram are stored on this phone. Not in backups. Clear them any time." else "" })
+                SettingsPage.MainApps -> SettingsPageFrame(skin, onBack = back) {
+                    ParcPage(safeTop = false, scroll = false, padBottom = false) { MainAppsSettingsSection(skin, lockedPickerPackages) { back() } }
+                }
+                SettingsPage.Rotation -> SettingsPageFrame(skin, onBack = back) {
+                    ParcPage(safeTop = false, scroll = false, padBottom = false) {
+                        EditorScaffold(EditorSpec.Rotation, skin, empty = true,
+                            preview = { HomePreview(services, activeSkin, look, caption = "Your arcs as they are turned now", appearance = hubAppearance) }) {
+                            BasicText("Each arc remembers its position. Apps stay upright.", style = settingsText(skin))
+                        }
                     }
                 }
-            }
-            SettingsPage.Agenda -> SettingsPageFrame(skin, onBack = back) {
-                ParcPage(safeTop = false, scroll = false, padBottom = false) {
-                    AgendaSettingsContent(skin, agendaSettings) { next -> agendaSettings = next; menuPrefs.setAgenda(next) }
+                SettingsPage.VersionHistory -> SettingsPageFrame(skin, onBack = back) {
+                    val entries = remember(context) { loadChangelog(context) }
+                    SettingsContent(skin, page.title) { entries.forEach { ReleaseEntry(skin, it) } }
                 }
-            }
-            SettingsPage.SwipeUp, SettingsPage.HubLongPress -> {
-                val slot = if (shownPage == SettingsPage.SwipeUp) GestureSlot.SwipeUp else GestureSlot.HubLongPress
-                GestureSettingsPage(skin, slot, gestures.actionFor(slot), hubConfig.pages, apps,
-                    onPick = { onSetGesture(slot, it) }, onBack = back)
-            }
-            SettingsPage.Diagnostics -> SettingsPageFrame(skin, onBack = back) {
-                val stored by remember(context) { SceneDiagnosticsStore(context) }.last.collectAsState(initial = SceneDiagnostic())
-                ParcPage(safeTop = false, blockGapDp = Metrics.itemGapDp) {
-                    BasicText("Diagnostics", style = style(skin, skin.colors.textPrimary, skin.typography.title))
-                    sceneDiagnosticLines(stored).forEach { line ->
-                        BasicText(line, style = style(skin, skin.colors.textSecondary, skin.typography.caption))
+                SettingsPage.WhatsNew -> SettingsPageFrame(skin, onBack = back) {
+                    val entries = remember(context) { loadChangelog(context) }
+                    SettingsContent(skin, page.title) { ReleaseEntry(skin, entries.firstOrNull { it.versionCode == BuildConfig.VERSION_CODE } ?: entries.first()) }
+                }
+                SettingsPage.StatsAlerts -> SettingsPageFrame(skin, onBack = back) {
+                    ParcPage(safeTop = false, scroll = false, padBottom = false) { StatsAlertSettings(services.statsAlerts, skin) }
+                }
+                SettingsPage.CommsApps, SettingsPage.QuickReplies -> SettingsPageFrame(skin, onBack = back) {
+                    ParcPage(safeTop = false, scroll = false, padBottom = false) {
+                        CommsSettings(services.comms, skin, commsApps,
+                            section = if (page == SettingsPage.CommsApps) CommsSettingsSection.Apps else CommsSettingsSection.Replies,
+                            onOpenApps = { screen = SettingsScreen.Page(SettingsPage.CommsApps) },
+                            onOpenReplies = { screen = SettingsScreen.Page(SettingsPage.QuickReplies) })
                     }
-                    DiagnosticsExport(skin, rememberDiagnosticsExporter())
                 }
-            }
-            SettingsPage.LockedFolders -> SettingsPageFrame(skin, onBack = back) {
-                SettingsContent(skin, "Locked folders") { LockedFoldersContent(services, skin, lockGate) }
-            }
-            SettingsPage.Folders -> FolderEditorHost(services, skin, settingsHost = true, onClose = back)
-            SettingsPage.Focus -> FocusSettingsPage(skin = skin, focus = focus, modes = focusModes, repository = services.focus,
-                folders = settingsLayout.folders.map { folder ->
-                    com.brightblu.parc.core.data.lock.LockedApps.folderForDisplay(folder, folder.id in hiddenFolderIds, lockGate.hideName())
-                }, skins = services.skins, apps = apps, onBack = back)
-            SettingsPage.SkinStudio -> SettingsPageFrame(skin, onBack = back) {
-                val custom by services.customSkins.skins.collectAsState()
-                ParcPage(safeTop = false, scroll = false, padBottom = false) {
-                    SkinStudioContent(SkinStudioHost(
-                        builtIn = services.skinProvider.available.filter { !SkinNaming.isCustomId(it.id) }, custom = custom,
-                        activeId = settingsState.selectedSkinId, saveSkin = { services.customSkins.save(it) },
-                        deleteSkin = { services.customSkins.delete(it) }, useSkin = settingsController::selectSkin), skin)
+                SettingsPage.Agenda -> SettingsPageFrame(skin, onBack = back) {
+                    ParcPage(safeTop = false, scroll = false, padBottom = false) {
+                        AgendaSettingsContent(skin, agendaSettings) { next -> agendaSettings = next; menuPrefs.setAgenda(next) }
+                    }
                 }
+                SettingsPage.SwipeUp, SettingsPage.HubLongPress -> {
+                    val slot = if (page == SettingsPage.SwipeUp) GestureSlot.SwipeUp else GestureSlot.HubLongPress
+                    GestureSettingsPage(skin, slot, gestures.actionFor(slot), hubConfig.pages, apps,
+                        onPick = { onSetGesture(slot, it) }, onBack = back)
+                }
+                SettingsPage.Diagnostics -> SettingsPageFrame(skin, onBack = back) {
+                    val stored by remember(context) { SceneDiagnosticsStore(context) }.last.collectAsState(initial = SceneDiagnostic())
+                    ParcPage(safeTop = false, blockGapDp = Metrics.itemGapDp) {
+                        BasicText(page.title, style = style(skin, skin.colors.textPrimary, skin.typography.title))
+                        sceneDiagnosticLines(stored).forEach { line ->
+                            BasicText(line, style = style(skin, skin.colors.textSecondary, skin.typography.caption))
+                        }
+                        DiagnosticsExport(skin, rememberDiagnosticsExporter())
+                    }
+                }
+                SettingsPage.HiddenLocked -> SettingsPageFrame(skin, onBack = back) {
+                    HiddenLockedPage(skin = skin, snapshot = snapshot, target = target, onValue = onValue, onOpen = onOpen, custom = customRow)
+                }
+                SettingsPage.HiddenFolders -> SettingsPageFrame(skin, onBack = back) {
+                    HiddenFolders(hiddenFoldersController, skin, Modifier.fillMaxSize(), topPaddingDp = 0f)
+                }
+                SettingsPage.LockedFolders -> SettingsPageFrame(skin, onBack = back) {
+                    SettingsContent(skin, page.title) { LockedFoldersContent(services, skin, lockGate) }
+                }
+                SettingsPage.Folders -> FolderEditorHost(services, skin, settingsHost = true, onClose = back)
+                SettingsPage.Focus -> FocusSettingsPage(skin = skin, focus = focus, modes = focusModes, repository = services.focus,
+                    folders = settingsLayout.folders.map { folder ->
+                        com.brightblu.parc.core.data.lock.LockedApps.folderForDisplay(folder, folder.id in hiddenFolderIds, lockGate.hideName())
+                    }, skins = services.skins, apps = apps, layout = settingsLayout, onBack = back)
+                SettingsPage.SkinStudio -> SettingsPageFrame(skin, onBack = back) {
+                    val custom by services.customSkins.skins.collectAsState()
+                    ParcPage(safeTop = false, scroll = false, padBottom = false) {
+                        SkinStudioContent(SkinStudioHost(
+                            builtIn = services.skinProvider.available.filter { !SkinNaming.isCustomId(it.id) }, custom = custom,
+                            activeId = settingsState.selectedSkinId, saveSkin = { services.customSkins.save(it) },
+                            deleteSkin = { services.customSkins.delete(it) }, useSkin = settingsController::selectSkin), skin)
+                    }
+                }
+                SettingsPage.Permissions -> SettingsPageFrame(skin, onBack = back) {
+                    SettingsContent(skin, page.title) { PermissionsContent(skin) }
+                }
+                SettingsPage.Hidden -> SettingsPageFrame(skin, onBack = back) {
+                    HiddenApps(hiddenController, skin, Modifier.fillMaxSize(), topPaddingDp = 0f)
+                }
+                SettingsPage.Backup -> SettingsPageFrame(skin, onBack = back) {
+                    LayoutBackupScreen(
+                        backupController, skin, Modifier.fillMaxSize(), topPaddingDp = Metrics.rowGapDp,
+                        weekly = weeklyBackupUi,
+                        onWeeklyEnabled = { enabled ->
+                            weeklyBackupStore.setEnabled(enabled)
+                            if (enabled) WeeklyBackupScheduler.restart(context) else WeeklyBackupScheduler.cancel(context)
+                        },
+                        onWeeklyFolder = { uri ->
+                            val parsed = android.net.Uri.parse(uri)
+                            val previous = weeklyBackupStore.read().folderUri
+                            val granted = runCatching {
+                                context.contentResolver.takePersistableUriPermission(
+                                    parsed,
+                                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                                )
+                            }.isSuccess
+                            if (!granted) {
+                                // T270: say so now instead of saving a folder that would fail at the first run.
+                                weeklyBackupStore.recordFailure(WeeklyBackupFailure.GrantFailed, System.currentTimeMillis())
+                                false
+                            } else {
+                                if (previous != null && previous != uri) runCatching {
+                                    context.contentResolver.releasePersistableUriPermission(
+                                        android.net.Uri.parse(previous),
+                                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                                    )
+                                }
+                                weeklyBackupStore.setFolder(
+                                    uri,
+                                    AndroidBackupFolder.displayName(context, parsed) ?: "Chosen folder",
+                                )
+                                if (weeklyBackupStore.read().enabled) WeeklyBackupScheduler.restart(context)
+                                true
+                            }
+                        },
+                    )
+                }
+                SettingsPage.Onboarding -> SettingsPageFrame(skin, onBack = back) {
+                    Onboarding(onboardingController, skin, onOpenTarget = { AndroidOnboardingIntents.open(context, it) },
+                        modifier = Modifier.fillMaxSize(), safeTop = false)
+                }
+                else -> SettingsRegistryPage(page, snapshot, skin, target, back, onValue, onOpen, customRow)
             }
-            SettingsPage.Permissions -> SettingsPageFrame(skin, onBack = back) { SettingsContent(skin, "Permissions") { PermissionsContent(skin) } }
-            SettingsPage.Hidden -> SettingsPageFrame(skin, onBack = back) { HiddenApps(hiddenController, skin, Modifier.fillMaxSize(), topPaddingDp = 0f) }
-            SettingsPage.Backup -> SettingsPageFrame(skin, onBack = back) {
-                LayoutBackupScreen(backupController, skin, Modifier.fillMaxSize(), topPaddingDp = Metrics.rowGapDp)
-            }
-            SettingsPage.Onboarding -> SettingsPageFrame(skin, onBack = back) {
-                Onboarding(onboardingController, skin, onOpenTarget = { AndroidOnboardingIntents.open(context, it) },
-                    modifier = Modifier.fillMaxSize(), safeTop = false)
-            }
-            else -> Unit
         }
         }
         previewSkin?.let { candidate -> SkinFullPreview(candidate, services, look,
             onUse = { settingsController.selectSkin(candidate.id); previewSkin = null },
             onBack = { previewSkin = null }) }
     }
+    }
+}
+
+/** A group page: its three or four sub-page cards. */
+@Composable
+private fun SettingsGroupPage(
+    group: SettingsGroup,
+    skin: Skin,
+    onBack: () -> Unit,
+    onOpenPage: (SettingsPage) -> Unit,
+) {
+    val pages = SettingsPage.entries.filter { it.group == group && it.parent == null }
+    SettingsPageFrame(skin, onBack = onBack) {
+        SettingsContent(skin, group.title) {
+            SettingsIntro(skin, group.intro)
+            pages.forEach { page ->
+                SettingsCard(skin) {
+                    SettingRow(page.title, skin, SettingKind.Page, page.summary, divider = false) { onOpenPage(page) }
+                }
+                Spacer(Modifier.height(Metrics.rowGapDp.dp))
+            }
+        }
+    }
+}
+
+/** One registry-generated sub-page. */
+@Composable
+private fun SettingsRegistryPage(
+    page: SettingsPage,
+    snapshot: SettingsSnapshot,
+    skin: Skin,
+    target: String?,
+    onBack: () -> Unit,
+    onValue: (SettingDef, Int) -> Unit,
+    onOpen: (SettingDef) -> Unit,
+    custom: @Composable (SettingDef) -> Unit,
+    footerFor: (String) -> String = { card ->
+        when (card) {
+            "Both hubs" -> "One glass for both cards, in every skin. Off gives flat cards at their opacity."
+            "Wallpaper" -> if (snapshot.look.wallpaper == com.brightblu.parc.model.WallpaperStyle.System)
+                "Parc cannot read the phone wallpaper's picture, so glass frosts its main colour." else ""
+            else -> ""
+        }
+    },
+) {
+    SettingsPageFrame(skin, onBack = onBack) {
+        SettingsContent(skin, page.title) {
+            SettingsIntro(skin, page.intro)
+            RegistryRows(page, snapshot, skin, target, onValue, onOpen, custom, footer = footerFor)
+        }
     }
 }
 
@@ -431,21 +584,48 @@ private fun RegistryCustom(def: SettingDef, s: SettingsSnapshot, skin: Skin, ser
             SkinGallery(state, skin, services, look, onPreview = onPreviewSkin, onEdit = onEditSkin)
         }
         "WallpaperImage" -> WallpaperChooser(def, s, skin, look, onChangeLook, chooseRequest, onChoose, onValue)
-        "About" -> Column(Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp, vertical = Metrics.rowGapDp.dp)) {
-            ReleaseText(skin, "Parc ${BuildConfig.VERSION_NAME}", true)
-            BuildStamp.lines().forEach { (label, value) -> ReleaseText(skin, "$label: $value") }
+        "About" -> Column(Modifier.padding(vertical = Metrics.rowGapDp.dp)) {
+            BasicText("Parc ${BuildConfig.VERSION_NAME}", style = style(skin, skin.colors.textPrimary, skin.typography.title),
+                modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp).semantics { heading() })
             BasicText("A home screen with thumb-reach arcs. Settings and layout stay on this device.",
-                style = settingsText(skin, skin.colors.textSecondary, true))
+                style = settingsText(skin, skin.colors.textSecondary, true),
+                modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp).padding(top = Metrics.lineGapDp.dp))
+            BasicText("Parc is free on every channel, with no locked features and no Play Billing. Donations are the only money.",
+                style = settingsText(skin, skin.colors.textSecondary, true),
+                modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp).padding(top = Metrics.lineGapDp.dp))
+            // T270: only the Weather-enabled flavours have the INTERNET permission, so only they claim online features.
+            val online = BuildConfig.FLAVOR == "personalWeather" || BuildConfig.FLAVOR == "family"
+            BasicText(if (online) "This build is online only for Weather and Translate (your own DeepL key): no accounts, ads, analytics or tracking."
+                else "This build has no internet access: no accounts, ads, analytics or tracking.",
+                style = settingsText(skin, skin.colors.textSecondary, true),
+                modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp).padding(top = Metrics.lineGapDp.dp))
+            Spacer(Modifier.height(Metrics.rowGapDp.dp))
+            SettingsCard(skin) {
+                val stamp = BuildStamp.lines()
+                stamp.forEachIndexed { index, (label, value) ->
+                    SettingRow(label, skin, SettingKind.Value, value = value, divider = index < stamp.lastIndex, onClick = {})
+                }
+            }
+            if (SupportLinks.isVisible(SupportLinks.donate)) {
+                Spacer(Modifier.height(Metrics.rowGapDp.dp))
+                val context = LocalContext.current
+                SettingsCard(skin) {
+                    SettingRow("Support Parc", skin, SettingKind.Action,
+                        "Opens the donation page in your browser", icon = "↗", divider = false) {
+                        SupportLinks.open(context, SupportLinks.donate)
+                    }
+                }
+            }
         }
     }
 }
 
 /**
- * The Settings root: the seven pages, one search box over every setting (by title, help, page and search words), and the
- * stats hub page names.
+ * The Settings root: exactly five groups and one search box over every setting. A result shows its
+ * `Group · Sub-page` breadcrumb (and the full chain for a nested page) before jumping to the row.
  */
 @Composable
-internal fun RootPage(skin: Skin, snapshot: SettingsSnapshot, hubConfig: HubConfig?, onOpen: (SettingsHome) -> Unit,
+internal fun RootPage(skin: Skin, snapshot: SettingsSnapshot, hubConfig: HubConfig?, onOpen: (SettingsGroup) -> Unit,
     onJump: (SettingDef) -> Unit, onHubPage: (String) -> Unit, onClose: () -> Unit) {
     var query by remember { mutableStateOf("") }
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
@@ -459,30 +639,31 @@ internal fun RootPage(skin: Skin, snapshot: SettingsSnapshot, hubConfig: HubConf
         }) {
             if (query.isNotBlank()) {
                 val found = SettingsRegistry.search(query)
-                val pagesFound = hubConfig?.orderedPages.orEmpty().filter { it.contains(query.trim(), true) }
+                val pagesFound = hubConfig?.orderedPages.orEmpty().filter {
+                    hubPageName(it).contains(query.trim(), true) || it.contains(query.trim(), true)
+                }
                 if (found.isEmpty() && pagesFound.isEmpty()) BasicText("No settings match", style = settingsText(skin),
                     modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp))
                 else SettingsCard(skin) {
                     found.forEach { def ->
                         val hidden = !def.shown(snapshot)
                         SettingRow(def.fullTitle, skin, SettingKind.Page,
-                            "${def.page.title} · ${def.group}" + if (hidden) " · not shown now, it has no effect here" else "",
-                            value = def.value(snapshot)) {
+                            settingsSearchSubtitle(def, hidden), value = def.value(snapshot)) {
                             query = ""; keyboard?.hide(); focusManager.clearFocus(); onJump(def)
                         }
                     }
                     pagesFound.forEach { id ->
-                        SettingRow(id.replaceFirstChar { it.uppercase() }, skin, SettingKind.Page, "Stats hub page",
+                        SettingRow(hubPageName(id), skin, SettingKind.Page, "Hub page",
                             value = if (id in hubConfig!!.hiddenPages) "Hidden" else "Shown") {
                             keyboard?.hide(); focusManager.clearFocus(); query = ""; onHubPage(id)
                         }
                     }
                 }
-            } else SettingsHome.entries.forEach { home ->
+            } else SettingsGroup.entries.forEach { group ->
                 SettingsCard(skin) {
-                    SettingRow(home.title, skin, SettingKind.Page, home.summary,
-                        value = if (home == SettingsHome.BackupAbout) BuildConfig.VERSION_NAME else "",
-                        icon = home.icon, divider = false) { onOpen(home) }
+                    SettingRow(group.title, skin, SettingKind.Page, group.summary,
+                        value = if (group == SettingsGroup.DataAbout) BuildConfig.VERSION_NAME else "",
+                        leading = { SettingsGroupGlyph(group.icon, skin) }, divider = false) { onOpen(group) }
                 }
                 Spacer(Modifier.height(Metrics.rowGapDp.dp))
             }

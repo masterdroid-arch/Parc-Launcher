@@ -80,8 +80,14 @@ fun DotNumerals(
             fontFamily = ParcFonts.Figtree,
             fontWeight = FontWeight(token.weight),
         ),
+        // A figure is one short token: it never wraps onto a second line.
+        softWrap = false,
+        maxLines = 1,
     )
 }
+
+/** True when every character of [text] can be drawn in the dot-matrix face, so a figure is never half dots, half letters. */
+fun isAllDot(text: String): Boolean = text.isNotEmpty() && splitDotRuns(text).all { it.dot }
 
 /** Digits 0 to 9 and "12:48 87%" in all three roles. For a debug host to show; no host exists yet. */
 @Composable

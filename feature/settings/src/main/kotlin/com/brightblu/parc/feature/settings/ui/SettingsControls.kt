@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
@@ -28,8 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brightblu.parc.model.*
 
-/** The only four setting-row treatments. Form fields and list options are not setting rows. */
-enum class SettingKind { Toggle, Choice, Page, Action }
+/** Setting controls and a read-only value row. Form fields and list options are not setting rows. */
+enum class SettingKind { Toggle, Choice, Page, Action, Value }
 
 fun settingsText(skin: Skin, tint: Long = skin.colors.textPrimary, caption: Boolean = false): TextStyle {
     val token = if (caption) skin.typography.caption else skin.typography.menu
@@ -113,8 +114,9 @@ fun SettingRow(
 ) {
     var confirm by remember { mutableStateOf(false) }
     val act = { if (destructive) confirm = true else onClick() }
+    val accentText = skin.colors.readableAccent
     val tint = when { !enabled -> skin.colors.textSecondary; destructive -> skin.colors.warn
-        kind == SettingKind.Action -> skin.colors.accent; else -> skin.colors.textPrimary }
+        kind == SettingKind.Action -> accentText; else -> skin.colors.textPrimary }
     val showValue = value.isNotBlank() && kind != SettingKind.Toggle && kind != SettingKind.Action
     // Short values sit on the right like a phone's settings; long ones go under the title so
     // neither the title nor the value is squeezed at large text sizes.
@@ -122,8 +124,11 @@ fun SettingRow(
     // T166: one row block for every Settings row: 56 dp tall at least, 20 dp left and right, 12 dp above and
     // below, and the trailing switch, value or arrow 20 dp from the edge of the card.
     ParcSettingsRow(
-        modifier = if (kind == SettingKind.Toggle) Modifier.toggleable(checked, enabled, Role.Switch) { act() }
-            else Modifier.clickable(enabled = enabled, role = Role.Button, onClick = act),
+        modifier = when (kind) {
+            SettingKind.Toggle -> Modifier.toggleable(checked, enabled, Role.Switch) { act() }
+            SettingKind.Value -> Modifier
+            else -> Modifier.clickable(enabled = enabled, role = Role.Button, onClick = act)
+        },
         leading = if (leading != null) {
             { Box(Modifier.size(Metrics.settingsSampleDp.dp).clearAndSetSemantics {}, contentAlignment = Alignment.Center) { leading() } }
         } else if (kind == SettingKind.Action || (kind == SettingKind.Page && icon != "+")) {
@@ -135,7 +140,7 @@ fun SettingRow(
             {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
                     if (valueBeside) BasicText(value,
-                        style = settingsText(skin, skin.colors.accent, true).copy(textAlign = androidx.compose.ui.text.style.TextAlign.End),
+                        style = settingsText(skin, accentText, kind != SettingKind.Value).copy(textAlign = androidx.compose.ui.text.style.TextAlign.End),
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.widthIn(max = Metrics.settingsValueMaxWidthDp.dp))
                     when (kind) {
@@ -143,14 +148,14 @@ fun SettingRow(
                             modifier = Modifier.clearAndSetSemantics {}, colors = settingsSwitchColors(skin))
                         SettingKind.Choice, SettingKind.Page ->
                             BasicText("›", style = settingsText(skin, skin.colors.accent), modifier = Modifier.clearAndSetSemantics {})
-                        SettingKind.Action -> Unit
+                        SettingKind.Action, SettingKind.Value -> Unit
                     }
                 }
             }
         } else null,
     ) {
         BasicText(title, style = settingsText(skin, tint))
-        if (showValue && !valueBeside) BasicText(value, style = settingsText(skin, skin.colors.accent, true),
+        if (showValue && !valueBeside) BasicText(value, style = settingsText(skin, accentText, kind != SettingKind.Value),
             modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
         if (description.isNotBlank()) BasicText(description, style = settingsText(skin, skin.colors.textSecondary, true),
             maxLines = descriptionMaxLines, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
@@ -169,6 +174,12 @@ fun SettingRow(
 fun SettingsDivider(skin: Skin) {
     Box(Modifier.fillMaxWidth().padding(horizontal = Metrics.settingsRowInsetDp.dp)
         .height(skin.shape.surfaceBorderDp.dp).background(Color(skin.colors.lineBase.toInt())))
+}
+
+/** A switch in the settings look, for rows that carry their own click area elsewhere (1.2.1: the Hub pages list). */
+@Composable
+fun SettingsSwitch(checked: Boolean, skin: Skin, label: String, onCheckedChange: (Boolean) -> Unit) {
+    Switch(checked, onCheckedChange, modifier = Modifier.semantics { contentDescription = label }, colors = settingsSwitchColors(skin))
 }
 
 @Composable
@@ -215,8 +226,46 @@ fun SettingsOptionChips(
                     verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
                     if (sample != null) Box(Modifier.size(Metrics.settingsSampleDp.dp).clearAndSetSemantics {},
                         contentAlignment = Alignment.Center) { sample(index, on) }
-                    BasicText(label, style = settingsText(skin, if (on) skin.colors.accent else skin.colors.textPrimary, true)
+                    BasicText(label, style = settingsText(skin, if (on) skin.colors.readableAccent else skin.colors.textPrimary, true)
                         .copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+                }
+            }
+        }
+    }
+    if (divider) SettingsDivider(skin)
+}
+
+/**
+ * T229: one compact segmented control for an exclusive choice. It is a single bordered row, so a page
+ * cannot grow three separate switches for Compact / Standard / Tall. Every segment keeps a 56 dp
+ * touch target; the selected one uses the skin's readable accent, never a bright fill.
+ */
+@Composable
+fun SettingsSegmented(
+    title: String, skin: Skin, options: List<String>, selected: Int, description: String = "",
+    divider: Boolean = true, onSelect: (Int) -> Unit,
+) {
+    if (options.isEmpty()) return
+    val current = selected.coerceIn(options.indices)
+    val shape = RoundedCornerShape(Metrics.menuCornerDp.dp)
+    Column(Modifier.fillMaxWidth().parcRowPadding()) {
+        BasicText(title, style = settingsText(skin))
+        if (description.isNotBlank()) BasicText(description, style = settingsText(skin, skin.colors.textSecondary, true),
+            modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
+        Row(Modifier.fillMaxWidth().padding(top = Metrics.rowGapDp.dp).clip(shape)
+            .border(maxOf(skin.shape.surfaceBorderDp, 1f).dp, Color(skin.colors.lineActive.toInt()), shape)
+            .selectableGroup()) {
+            options.forEachIndexed { index, label ->
+                val on = index == current
+                Box(Modifier.weight(1f).heightIn(min = Metrics.touchTargetDp.dp)
+                    .background(Color((if (on) skin.colors.bg else skin.colors.surface).toInt()))
+                    .selectable(on, role = Role.RadioButton) { onSelect(index) }
+                    .semantics { stateDescription = label }
+                    .padding(horizontal = Metrics.itemGapDp.dp, vertical = Metrics.lineGapDp.dp),
+                    contentAlignment = Alignment.Center) {
+                    BasicText(label, maxLines = 2,
+                        style = settingsText(skin, if (on) skin.colors.readableAccent else skin.colors.textPrimary, true)
+                            .copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
                 }
             }
         }
@@ -239,7 +288,7 @@ fun SettingsChoice(title: String, value: String, options: List<String>, skin: Sk
                         .semantics { selected = options[index] == value }
                         .padding(vertical = Metrics.itemGapDp.dp), verticalAlignment = Alignment.CenterVertically) {
                         BasicText(options[index], Modifier.weight(1f), style = settingsText(skin))
-                        if (options[index] == value) BasicText("✓", style = settingsText(skin, skin.colors.accent))
+                        if (options[index] == value) SettingsCheckMark(skin, Modifier.size(Metrics.settingsSampleDp.dp))
                     }
                 }
             }
@@ -289,7 +338,7 @@ fun SettingsVisualChoice(title: String, value: Int, labels: List<String>, skin: 
     Column(Modifier.fillMaxWidth().parcRowPadding()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             BasicText(title, Modifier.weight(1f), style = settingsText(skin))
-            BasicText(labels[value.coerceIn(labels.indices)], style = settingsText(skin, skin.colors.accent, true))
+            BasicText(labels[value.coerceIn(labels.indices)], style = settingsText(skin, skin.colors.readableAccent, true))
         }
         if (description.isNotBlank()) BasicText(description, style = settingsText(skin, skin.colors.textSecondary, true),
             modifier = Modifier.padding(top = Metrics.lineGapDp.dp))

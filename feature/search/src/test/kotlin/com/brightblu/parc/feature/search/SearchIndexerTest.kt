@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -81,6 +82,28 @@ class SearchIndexerTest {
         usage.recordLaunch(two.id)
         advanceUntilIdle()
         assertEquals(two.id, ids(engine.query("alpha")).first())
+        indexer.cancel()
+        scope.cancel()
+    }
+
+    @Test
+    fun `a new alias re-indexes at once and finds the app`() = runTest {
+        val scope = collectorScope()
+        val engine = LabelSearchEngine()
+        val aliases = MutableStateFlow<Map<String, String>>(emptyMap())
+        val indexer = SearchIndexer(
+            FakeAppIndex(listOf(one, two)),
+            FakeLayoutRepository(),
+            FakeUsageRepository(),
+            engine,
+            scope,
+            aliases = aliases,
+        )
+        advanceUntilIdle()
+        assertTrue(engine.query("money").isEmpty())
+        aliases.value = mapOf(one.id.value to "money")
+        advanceUntilIdle()
+        assertEquals(listOf(one.id), ids(engine.query("money")))
         indexer.cancel()
         scope.cancel()
     }

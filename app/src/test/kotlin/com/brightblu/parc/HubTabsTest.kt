@@ -12,43 +12,47 @@ internal fun legacyHubConfig() = HubConfig(hiddenPages = HubCatalog.defaultHidde
 
 /** T158: the hub card's tabs, the migration of saved hub configs, and the card's inset constants. */
 class HubTabsTest {
-    private val four = listOf("clock", "power", "focus", "notes")
+    private val defaultTabs = listOf(TodayPage.Id, DevicePage.Id, "notes")
 
     // ---- Default tabs and migration -------------------------------------------------------------------
 
-    @Test fun aNewUserSeesClockPowerFocusNotesInThatOrder() {
-        assertEquals(four, HubConfig().pages)
-        assertEquals(four, HubConfig.decode("").pages)
+    @Test fun aNewUserSeesTodayDeviceNotesInThatOrderAndFocusIsNotPinned() {
+        assertEquals(defaultTabs, HubConfig().pages)
+        assertEquals(defaultTabs, HubConfig.decode("").pages)
+        // T219: Focus is the chip's job now; a fresh install never auto-pins the page.
+        assertFalse("focus" in HubCatalog.defaultTabs)
+        assertTrue("focus" in HubConfig().hiddenPages)
     }
 
-    @Test fun everyOtherPageStartsHiddenAndComesAfterTheFour() {
+    @Test fun everyOtherPageStartsHiddenAndComesAfterTheDefaults() {
         val config = HubConfig()
-        assertEquals(four, config.orderedPages.take(4))
-        assertEquals(HubCatalog.pages.toSet(), config.orderedPages.toSet())
-        (HubCatalog.pages - four.toSet()).forEach { assertTrue("$it hidden", it in config.hiddenPages) }
+        assertEquals(defaultTabs, config.orderedPages.take(defaultTabs.size))
+        // T200: the arcade is in the catalog but not listed (or hidden) until a game is unlocked.
+        val arcade = com.brightblu.parc.arcade.ArcadePage.Id
+        assertEquals(HubCatalog.pages.toSet() - arcade, config.orderedPages.toSet())
+        (HubCatalog.pages - defaultTabs.toSet() - arcade).forEach { assertTrue("$it hidden", it in config.hiddenPages) }
     }
 
     @Test fun unreadableDocumentsCountAsNoSavedChoice() {
-        assertEquals(four, HubConfig.decode("broken;also:broken").pages)
-        assertEquals(four, HubConfig.decode("future:true:a:b").pages)
+        assertEquals(defaultTabs, HubConfig.decode("broken;also:broken").pages)
+        assertEquals(defaultTabs, HubConfig.decode("future:true:a:b").pages)
     }
 
-    @Test fun anOldConfigKeepsItsPagesAndOrderAndGainsNoDefaultTab() {
+    @Test fun anOldConfigKeepsItsPagesAndOrderAndGainsToday() {
         // the owner's shape: Timers, Agenda and Comms enabled, Power hidden, Focus and Notes as the old defaults left them.
         val old = "clock:true::;system:true:battery:;power:false:charging:;network:true:traffic:;apps:true:new apps:;" +
             "sound:true:media:;timers:true:timers:;agenda:true:next events:;media:false:now playing:;focus:true::;notes:false::;comms:true::"
         val config = HubConfig.decode(old)
-        assertEquals(listOf("clock", "system", "network", "apps", "sound", "timers", "agenda", "focus", "comms"), config.pages)
-        assertEquals(listOf("clock", "system", "power", "network", "apps", "sound", "timers", "agenda", "media", "focus", "notes", "comms").filter { it in HubCatalog.pages },
-            config.orderedPages.filter { it in HubCatalog.pages && it != QuickToggleCatalog.PageId && it != WeatherVariant.PageId })
-        assertTrue("power" in config.hiddenPages)
+        assertEquals(listOf("today", "device", "apps", "controls", "timers", "agenda", "focus", "comms"), config.pages)
+        assertTrue(config.orderedPages.indexOf(TodayPage.Id) < config.orderedPages.indexOf(DevicePage.Id))
+        assertTrue(config.orderedPages.indexOf(DevicePage.Id) < config.orderedPages.indexOf("apps"))
         assertTrue("notes" in config.hiddenPages)
     }
 
     @Test fun nothingIsRemovedOrLostFromAnOldConfig() {
         val old = "clock:true::;timers:true:timers:;agenda:false:next events:;comms:true::"
         val config = HubConfig.decode(old)
-        assertTrue(config.pages.containsAll(listOf("clock", "timers", "comms")))
+        assertTrue(config.pages.containsAll(listOf(TodayPage.Id, "timers", "comms")))
         assertFalse("agenda" in config.pages)
         assertEquals(setOf("agenda"), config.orderedPages.toSet().intersect(config.hiddenPages).intersect(setOf("agenda")))
         // Re-saving keeps the same pages, order and hidden flags.
@@ -59,24 +63,24 @@ class HubTabsTest {
     }
 
     @Test fun anOldConfigsPageThatItNeverMetStillUsesTheOldDefaults() {
-        // Notes and Quick toggles are new to this document: they start hidden (the old rule), nothing else changes.
+        // Notes and Controls are new to this document: they start hidden (the old rule), nothing else changes.
         val old = "clock:true::;system:true:battery:;power:true:charging:;network:true:traffic:;apps:true:new apps:;sound:true:media:;timers:true:timers:;agenda:true:next events:;media:true:now playing:;focus:true::;comms:true::"
         val config = HubConfig.decode(old)
         assertTrue("notes" in config.hiddenPages)
-        assertTrue("system" in config.pages)
+        assertTrue(DevicePage.Id in config.pages)
     }
 
     @Test fun aNewUsersConfigSurvivesASaveAndALoad() {
         val saved = HubConfig().encode()
         val loaded = HubConfig.decode(saved)
-        assertEquals(four, loaded.pages)
+        assertEquals(defaultTabs, loaded.pages)
         assertEquals(HubConfig().orderedPages, loaded.orderedPages)
         assertEquals(saved, loaded.encode())
     }
 
-    @Test fun showingAnExtraTabPutsItAfterTheFourInItsOrder() {
+    @Test fun showingAnExtraTabPutsItAfterTheDefaultsInItsOrder() {
         val config = HubConfig().showPage("timers", true)
-        assertEquals(four + "timers", config.pages)
+        assertEquals(defaultTabs + "timers", config.pages)
     }
 
     // ---- Tabs -----------------------------------------------------------------------------------------
@@ -138,6 +142,6 @@ class HubTabsTest {
         // 384 dp screen: 12 dp each side of the card, 16 dp inside. Four pills of about a name plus 24 dp of padding each.
         val inside = 384f - 2 * Metrics.panelGutterDp - 2 * ParcSpacing.hubCard().startDp
         val pill = { chars: Int -> chars * Metrics.hubTabNameSp * 0.6f + 2 * Metrics.hubTabPillPadDp + Metrics.hubTabGapDp }
-        assertTrue(four.sumOf { pill(it.length).toDouble() } <= inside)
+        assertTrue(listOf("today", "device", "focus", "notes").sumOf { pill(it.length).toDouble() } <= inside)
     }
 }

@@ -83,6 +83,20 @@ class UsageRepositoryImplTest {
     }
 
     @Test
+    fun `most used ranks decayed launches, breaks ties by id and is capped`() = runTest {
+        val harness = Harness(this, social)
+
+        harness.repo.recordLaunch(c)
+        harness.repo.recordLaunch(a)
+        harness.repo.recordLaunch(b)
+        harness.repo.recordLaunch(b)
+
+        assertEquals(listOf(b, a, c), harness.repo.mostUsed(3))
+        assertEquals(listOf(b), harness.repo.mostUsed(1))
+        assertEquals(emptyList<AppId>(), harness.repo.mostUsed(0))
+    }
+
+    @Test
     fun `recents exclude pinned apps`() = runTest {
         val harness = Harness(this, social, pinned = setOf(b))
 

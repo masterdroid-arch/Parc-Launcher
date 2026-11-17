@@ -28,7 +28,7 @@ class AppsSoundFormatTest {
         assertEquals(1f, AppsSoundFormat.bar(Long.MAX_VALUE, Long.MAX_VALUE))
     }
     @Test fun newTilesParticipateInPersistentEditing() {
-        for (page in listOf("apps", "sound")) {
+        for (page in listOf("apps", ControlsPage.Id)) {
             val tile = HubCatalog.tiles(page).first()
             val config = HubConfig().showTile(page, tile, false).move(page, tile, 1)
             val restored = HubConfig.decode(config.encode())

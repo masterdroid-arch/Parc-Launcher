@@ -23,6 +23,8 @@ data class SearchRow(
     val label: String,
     val matchRanges: List<MatchRange> = emptyList(),
     val isRecent: Boolean = false,
+    /** T248: this row is one of the most-used suggestions shown while the field is empty. */
+    val isMostUsed: Boolean = false,
     /** Static and dynamic shortcuts of the top hit, shown as indented sub-rows (T67). */
     val shortcuts: List<AppShortcut> = emptyList(),
 )
@@ -40,6 +42,8 @@ data class SearchUiState(
     val abcListOpen: Boolean = false,
     val calculation: Calculation? = null,
     val webQuery: String? = null,
+    /** T194: the active mode id ([SearchModeIds]); search always opens in Apps. */
+    val mode: String = SearchModeIds.Apps,
 )
 
 /**
@@ -49,8 +53,8 @@ data class SearchUiState(
  * Threading: values are published on a [StateFlow]; collectors run in [scope] (the main dispatcher in
  * the app). Reads from any thread are safe.
  *
- * Rules: a blank query shows recents from [UsageRepository] (until T13 provides real ranking); a
- * non-blank query shows [SearchEngine] hits with their labels resolved from [AppIndex]. Rows whose
+ * Rules: a blank query shows the most-used apps from [UsageRepository] first, then the recent apps;
+ * a non-blank query shows [SearchEngine] hits with their labels resolved from [AppIndex]. Rows whose
  * app is no longer known are dropped rather than shown without a name.
  */
 class SearchSheetState(
@@ -59,6 +63,8 @@ class SearchSheetState(
     private val usage: UsageRepository,
     scope: CoroutineScope,
     recentsLimit: Int = DefaultRecentsLimit,
+    /** T194: the modes of this build besides Apps, in chip order (see [SearchModes.standard]). */
+    val modes: List<SearchMode> = SearchModes.standard(),
 ) {
     private val _state = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
@@ -87,7 +93,8 @@ class SearchSheetState(
     val isOpen: Boolean get() = _state.value.isOpen
 
     fun open() {
-        _state.update { it.copy(isOpen = true) }
+        // T194: a search starts in Apps; an open call on an already open sheet keeps its mode.
+        _state.update { it.copy(isOpen = true, mode = if (it.isOpen) it.mode else SearchModeIds.Apps) }
         refresh()
     }
 
@@ -96,10 +103,33 @@ class SearchSheetState(
         _state.value = SearchUiState()
     }
 
+    /** In Apps mode a leading prefix ("tr ", "n ", "= ") switches mode and is removed from the text. */
     fun onQueryChange(text: String) {
-        _state.update { it.copy(query = text) }
+        _state.update { current ->
+            val match = if (current.mode == SearchModeIds.Apps) SearchModes.detectPrefix(text, modes) else null
+            if (match != null) current.copy(mode = match.modeId, query = match.rest) else current.copy(query = text)
+        }
         refresh()
     }
+
+    /** A chip tap. The text stays; an id that is not registered is ignored. */
+    fun setMode(id: String) {
+        if (id != SearchModeIds.Apps && modes.none { it.id == id }) return
+        _state.update { it.copy(mode = id) }
+        refresh()
+    }
+
+    /** Backspace pressed on an empty field: a non-Apps mode returns to Apps. True when it did. */
+    fun backspaceOnEmpty(): Boolean {
+        val current = _state.value
+        val next = SearchModes.afterBackspace(current.mode, current.query)
+        if (next == current.mode) return false
+        _state.update { it.copy(mode = next) }
+        refresh()
+        return true
+    }
+
+    fun modeOf(id: String): SearchMode? = modes.firstOrNull { it.id == id }
 
     fun openAbcList() {
         _state.update { it.copy(abcListOpen = true) }
@@ -110,7 +140,8 @@ class SearchSheetState(
     }
 
     /** App that Enter launches, or null when there is nothing to launch. */
-    fun topHit(): AppId? = _state.value.rows.firstOrNull()?.appId
+    fun topHit(): AppId? =
+        _state.value.takeIf { it.mode == SearchModeIds.Apps }?.rows?.firstOrNull()?.appId
 
     /**
      * `RingState.highlight` input: null while search is closed or the query is blank (no dimming),
@@ -118,7 +149,7 @@ class SearchSheetState(
      */
     fun highlight(): Set<AppId>? {
         val current = _state.value
-        if (!current.isOpen || current.query.isBlank()) return null
+        if (!current.isOpen || current.query.isBlank() || current.mode != SearchModeIds.Apps) return null
         return current.rows.mapTo(LinkedHashSet()) { it.appId }
     }
 
@@ -128,8 +159,12 @@ class SearchSheetState(
 
     private fun refresh() {
         _state.update { current ->
+            if (current.mode != SearchModeIds.Apps) {
+                // T194: other modes never touch the app engine, the calculator or the web row.
+                return@update current.copy(rows = emptyList(), showingRecents = false, calculation = null, webQuery = null)
+            }
             val query = current.query.trim()
-            val rows = if (query.isEmpty()) recentsRows() else hitRows(query)
+            val rows = if (query.isEmpty()) suggestionRows() else hitRows(query)
             current.copy(
                 rows = rows,
                 showingRecents = current.isOpen && query.isEmpty(),
@@ -139,8 +174,27 @@ class SearchSheetState(
         }
     }
 
-    private fun recentsRows(): List<SearchRow> =
-        recents.distinct().mapNotNull { id -> row(id, emptyList(), isRecent = true) }
+    /**
+     * T248: the empty field offers most-used apps first (nearest the field), then recent apps. An app
+     * is shown once: a most-used app already in the recent list is left to that list. Unknown apps
+     * (hidden, locked or uninstalled) are dropped by [row].
+     */
+    private fun suggestionRows(): List<SearchRow> {
+        val recentIds = recents.distinct()
+        val shownRecent = recentIds.take(RecentAppsLimit)
+            .mapNotNull { id -> row(id, emptyList(), isRecent = true) }
+        // Only the recents actually shown hide a most-used app; a recent beyond the limit, or one that
+        // cannot be drawn, must not take a most-used app off the list.
+        val seen = shownRecent.mapTo(HashSet()) { it.appId }
+        val used = ArrayList<SearchRow>(MostUsedLimit)
+        for (id in usage.mostUsed(MostUsedLimit)) {
+            if (!seen.add(id)) continue
+            val suggestion = row(id, emptyList(), isMostUsed = true) ?: continue
+            used += suggestion
+            if (used.size == MostUsedLimit) break
+        }
+        return used + shownRecent
+    }
 
     private fun hitRows(query: String): List<SearchRow> {
         val seen = HashSet<AppId>()
@@ -155,14 +209,21 @@ class SearchSheetState(
         return rows.toMutableList().apply { this[0] = top.copy(shortcuts = shortcuts) }
     }
 
-    private fun row(id: AppId, ranges: List<MatchRange>, isRecent: Boolean): SearchRow? {
+    private fun row(id: AppId, ranges: List<MatchRange>, isRecent: Boolean = false,
+                    isMostUsed: Boolean = false): SearchRow? {
         val label = labels[id] ?: return null
-        return SearchRow(id, label, ranges, isRecent)
+        return SearchRow(id, label, ranges, isRecent, isMostUsed)
     }
 
     companion object {
         /** Recents length for both the sheet and the engine boost. */
         const val DefaultRecentsLimit = 12
+
+        /** T248: the most-used suggestions under an empty field. */
+        const val MostUsedLimit = 4
+
+        /** T248: the recent apps under an empty field; the newest are shown. */
+        const val RecentAppsLimit = 6
 
         /** Shortcut sub-rows under the top hit; the long-press menu uses the same cap. */
         const val MaxShortcutRows = 5

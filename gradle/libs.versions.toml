@@ -9,6 +9,8 @@ junit = "4.13.2"
 room = "2.6.1"
 datastore = "1.1.1"
 ksp = "2.0.21-1.0.28"
+# T266: weekly automatic backup. The card names WorkManager.
+work = "2.10.5"
 [libraries]
 compose-material3 = { module = "androidx.compose.material3:material3" }
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
@@ -26,6 +28,7 @@ room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
+work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }

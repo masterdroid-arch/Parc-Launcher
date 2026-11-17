@@ -99,6 +99,23 @@ internal class ParcUiPrefs(context: Context) {
         if (!hintSeen()) prefs.edit().putBoolean(KeyHintSeen, true).apply()
     }
 
+    /** T260: the gesture hints already shown (or skipped). Phone-only UI state, not part of backups. */
+    fun seenGestureHints(): Set<String> = prefs.getStringSet("gesture_hints_seen", emptySet()).orEmpty().toSet()
+
+    fun markGestureHintSeen(id: String) {
+        prefs.edit().putStringSet("gesture_hints_seen", seenGestureHints() + id).apply()
+    }
+
+    fun skipAllGestureHints() {
+        prefs.edit().putStringSet("gesture_hints_seen", GestureHintRules.allIds()).apply()
+    }
+
+    /** Settings > Gestures > Show hints again. */
+    fun resetGestureHints() {
+        GestureHintSession.shown = false
+        prefs.edit().remove("gesture_hints_seen").apply()
+    }
+
     /** Layout preference (T30): staggered by default, aligned spokes when on (RingLayoutOptions). */
     fun alignAcrossArcs(): Boolean = prefs.getBoolean(KeyAlignAcrossArcs, false)
 
@@ -179,6 +196,51 @@ internal class ParcUiPrefs(context: Context) {
         prefs.edit().putBoolean("mark_work_apps", enabled).apply()
     }
 
+    /**
+     * T246: the first time this version looked for newly installed apps. Apps installed before it
+     * do not prompt, so an upgrade never asks about the existing New folder.
+     */
+    fun newAppPromptSince(now: Long = System.currentTimeMillis()): Long {
+        val existing = prefs.getLong(KeyNewAppPromptSince, 0L)
+        if (existing != 0L) return existing
+        prefs.edit().putLong(KeyNewAppPromptSince, now).apply()
+        return now
+    }
+
+    /** T246: component ids whose one-time "Add <app> to an arc?" prompt has already appeared. */
+    fun newAppPromptSeen(): Set<String> =
+        prefs.getStringSet(KeyNewAppPromptSeen, emptySet()).orEmpty().toSet()
+
+    fun markNewAppPromptSeen(id: com.brightblu.parc.model.AppId) {
+        val seen = newAppPromptSeen() + id.value
+        prefs.edit().putStringSet(KeyNewAppPromptSeen, seen).apply()
+    }
+
+    /** T245: Settings > Home, Lock layout. Off by default. */
+    /** T261: Left hand. The hub and arcs are drawn mirrored; the saved layout is not changed. */
+    fun leftHand(): Boolean = prefs.getBoolean("left_hand", false)
+
+    fun setLeftHand(on: Boolean) {
+        prefs.edit().putBoolean("left_hand", on).apply()
+    }
+
+    /** Follows the stored switches, so a restored backup or the Settings page is seen without a restart. */
+    val layoutLockedFlow: kotlinx.coroutines.flow.Flow<Boolean> get() = boolFlow { layoutLocked() }
+    val leftHandFlow: kotlinx.coroutines.flow.Flow<Boolean> get() = boolFlow { leftHand() }
+
+    private fun boolFlow(read: () -> Boolean): kotlinx.coroutines.flow.Flow<Boolean> = kotlinx.coroutines.flow.callbackFlow {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> trySend(read()) }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        trySend(read())
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    fun layoutLocked(): Boolean = prefs.getBoolean("lock_layout", false)
+
+    fun setLayoutLocked(locked: Boolean) {
+        prefs.edit().putBoolean("lock_layout", locked).apply()
+    }
+
     private companion object {
         const val KeyMode = "mode"
         const val KeyRotations = "rotations"
@@ -187,5 +249,7 @@ internal class ParcUiPrefs(context: Context) {
         const val KeyHintSeen = "hint_seen"
         const val KeyAlignAcrossArcs = "align_across_arcs"
         const val KeyJoystickAim = "joystick_aim"
+        const val KeyNewAppPromptSince = "new_app_prompt_since"
+        const val KeyNewAppPromptSeen = "new_app_prompt_seen"
     }
 }

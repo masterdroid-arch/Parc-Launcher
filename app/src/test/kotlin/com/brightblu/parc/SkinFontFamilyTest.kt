@@ -28,9 +28,21 @@ class SkinFontFamilyTest {
         assertEquals(FontFamily.Monospace, skin.textFamily)
     }
 
-    @Test fun unknownFamilyLeavesSystemFont() {
+    @Test fun emptyFamilyDefaultsToFigtree() {
+        val skin = figtreeSkin.copy(typography = TypographyTokens(family = ""))
+        assertEquals(ParcFonts.Figtree, skin.textFamily)
+    }
+
+    @Test fun unknownFamilyDefaultsToFigtree() {
         val skin = figtreeSkin.copy(typography = TypographyTokens(family = "serif"))
-        assertNull(skin.textFamily)
+        assertEquals(ParcFonts.Figtree, skin.textFamily)
+    }
+
+    @Test fun systemIsTheExplicitOptOut() {
+        val fromFamily = figtreeSkin.copy(typography = TypographyTokens(family = "system"))
+        val fromFallback = figtreeSkin.copy(typography = TypographyTokens(family = "", fallbackFamily = "system"))
+        assertNull(fromFamily.textFamily)
+        assertNull(fromFallback.textFamily)
     }
 
     @Test fun dotIsNeverTheTextFont() {

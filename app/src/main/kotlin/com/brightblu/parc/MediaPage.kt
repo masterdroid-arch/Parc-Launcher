@@ -41,8 +41,8 @@ internal fun MediaHubPage(active: Boolean, tiles: List<String>, expanded: Boolea
     var picked by remember { mutableStateOf<String?>(null) }
     var cover by remember { mutableStateOf<Bitmap?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
-    // OPUS6 (audit F2): locked-folder and Focus-blocked apps never reach this page.
-    val hidden = LocalHiddenPackages.current
+    // T217: the one Visibility set, including permanent hide, Focus, Lock and hidden folders.
+    val hidden = LocalVisibility.current.hidden
     val latestHidden by rememberUpdatedState(hidden)
     LaunchedEffect(active, picked) {
         if (!active) return@LaunchedEffect

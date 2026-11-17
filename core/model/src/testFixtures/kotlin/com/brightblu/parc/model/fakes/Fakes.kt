@@ -78,12 +78,19 @@ class FakeLayoutRepository(initial: ParcLayout = ParcLayout()) : LayoutRepositor
 }
 
 /** Main-thread deterministic usage fake; no ranking algorithm. Non-null fixed folder ranks. */
-class FakeUsageRepository(private val ranks: Map<FolderId, List<AppId>> = emptyMap()) : UsageRepository {
+class FakeUsageRepository(
+    private val ranks: Map<FolderId, List<AppId>> = emptyMap(),
+    private val mostUsedIds: List<AppId> = emptyList(),
+) : UsageRepository {
     private val launches = MutableStateFlow<List<AppId>>(emptyList())
     override fun recordLaunch(id: AppId) { launches.value = listOf(id) + (launches.value - id) }
     override fun recents(limit: Int): Flow<List<AppId>> {
         require(limit >= 0)
         return launches.map { it.take(limit) }
+    }
+    override fun mostUsed(limit: Int): List<AppId> {
+        require(limit >= 0)
+        return mostUsedIds.take(limit)
     }
     override fun rank(folderId: FolderId): List<AppId> = ranks[folderId]?.toList() ?: emptyList()
 }

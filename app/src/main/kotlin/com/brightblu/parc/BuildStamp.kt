@@ -14,7 +14,7 @@ internal object BuildStamp {
         "Code commit" to commit,
     )
 
-    /** The short form for the Settings home row, for example `1.1.1 (10101) · 2026-11-01 20:15`. */
+    /** The short form for the Settings home row, for example `1.2.0 (10200) · 2026-11-01 20:15`. */
     fun short(versionName: String = BuildConfig.VERSION_NAME, versionCode: Int = BuildConfig.VERSION_CODE,
         builtAt: String = BuildConfig.BUILD_TIME): String = "$versionName ($versionCode) · $builtAt"
 

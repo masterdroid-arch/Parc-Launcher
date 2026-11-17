@@ -78,7 +78,7 @@ fun BoxScope.StatsModule(
     archive: StatsArchive = StatsArchive.Empty,
     powerSource: com.brightblu.parc.core.data.power.PowerStatsSource? = null,
     networkRepository: com.brightblu.parc.core.data.network.NetworkStatsRepository? = null,
-    screenTime: com.brightblu.parc.core.data.apps.ScreenTimeRepository? = null,
+    dayLedger: com.brightblu.parc.core.data.ledger.DayLedgerRepository? = null,
     newApps: com.brightblu.parc.core.data.apps.NewAppsProvider? = null,
     appStorage: com.brightblu.parc.core.data.storage.AppStorageRepository? = null,
     volume: com.brightblu.parc.core.data.audio.VolumeRepository? = null,
@@ -92,7 +92,6 @@ fun BoxScope.StatsModule(
     onToggleExpanded: () -> Unit,
     pullProgress: () -> Float = { 0f },
     hubTopDp: Float = Metrics.keepOutTopDp + Metrics.hubTopGapDp,
-    clock: @Composable () -> Unit = {},
     /** T73: the active focus mode, shown as the hub header switch; null when nothing is active. */
     focusActiveName: String? = null,
     /** T73: true when at least one mode is configured, so the hub offers the switch. */
@@ -115,13 +114,19 @@ fun BoxScope.StatsModule(
     val hubStore = remember(context) { HubConfigStore(context) }
     val config by hubStore.config.collectAsState(initial = HubConfig())
     val top = hubTopDp
+    // T258: the card is as tall as the page on show wants it to be.
+    val savedPage by hubStore.lastPage.collectAsState(initial = TodayPage.Id)
+    val shownSize = config.sizeFor(restoredHubPage(savedPage, config))
+    val panelDp by androidx.compose.animation.core.animateFloatAsState(
+        HubPanelLayout.heightDp(shownSize, com.brightblu.parc.ring.RingHudBounds.heightDp(top, hubBottomDp)),
+        androidx.compose.animation.core.spring(com.brightblu.parc.model.Springs.sheet.damping,
+            com.brightblu.parc.model.Springs.sheet.stiffness), label = "hubPanelHeight")
     StatsHud(
         powerSource = powerSource,
         networkRepository = networkRepository,
-        screenTime = screenTime, newApps = newApps, appStorage = appStorage,
+        dayLedger = dayLedger, newApps = newApps, appStorage = appStorage,
         volume = volume, comms = comms, entries = entries, onLaunch = onLaunch,
         active = active,
-        clock = clock,
         alertState = alertState, onDismissAlert = onDismissAlert, archive = archive,
         presentation = presentation,
         history = history,
@@ -134,7 +139,7 @@ fun BoxScope.StatsModule(
         modifier = Modifier
             .align(Alignment.TopStart)
             .padding(start = Metrics.panelGutterDp.dp, end = Metrics.panelGutterDp.dp, top = top.dp)
-            .height(HubPanelLayout.heightDp(config.size, com.brightblu.parc.ring.RingHudBounds.heightDp(top, hubBottomDp)).dp)
+            .height(panelDp.dp)
             .clipToBounds()
             .graphicsLayer { alpha = 1f - (1f - Metrics.searchPullMinHubAlpha) * pullProgress() },
     )
@@ -144,7 +149,7 @@ fun BoxScope.StatsModule(
 internal fun StatsHud(
     powerSource: com.brightblu.parc.core.data.power.PowerStatsSource?,
     networkRepository: com.brightblu.parc.core.data.network.NetworkStatsRepository?,
-    screenTime: com.brightblu.parc.core.data.apps.ScreenTimeRepository?,
+    dayLedger: com.brightblu.parc.core.data.ledger.DayLedgerRepository?,
     newApps: com.brightblu.parc.core.data.apps.NewAppsProvider?,
     appStorage: com.brightblu.parc.core.data.storage.AppStorageRepository?,
     volume: com.brightblu.parc.core.data.audio.VolumeRepository?,
@@ -152,7 +157,6 @@ internal fun StatsHud(
     entries: List<com.brightblu.parc.model.AppEntry>,
     onLaunch: (com.brightblu.parc.model.AppId) -> Unit,
     active: Boolean,
-    clock: @Composable () -> Unit,
     alertState: StatsAlertUiState,
     onDismissAlert: (StatsAlertMetric) -> Unit,
     archive: StatsArchive,
@@ -180,84 +184,57 @@ internal fun StatsHud(
         if (DemoMode.enabled) DemoStatsStore(File(appContext.filesDir, DemoStatsStore.FileName)) else null
     }
     Column(panel) {
-        HubPages(skin, clock = clock, expanded = expanded, onToggleExpanded = onToggleExpanded,
+        HubPages(skin, expanded = expanded, onToggleExpanded = onToggleExpanded,
             focusLabel = focusActiveName,
             focusAvailable = focusAvailable,
             onToggleFocus = onToggleFocus,
             demoContent = { page ->
                 when (page) {
-                    "power" -> demoStore?.let { DemoPowerPage(it, skin) } ?: CellLabel("Loading sample…", skin)
+                    DevicePage.Id -> DemoDevicePage(demoStore, skin)
+                    ControlsPage.Id -> DemoControlsPage(skin)
+                    CommonplacePage.Id -> DemoCommonplacePage(skin)
+                    "apps" -> DemoAppsPage(skin)
                     "notes" -> DemoNotesPage(skin)
+                    "comms" -> DemoCommsPage(skin)
                     "focus" -> FocusHubPage(skin)
-                    QuickToggleCatalog.PageId -> QuickTogglesHubPage(QuickToggleCatalog.tiles, active, skin, demo = true)
                     WeatherVariant.PageId -> WeatherVariant.DemoPage(skin)
-                    else -> Unit
+                    StepsPage.Id -> DemoStepsPage(skin)
+                    RhythmPage.Id -> DemoRhythmPage(skin)
+                    SkyPage.Id -> DemoSkyPage(skin)
+                    YearPage.Id -> DemoYearPage(skin)
+                    RecordsPage.Id -> DemoRecordsPage(skin)
+                    TodayPage.Id -> DemoTodayPage(skin)
+                    LibraryPage.Id -> DemoLibraryPage(skin)
+                    com.brightblu.parc.arcade.ArcadePage.Id -> com.brightblu.parc.arcade.ArcadeHubPage(skin, active)
+                    else -> extraPage(page)?.demo?.invoke(skin) ?: Unit
                 }
             },
             comms = { if (comms != null) CommsPage(comms, skin) },
             pageContent = { page, tiles ->
                 when (page) {
-                    "power" -> PowerHubPage(powerSource, active, tiles, expanded, skin, alertState.active, archive, presentation.batteryPercent)
-                    "network" -> NetworkHubPage(networkRepository, active, tiles, expanded, presentation, history, skin)
-                    "apps" -> AppsHubPage(screenTime, newApps, appStorage, entries, active, tiles, expanded, skin, onLaunch)
-                    "sound" -> SoundHubPage(volume, active, tiles, expanded, skin)
+                    DevicePage.Id -> DeviceHubPage(powerSource, networkRepository, dayLedger, entries, active, tiles, skin,
+                        alertState.active, archive, presentation, history, alertState.banner, onDismissAlert)
+                    ControlsPage.Id -> ControlsHubPage(volume, active, tiles, skin)
+                    CommonplacePage.Id -> CommonplaceHubPage(skin)
+                    "apps" -> AppsHubPage(dayLedger, newApps, appStorage, entries, active, tiles, expanded, skin, onLaunch)
                     "timers" -> TimersHubPage(active, tiles, expanded, skin)
                     "agenda" -> AgendaHubPage(active, tiles, expanded, skin)
                     "media" -> MediaHubPage(active, tiles, expanded, skin)
                     "focus" -> FocusHubPage(skin)
-                    QuickToggleCatalog.PageId -> QuickTogglesHubPage(tiles, active, skin, demo = false)
                     WeatherVariant.PageId -> WeatherVariant.Page(skin, active, LocalHubOpenOptions.current)
-                    else -> CellLabel("${page.replaceFirstChar { it.uppercase() }} · coming soon", skin)
+                    StepsPage.Id -> StepsHubPage(dayLedger, skin, active)
+                    RhythmPage.Id -> RhythmHubPage(dayLedger, skin, active)
+                    SkyPage.Id -> SkyHubPage(skin, active)
+                    YearPage.Id -> YearHubPage(dayLedger, skin, active)
+                    RecordsPage.Id -> RecordsHubPage(dayLedger, skin, active)
+                    TodayPage.Id -> TodayHubPage(dayLedger, skin, active, focusActiveName)
+                    LibraryPage.Id -> LibraryHubPage(skin, active)
+                    com.brightblu.parc.arcade.ArcadePage.Id -> com.brightblu.parc.arcade.ArcadeHubPage(skin, active)
+                    else -> extraPage(page)?.body?.invoke(skin, active) ?: CellLabel("${page.replaceFirstChar { it.uppercase() }} · coming soon", skin)
                 }
-            }) { tiles ->
-            Column(Modifier.hubPageScroll(), verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
-                alertState.banner?.let { metric ->
-                    Row(Modifier.fillMaxWidth().heightIn(min = Metrics.touchTargetDp.dp), verticalAlignment = Alignment.CenterVertically) {
-                        BasicText("! ${metric.alertLabel()}", Modifier.weight(1f), style = hudValueStyle(skin, skin.colors.warn), maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                        Box(Modifier.height(Metrics.touchTargetDp.dp).clickable { onDismissAlert(metric) }
-                            .padding(horizontal = Metrics.lineGapDp.dp), contentAlignment = Alignment.Center) {
-                            BasicText("Dismiss", style = hudLabelStyle(skin))
-                        }
-                    }
-                }
-                // T83: the bounded viewport shows every configured tile and scrolls beyond it. The
-                // legacy two-tile collapse left one row and a large empty panel on a phone.
-                if ("battery" in tiles) HudCell(skin, Modifier.fillMaxWidth()) {
-                    HubHero(StatsFormat.percent(presentation.batteryPercent), "Battery · ${presentation.thermalChip ?: "Phone status"}", skin)
-                }
-                tiles.filterNot { it == "battery" }.chunked(2).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
-                        row.forEach { tile ->
-                            val warning = alertForTile(tile, alertState.active) != null
-                            val tileSkin = remember(skin, warning) { if (warning) skin.copy(colors = skin.colors.copy(accent = skin.colors.warn)) else skin }
-                            HudCell(tileSkin, Modifier.weight(1f), compact = tile !in HubCatalog.systemHistoryTiles, warning = warning) {
-                                when (tile) {
-                                    in HubCatalog.systemHistoryTiles -> StatsArchiveGraph(tile, HubCatalog.systemHistoryTiles.getValue(tile), archive, tileSkin)
-                                    "battery" -> BatteryCell(presentation, tileSkin)
-                                    "thermal" -> Column {
-                                        ThermalCell(presentation.thermalChip ?: StatsFormat.Unavailable, tileSkin)
-                                        CellLabel("CPU ${presentation.cpuLoad}", tileSkin)
-                                        BasicText(presentation.temperatures.joinToString(" · ") {
-                                            "${it.label} ${StatsFormat.temperature(it.celsius)}"
-                                        }, style = hudLabelStyle(tileSkin), maxLines = 1,
-                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                                    }
-                                    "ram" -> if (presentation.ramPercent != null) MemoryCell(presentation, tileSkin) else CellLabel("RAM —", tileSkin)
-                                    "storage" -> if (presentation.storageText != null) StorageCell(presentation, tileSkin) else CellLabel("Storage —", tileSkin)
-                                    "network" -> NetworkCell(presentation, history, tileSkin)
-                                    "wifi" -> if (presentation.wifiBars != null || presentation.wifiLinkSpeed != null) WifiCell(presentation, tileSkin) else CellLabel("Wi-Fi —", tileSkin)
-                                    "uptime" -> UptimeCell(presentation.uptime, tileSkin)
-                                }
-                            }
-                        }
-                    }
-                }
-                if (tiles.isEmpty()) CellLabel("No tiles shown · use Edit", skin)
-            }
+            })
         }
     }
-}
 
 // --- Frames --------------------------------------------------------------------------------
 
@@ -377,7 +354,7 @@ private fun TemperatureText(t: TempGauge, skin: Skin) {
 }
 
 @Composable
-private fun ThermalCell(label: String, skin: Skin) {
+internal fun ThermalCell(label: String, skin: Skin) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         BasicText("Thermal", style = hudLabelStyle(skin))
         Spacer(Modifier.width(Metrics.gridDp.dp))
@@ -480,7 +457,7 @@ private fun DrawScope.drawSeries(values: FloatArray, max: Float, color: Color, s
 }
 
 @Composable
-private fun StorageCell(p: StatsPresentation, skin: Skin) {
+internal fun StorageCell(p: StatsPresentation, skin: Skin) {
     val percent = p.storagePercent ?: return
     val text = p.storageText ?: return
     val accent = storageColor(percent, skin)
@@ -495,7 +472,7 @@ private fun StorageCell(p: StatsPresentation, skin: Skin) {
 }
 
 @Composable
-private fun MemoryCell(p: StatsPresentation, skin: Skin) {
+internal fun MemoryCell(p: StatsPresentation, skin: Skin) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
         if (p.ramPercent != null) LabeledBar("RAM", p.ramPercent, skin)
     }
@@ -527,7 +504,7 @@ private fun LabeledBar(label: String, percent: Int, skin: Skin) {
 }
 
 @Composable
-private fun WifiCell(p: StatsPresentation, skin: Skin) {
+internal fun WifiCell(p: StatsPresentation, skin: Skin) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         BasicText("Wi-Fi", style = hudLabelStyle(skin))
         Spacer(Modifier.width(Metrics.gridDp.dp))
@@ -560,7 +537,7 @@ private fun WifiBars(bars: Int, skin: Skin) {
 }
 
 @Composable
-private fun UptimeCell(uptime: String, skin: Skin) {
+internal fun UptimeCell(uptime: String, skin: Skin) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         BasicText("Up", style = hudLabelStyle(skin))
         Spacer(Modifier.width(Metrics.gridDp.dp))

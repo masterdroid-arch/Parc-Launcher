@@ -6,6 +6,9 @@ import androidx.datastore.preferences.core.Preferences
 import com.brightblu.parc.core.data.focus.parcFocusStore
 import com.brightblu.parc.core.data.icons.parcIconPackStore
 import com.brightblu.parc.core.data.parcSettingsStore
+import com.brightblu.parc.core.data.ledger.parcDayLedgerStore
+import com.brightblu.parc.core.data.library.parcLibraryStore
+import com.brightblu.parc.core.data.library.parcReaderStore
 import com.brightblu.parc.core.data.search.parcSearchStore
 import com.brightblu.parc.core.data.stats.parcStatsAlertStore
 
@@ -19,6 +22,9 @@ object BackupStores {
             of(BackupSpecs.focus, app.parcFocusStore),
             of(BackupSpecs.iconPack, app.parcIconPackStore),
             of(BackupSpecs.statsAlerts, app.parcStatsAlertStore),
+            of(BackupSpecs.ledger, app.parcDayLedgerStore),
+            of(BackupSpecs.library, app.parcLibraryStore),
+            of(BackupSpecs.reader, app.parcReaderStore),
         )
     }
 

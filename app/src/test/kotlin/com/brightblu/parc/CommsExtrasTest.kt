@@ -1,45 +1,42 @@
 package com.brightblu.parc
 
 import com.brightblu.parc.core.data.comms.CommsCannedReplies
-import com.brightblu.parc.core.data.comms.CommsConversationId
-import com.brightblu.parc.core.data.comms.CommsHistoryEntry
-import com.brightblu.parc.core.data.comms.CommsMessage
 import com.brightblu.parc.core.data.comms.CommsPackages
 import com.brightblu.parc.core.data.comms.MarkReadResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** T77: the pure page and card state rules behind the Comms extras UI. */
+/** T77/T215: the pure page, card and segment rules behind the Messages UI. */
 class CommsExtrasTest {
-
-    private fun entry(app: String, title: String, text: String, timeMs: Long, removedAtMs: Long = timeMs,
-        key: String = title) =
-        CommsHistoryEntry(CommsConversationId(app, key), title,
-            CommsMessage("key-$timeMs", "sender", text, timeMs), removedAtMs)
 
     // ---- page mode -------------------------------------------------------------------------
 
-    @Test fun commsOffAlwaysShowsTheEmptyState() {
-        // The history is cleared when Comms is switched off, so an off page never shows it.
-        assertEquals(CommsMode.Empty, CommsExtrasPresentation.mode(false, false, 0, 0))
-        assertEquals(CommsMode.Empty, CommsExtrasPresentation.mode(false, true, 3, 5))
+    @Test fun liveSegmentFallsBackToTheEmptyStateWhenOffOrAccessIsGone() {
+        assertEquals(CommsMode.Empty, CommsExtrasPresentation.mode(CommsSegment.Live, false, true, 0, 5))
+        assertEquals(CommsMode.Empty, CommsExtrasPresentation.mode(CommsSegment.Live, true, false, 3, 5))
+        assertEquals(CommsMode.Live, CommsExtrasPresentation.mode(CommsSegment.Live, true, true, 2, 4))
+        assertEquals(CommsMode.Empty, CommsExtrasPresentation.mode(CommsSegment.Live, true, true, 0, 4))
     }
 
-    @Test fun historyToggleWinsOverLiveCardsAndNamesItsEmptyState() {
-        assertEquals(CommsMode.Live, CommsExtrasPresentation.mode(true, false, 2, 4))
-        assertEquals(CommsMode.Empty, CommsExtrasPresentation.mode(true, false, 0, 4))
-        assertEquals(CommsMode.History, CommsExtrasPresentation.mode(true, true, 2, 4))
-        assertEquals(CommsMode.NoHistory, CommsExtrasPresentation.mode(true, true, 2, 0))
-        assertEquals(CommsMode.NoHistory, CommsExtrasPresentation.mode(true, true, 0, 0))
+    @Test fun historySegmentNeverDependsOnAccessOrTheLiveSwitch() {
+        assertEquals(CommsMode.History, CommsExtrasPresentation.mode(CommsSegment.History, false, false, 0, 5))
+        assertEquals(CommsMode.History, CommsExtrasPresentation.mode(CommsSegment.History, true, true, 2, 4))
+        assertEquals(CommsMode.NoHistory, CommsExtrasPresentation.mode(CommsSegment.History, false, true, 2, 0))
+        assertEquals(CommsMode.NoHistory, CommsExtrasPresentation.mode(CommsSegment.History, true, true, 0, 0))
     }
 
-    @Test fun historyToggleAndLabelShowTheState() {
-        assertEquals("[history]", CommsExtrasPresentation.historyToggle(false))
-        assertEquals("[history on]", CommsExtrasPresentation.historyToggle(true))
-        assertEquals("history", CommsExtrasPresentation.historyLabel(0))
-        assertEquals("history 7", CommsExtrasPresentation.historyLabel(7))
+    @Test fun segmentLabelsArePlainWordsUnlessTheSkinIsTerminal() {
+        assertEquals("Live", CommsExtrasPresentation.segmentLabel(CommsSegment.Live))
+        assertEquals("History", CommsExtrasPresentation.segmentLabel(CommsSegment.History))
+        assertFalse(CommsExtrasPresentation.segmentLabel(CommsSegment.History).contains("["))
+        assertEquals("[history]", CommsExtrasPresentation.segmentLabel(CommsSegment.History, terminal = true))
+        assertEquals("[live]", CommsExtrasPresentation.segmentLabel(CommsSegment.Live, terminal = true))
+        assertEquals(CommsSegment.Live, CommsExtrasPresentation.defaultSegment(accessOn = true))
+        assertEquals(CommsSegment.History, CommsExtrasPresentation.defaultSegment(accessOn = false))
     }
 
     // ---- card state ------------------------------------------------------------------------
@@ -53,6 +50,7 @@ class CommsExtrasTest {
     @Test fun theSelectedCardShowsTheFieldAndTheChipsInStoredOrder() {
         val state = CommsExtrasPresentation.cardState(true, listOf("On my way", "OK"))
         assertTrue(state.selected)
+        assertTrue(state.canReply)
         assertTrue(state.showField)
         assertTrue(state.showQuickReplies)
         assertEquals(listOf("On my way", "OK"), state.quickReplies)
@@ -65,31 +63,128 @@ class CommsExtrasTest {
         assertTrue(state.quickReplies.isEmpty())
     }
 
-    // ---- history view ----------------------------------------------------------------------
-
-    @Test fun historyGroupsByConversationInFirstAppearanceOrderNewestRemovalFirst() {
-        val entries = listOf(
-            entry(CommsPackages.Telegram, "Sam", "one", 10, 100),
-            entry(CommsPackages.WhatsApp, "Alex", "two", 20, 90),
-            entry(CommsPackages.Telegram, "Sam", "three", 30, 80),
-        )
-        val cards = CommsExtrasPresentation.historyCards(entries)
-        assertEquals(listOf("TELEGRAM · Sam", "WHATSAPP · Alex"), cards.map { it.header })
-        // Inside a card the lines read oldest first, like an active card.
-        assertEquals(listOf("three", "one"), cards[0].lines.map { it.message.text })
-        assertEquals(listOf("two"), cards[1].lines.map { it.message.text })
+    @Test fun aNonReplyableCardNeverShowsADeadFieldOrChips() {
+        val state = CommsExtrasPresentation.cardState(true, listOf("On my way"), canReply = false)
+        assertTrue(state.selected)
+        assertFalse(state.canReply)
+        assertFalse(state.showField)
+        assertFalse(state.showQuickReplies)
+        // An unselected non-replyable card is still just unselected.
+        assertFalse(CommsExtrasPresentation.cardState(false, listOf("OK"), canReply = false).showField)
     }
 
-    @Test fun historyHeaderUsesTheMostRecentTitleAndCollapsesLineBreaks() {
-        val entries = listOf(
-            entry(CommsPackages.Signal, "New name\nline", "newest", 20, 90, key = "chat"),
-            entry(CommsPackages.Signal, "Old name", "older", 10, 80, key = "chat"),
+    // ---- empty reasons ---------------------------------------------------------------------
+
+    @Test fun accessOffWinsAndCarriesTheHistoryNote() {
+        val state = requireNotNull(
+            CommsExtrasPresentation.emptyState(
+                accessOn = false, enabled = true, live = 2, stored = 3,
+                focusMode = "Work", focusHiddenApps = listOf(CommsPackages.WhatsApp), drops = 2,
+            ),
         )
-        assertEquals("SIGNAL · New name line", CommsExtrasPresentation.historyCards(entries).single().header)
+        assertEquals(CommsEmptyReason.AccessOff, state.reason)
+        assertEquals("Notification access is off", state.message)
+        assertEquals(CommsEmptyAction.Allow, state.action)
+        assertNotNull(state.note)
+        assertTrue(state.note!!.contains("3"))
+        assertTrue(state.note!!.contains("stored"))
     }
 
-    @Test fun emptyHistoryHasNoCards() {
-        assertTrue(CommsExtrasPresentation.historyCards(emptyList()).isEmpty())
+    @Test fun accessOffWithoutHistoryHasNoNote() {
+        assertNull(CommsExtrasPresentation.emptyState(false, enabled = true, live = 0, stored = 0)?.note)
+    }
+
+    @Test fun messagesOffOffersTurnOn() {
+        val state = requireNotNull(CommsExtrasPresentation.emptyState(accessOn = true, enabled = false, live = 0, stored = 0))
+        assertEquals(CommsEmptyReason.MessagesOff, state.reason)
+        assertEquals("Messages are off", state.message)
+        assertEquals(CommsEmptyAction.TurnOn, state.action)
+        assertEquals("Turn on", state.actionLabel)
+    }
+
+    @Test fun focusHiddenNamesTheModeAndTheApp() {
+        val state = requireNotNull(
+            CommsExtrasPresentation.emptyState(
+                accessOn = true, enabled = true, live = 0, stored = 0,
+                focusMode = "Work", focusHiddenApps = listOf(CommsPackages.WhatsApp),
+            ),
+        )
+        assertEquals(CommsEmptyReason.FocusHidden, state.reason)
+        assertEquals("Focus mode Work is hiding WhatsApp", state.message)
+        assertEquals(CommsEmptyAction.OpenFocus, state.action)
+    }
+
+    @Test fun noLiveMessagesOfferHistoryOnlyWhenSomethingIsStored() {
+        val withHistory = requireNotNull(
+            CommsExtrasPresentation.emptyState(true, enabled = true, live = 0, stored = 2),
+        )
+        assertEquals(CommsEmptyReason.NoLive, withHistory.reason)
+        assertEquals(CommsEmptyAction.OpenHistory, withHistory.action)
+        assertEquals("No live messages. History shows what was kept on this phone.", withHistory.message)
+
+        val withNoHistory = requireNotNull(
+            CommsExtrasPresentation.emptyState(true, enabled = true, live = 0, stored = 0),
+        )
+        assertEquals(CommsEmptyReason.NoLive, withNoHistory.reason)
+        assertEquals(CommsEmptyAction.Why, withNoHistory.action)
+    }
+
+    @Test fun filteredDropsExplainWhyNothingArrived() {
+        val state = requireNotNull(
+            CommsExtrasPresentation.emptyState(true, enabled = true, live = 0, stored = 0, drops = 3),
+        )
+        assertEquals(CommsEmptyReason.AllFiltered, state.reason)
+        assertEquals("Nothing has arrived since Parc started listening.", state.message)
+        assertEquals(CommsEmptyAction.Why, state.action)
+        assertEquals("Why?", state.actionLabel)
+    }
+
+    @Test fun liveCardsHaveNoEmptyState() {
+        assertNull(CommsExtrasPresentation.emptyState(true, enabled = true, live = 1, stored = 4))
+    }
+
+    // ---- apps picker -----------------------------------------------------------------------
+
+    private fun app(pkg: String, label: String, messaging: Boolean = false) = CommsAppEntry(pkg, label, messaging)
+
+    @Test fun pickerGroupsInstalledMessagingThenFixedThenOther() {
+        val choices = CommsAppPicker.choices(
+            installed = listOf(
+                app("com.z.other", "Zed"),
+                app(CommsPackages.WhatsApp, "WhatsApp", messaging = true),
+                app("com.a.other", "Alpha"),
+            ),
+            allowed = setOf("com.example.stored"),
+        )
+        assertEquals(
+            listOf(CommsPackages.WhatsApp),
+            choices.filter { it.group == CommsAppGroup.Installed }.map { it.packageName },
+        )
+        assertEquals(CommsPackages.FixedOptIns, choices.filter { it.group == CommsAppGroup.Fixed }.map { it.packageName })
+        assertEquals(
+            listOf("com.a.other", "com.example.stored", "com.z.other"),
+            choices.filter { it.group == CommsAppGroup.Other }.map { it.packageName },
+        )
+        assertEquals(
+            listOf(CommsAppGroup.Installed, CommsAppGroup.Fixed, CommsAppGroup.Other),
+            choices.map { it.group }.distinct(),
+        )
+    }
+
+    @Test fun theFixedAppsAreNotDuplicatedWhenTheyAreInstalled() {
+        val choices = CommsAppPicker.choices(
+            installed = listOf(
+                app(CommsPackages.Telegram, "Telegram", messaging = true),
+                app(CommsPackages.Signal, "Signal"),
+            ),
+        )
+        assertEquals(listOf(CommsPackages.Telegram), choices.filter { it.group == CommsAppGroup.Installed }.map { it.packageName })
+        assertEquals(
+            listOf(CommsPackages.Messages, CommsPackages.Signal, CommsPackages.Discord, CommsPackages.Imo),
+            choices.filter { it.group == CommsAppGroup.Fixed }.map { it.packageName },
+        )
+        assertEquals(listOf(CommsPackages.Telegram, CommsPackages.Messages, CommsPackages.Signal,
+            CommsPackages.Discord, CommsPackages.Imo), choices.map { it.packageName })
     }
 
     @Test fun everyReadOutcomeIsNamed() {

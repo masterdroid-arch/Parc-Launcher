@@ -77,7 +77,8 @@ internal fun RingAccessibility(state: RingState, callbacks: RingCallbacks) {
                 traversalIndex = nodes.size.toFloat()
                 onClick { latest.onHubTap(); true }
             })
-            val button = remember(state.arcs) { RingSearchButtonPlacement(state.arcs) }
+            val screenWidthDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.toFloat()
+            val button = remember(state.arcs, screenWidthDp) { RingSearchButtonPlacement(state.arcs, screenWidthDp) }
             Box(Modifier.offset(button.left.dp, (button.centerY - button.radius).dp)
                 .size(Metrics.searchButtonTouchDp.dp).semantics {
                     contentDescription = "Search apps"

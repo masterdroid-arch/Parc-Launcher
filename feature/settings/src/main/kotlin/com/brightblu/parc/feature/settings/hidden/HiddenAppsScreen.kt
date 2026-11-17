@@ -8,17 +8,21 @@ import androidx.compose.runtime.remember
 import com.brightblu.parc.feature.settings.ui.*
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -33,11 +37,13 @@ import com.brightblu.parc.model.Skin
 import com.brightblu.parc.model.TypeToken
 
 /**
- * Hidden apps screen (T17, F-17): find an app, hide it or bring it back. Search, the ABC list, the
- * folder picker and the ring already leave hidden apps out, so this screen is the only missing half.
+ * Hidden apps screen (T17, F-17; T219 sections): the Hidden section at the top is permanent hide
+ * only, with an Unhide per app and an Unhide all that clears nothing else. The All apps section
+ * keeps the search and toggles and never repeats a Hidden row.
  *
- * Colours and sizes come only from [Skin] and [Metrics]. The list is a single [LazyColumn]; no icon
- * bitmaps are requested, because a row only needs the label.
+ * Colours and sizes come only from [Skin] and [Metrics]. No icon bitmaps are requested, because a
+ * row only needs the label. The scope line is the one short Visibility explanation, not a second
+ * explainer screen.
  */
 @Composable
 fun HiddenApps(controller: HiddenAppsController, skin: Skin, modifier: Modifier = Modifier, topPaddingDp: Float = Metrics.keepOutTopDp) {
@@ -47,6 +53,7 @@ fun HiddenApps(controller: HiddenAppsController, skin: Skin, modifier: Modifier 
         skin = skin,
         onQuery = controller::setQuery,
         onSetHidden = controller::setHidden,
+        onUnhideAll = controller::unhideAll,
         modifier = modifier,
         topPaddingDp = topPaddingDp,
     )
@@ -59,20 +66,62 @@ fun HiddenAppsScreen(
     skin: Skin,
     onQuery: (String) -> Unit,
     onSetHidden: (AppId, Boolean) -> Unit,
+    onUnhideAll: () -> Unit = {},
     modifier: Modifier = Modifier,
     topPaddingDp: Float = Metrics.keepOutTopDp,
 ) {
     val undo = rememberEditorUndo()
+    var confirmUnhideAll by remember { mutableStateOf(false) }
+    if (confirmUnhideAll) AlertDialog(
+        onDismissRequest = { confirmUnhideAll = false },
+        containerColor = Color(skin.colors.surface.toInt()),
+        title = { BasicText("Unhide all apps?", style = settingsText(skin)) },
+        text = {
+            BasicText(
+                "This clears the permanent Hidden flag on every app. Focus, Lock and hidden folders are not changed.",
+                style = settingsText(skin, skin.colors.textSecondary, true),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { confirmUnhideAll = false; onUnhideAll() }) {
+                BasicText("Unhide all", style = settingsText(skin, skin.colors.accent))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { confirmUnhideAll = false }) {
+                BasicText("Cancel", style = settingsText(skin, skin.colors.textSecondary))
+            }
+        },
+    )
     ParcPage(modifier.background(color(skin.colors.bg)).padding(top = topPaddingDp.dp), safeTop = false, scroll = false) {
-        EditorScaffold(EditorSpec.HiddenApps, skin, scroll = false, empty = state.rows.isEmpty(),
+        EditorScaffold(EditorSpec.HiddenApps, skin, scroll = false, empty = state.rows.isEmpty() && state.hiddenCount == 0,
             undo = if (undo.action != null) ({ undo.run() }) else null) {
+        BasicText(
+            VisibilityCopy.Scope,
+            style = style(skin, skin.colors.textSecondary, skin.typography.caption),
+        )
+        Spacer(Modifier.height(Metrics.rowGapDp.dp))
         BasicText(
             if (state.hiddenCount == 1) "1 app hidden" else "${state.hiddenCount} apps hidden",
             style = style(skin, skin.colors.textSecondary, skin.typography.caption),
         )
         QueryField(state.query, skin, onQuery)
         LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
-            items(state.rows, key = { it.appId.value }) { row ->
+            item(key = "hidden-section") {
+                HiddenSection(
+                    state = state,
+                    skin = skin,
+                    onUnhide = { id ->
+                        onSetHidden(id, false)
+                        undo.offer { onSetHidden(id, true) }
+                    },
+                    onUnhideAll = { confirmUnhideAll = true },
+                )
+            }
+            item(key = "all-apps-header") {
+                SettingsSection("All apps", skin)
+            }
+            items(state.visibleRows, key = { "visible-${it.appId.value}" }) { row ->
                 AppRow(row, skin) { id, hidden ->
                     onSetHidden(id, hidden)
                     if (hidden) undo.offer { onSetHidden(id, false) }
@@ -80,6 +129,59 @@ fun HiddenAppsScreen(
             }
         }
         }
+    }
+}
+
+@Composable
+private fun HiddenSection(
+    state: HiddenAppsUiState,
+    skin: Skin,
+    onUnhide: (AppId) -> Unit,
+    onUnhideAll: () -> Unit,
+) {
+    SettingsSection(
+        if (state.hiddenCount == 1) "Hidden · 1" else "Hidden · ${state.hiddenCount}",
+        skin,
+    )
+    when {
+        state.hiddenCount == 0 -> BasicText(
+            "Nothing hidden.",
+            style = settingsText(skin, skin.colors.textSecondary, true),
+            modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp),
+        )
+        state.hiddenRows.isEmpty() -> BasicText(
+            "No hidden apps match this search.",
+            style = settingsText(skin, skin.colors.textSecondary, true),
+            modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp),
+        )
+        else -> SettingsCard(skin) {
+            state.hiddenRows.forEachIndexed { index, row ->
+                SettingRow(
+                    title = row.label,
+                    skin = skin,
+                    kind = SettingKind.Action,
+                    description = "Unhide",
+                    divider = index != state.hiddenRows.lastIndex,
+                ) { onUnhide(row.appId) }
+            }
+        }
+    }
+    if (state.hiddenCount > 0) {
+        SettingsCard(skin) {
+            SettingRow(
+                title = "Unhide all",
+                skin = skin,
+                kind = SettingKind.Action,
+                description = "Clear Hidden for every app. Focus, Lock and hidden folders stay as they are.",
+                divider = false,
+                onClick = onUnhideAll,
+            )
+        }
+        BasicText(
+            "Unhide all clears Hidden only. Focus, Lock and hidden folders are not changed.",
+            style = settingsText(skin, skin.colors.textSecondary, true),
+            modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp),
+        )
     }
 }
 

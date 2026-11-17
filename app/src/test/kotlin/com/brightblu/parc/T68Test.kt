@@ -68,12 +68,12 @@ class T68Test {
 
     @Test fun aUserAppShowsEveryRowWithHideAndUninstall() {
         val items = appMenuRootItems(rootMenu())
-        assertEquals(listOf("Pin", "Move to folder", "Hide from Parc", "App info", "Uninstall"), rows(items))
+        assertEquals(listOf("Pin", "Move to folder", "Remove from arc", "Hide from Parc", "App info", "Uninstall"), rows(items))
         assertTrue(items.contains(MenuItem.Divider))
     }
 
     @Test fun aSystemAppWithoutAnUpdateHidesUninstall() {
-        assertEquals(listOf("Pin", "Move to folder", "Hide from Parc", "App info"),
+        assertEquals(listOf("Pin", "Move to folder", "Remove from arc", "Hide from Parc", "App info"),
             rows(appMenuRootItems(rootMenu(canUninstall = false))))
     }
 
@@ -130,7 +130,7 @@ class T68Test {
 
     @Test fun theFolderMenuOffersRenameSortAndDelete() {
         val folder = FolderMenuModel(social, "Social", SlotPosition("A3", 0), 0f, 0f)
-        assertEquals(listOf("Rename", "Add apps", "Sort A to Z", "Move earlier", "Move later", "Delete"),
+        assertEquals(listOf("Rename", "Add apps", "Sort A to Z", "Move earlier", "Move later", "Hide folder", "Delete"),
             rows(folderMenuRootItems(folder)))
     }
 

@@ -48,13 +48,11 @@ internal fun StatsAlertSettings(repository: StatsAlertRepository, skin: Skin) {
             }
         }
         SettingsSection("24 hour history graphs", skin)
-        listOf("system", "power").forEach { page ->
-            val graphs = if (page == "system") HubCatalog.systemHistoryTiles else HubCatalog.powerHistoryTiles
-            graphs.forEach { (tile, _) ->
-                AlertSwitch("${page.replaceFirstChar { it.uppercase() }} · $tile", tile !in config.hiddenTiles[page].orEmpty(), skin) { show ->
-                    scope.launch { hubStore.update { it.showTile(page, tile, show) } }
-                    if (!show) undo.offer { scope.launch { hubStore.update { it.showTile(page, tile, true) } } }
-                }
+        val graphs = HubCatalog.systemHistoryTiles + HubCatalog.powerHistoryTiles.mapKeys { HubCatalog.currentTile("power", it.key) }
+        graphs.forEach { (tile, _) ->
+            AlertSwitch("Device · $tile", tile !in config.hiddenTiles[DevicePage.Id].orEmpty(), skin) { show ->
+                scope.launch { hubStore.update { it.showTile(DevicePage.Id, tile, show) } }
+                if (!show) undo.offer { scope.launch { hubStore.update { it.showTile(DevicePage.Id, tile, true) } } }
             }
         }
     }

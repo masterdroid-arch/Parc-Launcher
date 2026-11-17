@@ -17,21 +17,27 @@ import com.brightblu.parc.model.*
 
 internal data class HubTemplateSpec(val summary: String, val action: String, val empty: String)
 internal val hubTemplates = linkedMapOf(
-    "clock" to HubTemplateSpec("Time", "Clock", "Turn on the clock in Icons and clock"),
-    "system" to HubTemplateSpec("Phone status", "Details", "Readings are unavailable. Try again shortly"),
-    "power" to HubTemplateSpec("Battery", "Details", "Battery readings are unavailable"),
-    "network" to HubTemplateSpec("Connection", "Details", "Connect to a network to see traffic"),
+    TodayPage.Id to HubTemplateSpec("Time and Today", "Details", "Turn on the clock in Icons and clock"),
+    DevicePage.Id to HubTemplateSpec("Phone status", "Details", "Readings are unavailable. Try again shortly"),
     "apps" to HubTemplateSpec("Screen time today", "Details", "Allow usage access to see screen time"),
-    "sound" to HubTemplateSpec("Volume", "Details", "Open Sound settings to choose an output"),
+    StepsPage.Id to HubTemplateSpec("Steps", "Details", "No steps counted yet. Carry the phone and they will appear"),
+    RhythmPage.Id to HubTemplateSpec("Rhythm", "Details", "Allow usage access to see your day as a ring"),
+    SkyPage.Id to HubTemplateSpec("Sky", "Details", "Set a place in the options to see the sun"),
+    YearPage.Id to HubTemplateSpec("Year", "Details", "Add a date in the options to count down to it"),
+    RecordsPage.Id to HubTemplateSpec("Records", "Details", "Records appear after a week of history"),
+    CommonplacePage.Id to HubTemplateSpec("Kept passages", "Details", "Add a quote, highlight a book or share text into Parc"),
+    ControlsPage.Id to HubTemplateSpec("Volume and toggles", "Details", "Open Sound settings to choose an output"),
     "timers" to HubTemplateSpec("Timers", "Details", "Tap a preset to start a timer"),
     "agenda" to HubTemplateSpec("Next event", "Details", "No events ahead. Add one in your calendar"),
     "media" to HubTemplateSpec("Now playing", "Details", "Play something in a music or video app"),
     "focus" to HubTemplateSpec("Focus", "Details", "Create a mode in Focus settings"),
     "notes" to HubTemplateSpec("Notes", "Details", "Tap + to add your first note"),
-    "comms" to HubTemplateSpec("Messages", "Details", "All caught up. New messages will appear here"),
-    QuickToggleCatalog.PageId to HubTemplateSpec("Quick toggles", "Details", "No tiles shown. Choose tiles in page options"),
+    "comms" to HubTemplateSpec("Messages", "Details", "No messages are showing. History keeps what was dismissed on this phone."),
+    LibraryPage.Id to HubTemplateSpec("Books", "Find books", "No books yet. Use Find books to add files"),
 ).apply {
     if (WeatherVariant.Available) put(WeatherVariant.PageId, HubTemplateSpec("Weather", "City", "Choose a city in page options to see the weather"))
+    PersonalExtras.pages.forEach { put(it.id, it.template) }
+    put(com.brightblu.parc.arcade.ArcadePage.Id, HubTemplateSpec("Arcade", "Play", "Nothing to play yet"))
 }
 internal val LocalHubPrimary = compositionLocalOf { false }
 

@@ -21,23 +21,23 @@ class T109Test {
         assertEquals(Skin.Midnight.typography.clock.weight, hubClockWeight(ClockStyle.Thin, Skin.Midnight))
     }
 
-    @Test fun oldConfigurationGainsClockFirstWithoutLosingChoices() {
-        val config = HubConfig.decode("system:true:ram,battery:battery;power:false:charging:;sound:true:alarm,media:media;comms:false::")
-        assertEquals("clock", config.pages.first())
-        assertTrue("power" !in config.pages && "comms" !in config.pages)
-        assertTrue("battery" in config.hiddenTiles.getValue("system"))
-        assertEquals("ram", config.tiles("system").first())
-        assertEquals("sound", restoredHubPage("sound", config))
+    @Test fun oldConfigurationGainsTodayFirstWithoutLosingChoices() {
+        val config = HubConfig.decode("system:true:ram,battery:battery,thermal;power:false:charging:;sound:true:alarm,media:media;comms:false::")
+        assertEquals(TodayPage.Id, config.pages.first())
+        assertTrue(DevicePage.Id in config.pages && "comms" !in config.pages)
+        assertTrue("thermal" in config.hiddenTiles.getValue(DevicePage.Id))
+        assertEquals("ram", config.tiles(DevicePage.Id).first())
+        assertEquals(ControlsPage.Id, restoredHubPage("sound", config))
         assertEquals(config.encode(), HubConfig.decode(config.encode()).encode())
     }
-    @Test fun clockCanBeHiddenAndPagesReorderedAcrossSaveAndRestore() {
-        val config = legacyHubConfig().movePage("clock", 99).movePage("media", -99).showPage("clock", false)
+    @Test fun todayCanBeHiddenAndPagesReorderedAcrossSaveAndRestore() {
+        val config = legacyHubConfig().movePage("today", 99).movePage("media", -99).showPage("today", false)
         val restored = HubConfig.decode(config.encode())
         assertEquals("media", restored.pages.first())
-        assertEquals("clock", restored.orderedPages.last())
-        assertFalse("clock" in restored.pages)
+        assertEquals(TodayPage.Id, restored.orderedPages.last())
+        assertFalse(TodayPage.Id in restored.pages)
         assertEquals(config.encode(), restored.encode())
-        assertEquals("clock", restored.showPage("clock", true).pages.last())
+        assertEquals(TodayPage.Id, restored.showPage("today", true).pages.last())
     }
     @Test fun panelUsesInsetAndEntireSafeBandAtEveryReferenceSize() {
         for ((w, h) in listOf(384f to 853f, 360f to 800f, 411f to 914f)) {
@@ -74,7 +74,7 @@ class T109Test {
         assertEquals(BackupValueType.Bool, key.type)
         assertTrue(BackupValues.matches(key, false))
         assertFalse(BackupValues.matches(key, "true"))
-        val config = HubConfig().movePage("clock", 4).showPage("sound", false)
+        val config = HubConfig().movePage("today", 4).showPage(ControlsPage.Id, false)
         val source = FakeSharedPreferences().apply { data["header_time"] = true; data["config_v1"] = config.encode(); data["last_page"] = "media" }
         val values = SharedPreferencesStoreAccess(source).read(AppBackup.HubSpec)
         val target = FakeSharedPreferences()

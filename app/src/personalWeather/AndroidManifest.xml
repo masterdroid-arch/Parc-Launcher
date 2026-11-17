@@ -5,4 +5,6 @@
       permission; the build's manifest check fails if either one does.
     -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- T205: offered only by Find books. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 </manifest>

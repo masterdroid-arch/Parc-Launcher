@@ -150,11 +150,12 @@ internal fun SkinHome(skin: Skin, services: LauncherServices, scene: RingState, 
             val history by services.stats.history.collectAsState()
             val entries by services.unlockedApps.collectAsState()
             CompositionLocalProvider(LocalHubLook provides look, LocalFocusRepository provides services.focus,
+                LocalStepsRepository provides services.steps, LocalRhythmRepository provides services.rhythm,
+                LocalLibraryStore provides services.library,
                 LocalHubFrostDrawn provides true) {
                 StatsHud(powerSource = services.powerStats, networkRepository = services.networkStats,
-                    screenTime = services.screenTime, newApps = services.newApps, appStorage = services.appStorage,
+                    dayLedger = services.dayLedger, newApps = services.newApps, appStorage = services.appStorage,
                     volume = services.volume, comms = services.comms, entries = entries, onLaunch = {}, active = false,
-                    clock = { ClockHubPage(hubs.stats, look, rememberHubTime(), ClockDetail(), settings.clockVisible) },
                     alertState = StatsAlertUiState(), onDismissAlert = {}, archive = com.brightblu.parc.core.data.stats.StatsArchive.Empty,
                     presentation = StatsPresentation.of(frame), history = history, skin = hubs.stats,
                     expanded = settings.statsExpanded, onToggleExpanded = {}, focusActiveName = focus.activeName,

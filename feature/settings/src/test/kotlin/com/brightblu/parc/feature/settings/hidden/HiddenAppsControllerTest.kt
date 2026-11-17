@@ -1,8 +1,13 @@
 package com.brightblu.parc.feature.settings.hidden
 
 import com.brightblu.parc.model.AppId
+import com.brightblu.parc.model.Folder
+import com.brightblu.parc.model.FolderId
+import com.brightblu.parc.model.LayoutJson
 import com.brightblu.parc.model.ParcLayout
 import com.brightblu.parc.model.fakes.FakeLayoutRepository
+import com.brightblu.parc.model.hidden
+import com.brightblu.parc.model.withHidden
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
@@ -117,5 +122,44 @@ class HiddenAppsControllerTest {
         runCurrent()
 
         assertTrue(unknown in harness.repository.layout.value.hidden)
+    }
+
+    @Test
+    fun `unhide all clears layout hidden only and leaves a hidden folder tag and lock alone`() = runTest {
+        val harness = harness()
+        val folder = Folder(FolderId("chat"), "Chat", appIds = listOf(apple.id)).withHidden(true)
+        harness.repository.importLayout(LayoutJson.encode(ParcLayout(version = 1, folders = listOf(folder))))
+        harness.repository.hide(apple.id)
+        harness.repository.hide(banana.id)
+        runCurrent()
+        assertEquals(2, harness.controller.state.value.hiddenCount)
+
+        harness.controller.unhideAll()
+        runCurrent()
+
+        assertTrue(harness.repository.layout.value.hidden.isEmpty())
+        val stored = harness.repository.layout.value.folders.single { it.id == FolderId("chat") }
+        assertTrue(stored.hidden)
+        assertEquals(listOf(apple.id), stored.appIds)
+        assertEquals(0, harness.controller.state.value.hiddenCount)
+        assertEquals(listOf("Apple", "Banana", "Cherry"), harness.controller.state.value.visibleRows.map { it.label })
+        assertTrue(harness.controller.state.value.hiddenRows.isEmpty())
+    }
+
+    @Test
+    fun `query filters both sections without moving a row between them`() = runTest {
+        val harness = harness()
+        harness.repository.hide(banana.id)
+        runCurrent()
+
+        harness.controller.setQuery("Ban")
+        runCurrent()
+
+        assertEquals(listOf("Banana"), harness.controller.state.value.hiddenRows.map { it.label })
+        assertTrue(harness.controller.state.value.visibleRows.isEmpty())
+        harness.controller.setQuery("App")
+        runCurrent()
+        assertTrue(harness.controller.state.value.hiddenRows.isEmpty())
+        assertEquals(listOf("Apple"), harness.controller.state.value.visibleRows.map { it.label })
     }
 }

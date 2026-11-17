@@ -112,6 +112,25 @@ fun ParcLayout.withFolderLocked(id: FolderId, locked: Boolean): ParcLayout =
     if (folders.none { it.id == id }) this
     else copy(folders = folders.map { if (it.id == id) it.withLocked(locked) else it })
 
+/**
+ * T218: the "hide folder" flag, stored exactly like [LockedFolderTag] as a reserved [Folder.tags]
+ * entry. The existing layout tables, layout JSON and backup document carry it with no schema bump;
+ * a layout written before T218 has no such tag and decodes as visible.
+ */
+const val HiddenFolderTag = "parc:hidden"
+
+/** True when the folder is hidden from Home together with its apps. */
+val Folder.hidden: Boolean get() = HiddenFolderTag in tags
+
+/** Copy with the hide flag set or cleared; every other tag (including the lock) is kept. */
+fun Folder.withHidden(hidden: Boolean): Folder =
+    if (hidden == this.hidden) this else copy(tags = if (hidden) tags + HiddenFolderTag else tags - HiddenFolderTag)
+
+/** Copy of the layout with one folder hidden or shown; unknown ids change nothing. */
+fun ParcLayout.withFolderHidden(id: FolderId, hidden: Boolean): ParcLayout =
+    if (folders.none { it.id == id }) this
+    else copy(folders = folders.map { if (it.id == id) it.withHidden(hidden) else it })
+
 /** Versioned layout snapshot. Non-null; supplied collections must be treated as immutable. */
 @Serializable
 data class ParcLayout(

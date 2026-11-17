@@ -45,6 +45,8 @@ private fun focusScheduleWords(time: FocusSchedule): String {
 internal fun focusQuietValue(mode: FocusMode): String = buildList {
     if (mode.silenceBadges) add("Badges")
     if (mode.hiddenComms.isNotEmpty()) add("messages from ${mode.hiddenComms.size} ${if (mode.hiddenComms.size == 1) "app" else "apps"}")
+    if (mode.alwaysShowMessagePackages.isNotEmpty())
+        add("messages always shown from ${focusAppCount(mode.alwaysShowMessagePackages.size)}")
     if (mode.syncDnd) add("Do Not Disturb")
 }.joinToString(" and ").ifEmpty { "Off" }
 internal fun focusLookValue(mode: FocusMode): String = buildList {

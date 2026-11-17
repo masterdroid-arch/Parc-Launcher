@@ -284,4 +284,28 @@ class CommsParserTest {
         )
         assertEquals("The group", parsed.messages.single().sender)
     }
+
+    // ---- T213: package-only drop reasons ----------------------------------------------------
+
+    private fun reason(raw: RawNotification, with: CommsPolicy = policy): CommsDropReason? =
+        (parser.evaluate(raw, with) as? CommsParseResult.Dropped)?.reason
+
+    @Test
+    fun `each filter reports the reason the Why sheet names`() {
+        assertEquals(CommsDropReason.Ongoing, reason(rawNotification(isOngoing = true)))
+        assertEquals(CommsDropReason.GroupSummary, reason(rawNotification(flags = 512)))
+        assertEquals(CommsDropReason.Category, reason(rawNotification(category = "call")))
+        assertEquals(CommsDropReason.Blank, reason(rawNotification(text = "   ", bigText = null)))
+        assertEquals(
+            CommsDropReason.NotAllowed,
+            reason(rawNotification(packageName = CommsPackages.Telegram),
+                CommsPolicy(allowedPackages = setOf(CommsPackages.WhatsApp))),
+        )
+        assertNull(reason(rawNotification(key = "kept", text = "hello")))
+    }
+
+    @Test
+    fun `Comms off is ignored rather than reported as a dropped notification`() {
+        assertEquals(CommsParseResult.Ignored, parser.evaluate(rawNotification(), CommsPolicy(enabled = false)))
+    }
 }

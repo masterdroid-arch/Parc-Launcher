@@ -14,6 +14,10 @@ data class CountdownTimer(
     val status: TimerStatus,
     val endAtMs: Long = 0L,
     val remainingMs: Long = totalMs,
+    /** T183: the first line of the note this timer was started from; empty for an ordinary timer. */
+    val label: String = "",
+    /** T183: the note to open when the finished timer is tapped; empty for an ordinary timer. */
+    val noteId: String = "",
 ) {
     /** What the page shows: a running timer whose end has passed counts as finished even before the receiver ran. */
     fun effective(nowMs: Long): TimerStatus =
@@ -35,10 +39,11 @@ data class TimerBook(val timers: List<CountdownTimer> = emptyList()) {
         TimerBook(timers.map { if (it.id == id) change(it) else it })
 
     /** Adds a running timer; null when the book is full or [totalMs] is outside the allowed range. */
-    fun start(totalMs: Long, nowMs: Long): TimerBook? {
+    fun start(totalMs: Long, nowMs: Long, label: String = "", noteId: String = ""): TimerBook? {
         if (isFull || totalMs !in TimerRules.MinMs..TimerRules.MaxMs) return null
         val id = (1..TimerRules.MaxTimers).first { slot -> timers.none { it.id == slot } }
-        val added = CountdownTimer(id, totalMs, TimerStatus.Running, endAtMs = nowMs + totalMs)
+        val added = CountdownTimer(id, totalMs, TimerStatus.Running, endAtMs = nowMs + totalMs,
+            label = label.take(TimerRules.MaxLabel), noteId = noteId)
         return TimerBook((timers + added).sortedBy { it.id })
     }
 
@@ -111,6 +116,8 @@ object TimerRules {
     const val MinMs = 1_000L
     const val MaxMs = 24L * 3_600_000L - 1_000L
     const val MaxLaps = 99
+    /** Longest timer label kept (the first line of a note). */
+    const val MaxLabel = 60
     /** A notification stops ringing on its own after this long. */
     const val RingMs = 60_000L
     val PresetMinutes = listOf(1, 5, 10, 15, 30)

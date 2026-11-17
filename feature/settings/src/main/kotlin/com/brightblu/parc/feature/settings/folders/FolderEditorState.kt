@@ -58,6 +58,9 @@ sealed interface FolderEditorEvent {
     data class RemoveApp(val id: AppId) : FolderEditorEvent
     data object OpenAppPicker : FolderEditorEvent
 
+    /** T218: toggle the `parc:hidden` tag; members, pins and the lock flag are untouched. */
+    data object ToggleFolderHidden : FolderEditorEvent
+
     data class DragStart(val slot: Int) : FolderEditorEvent
     data class DragTo(val slot: Int) : FolderEditorEvent
     data object DragCancel : FolderEditorEvent

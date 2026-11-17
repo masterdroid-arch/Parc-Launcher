@@ -88,6 +88,10 @@ class T137WeatherTest {
         assertEquals("38.72,-9.13", place.key)
         assertTrue(OpenMeteo.geocodingUrl(" São Paulo ").startsWith("https://geocoding-api.open-meteo.com/v1/search?name=S%C3%A3o+Paulo&"))
         assertEquals(setOf("api.open-meteo.com", "geocoding-api.open-meteo.com"), OpenMeteo.Hosts)
+        // T184: seven days, ten search results, a language code, and still nothing about the phone.
+        assertTrue(url.contains("&forecast_days=7&"))
+        val search = OpenMeteo.geocodingUrl("Lisbon", "PT")
+        assertEquals("https://geocoding-api.open-meteo.com/v1/search?name=Lisbon&count=10&language=pt&format=json", search)
     }
 
     @Test fun refreshAtMostEveryThirtyMinutes() {
@@ -204,7 +208,9 @@ class T137WeatherTest {
         val f = WeatherDemo.forecast(now)
         val view = WeatherPresentation.view(f, Instant.parse("2026-10-26T09:40:00Z"))
         assertEquals(17.0, view.tempC!!, 0.0)
-        assertEquals(5, view.days.size)
+        // T184: the demo shows seven days (was five).
+        assertEquals(7, view.days.size)
         assertEquals(LocalDateTime.of(2026, 10, 26, 9, 0), view.hours.first().time)
+        assertEquals(24, WeatherPresentation.hoursOn(f, LocalDate.of(2026, 10, 30)).size)
     }
 }

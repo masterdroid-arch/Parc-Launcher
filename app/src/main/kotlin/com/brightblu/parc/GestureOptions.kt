@@ -39,8 +39,8 @@ sealed interface GestureAction {
             raw == "search" -> Search
             raw == "last_app" -> LastApp
             raw == "edit_mode" -> EditMode
-            raw.startsWith("page:") -> raw.removePrefix("page:").takeIf { it.isNotEmpty() }?.let(::HubPage)
-                ?: fallback
+            raw.startsWith("page:") -> raw.removePrefix("page:").takeIf { it.isNotEmpty() }
+                ?.let { HubPage(HubCatalog.canonicalPage(it)) } ?: fallback
             raw.startsWith("app:") -> raw.removePrefix("app:").takeIf { it.isNotEmpty() }
                 ?.let { OpenApp(AppId(it)) } ?: fallback
             else -> fallback
@@ -112,7 +112,7 @@ internal fun resolveGesture(
     GestureAction.LastApp -> GestureTarget.LastApp
     GestureAction.EditMode -> GestureTarget.EditMode
     is GestureAction.HubPage -> {
-        val page = action.page.takeIf { it in pages } ?: pages.firstOrNull()
+        val page = HubCatalog.canonicalPage(action.page).takeIf { it in pages } ?: pages.firstOrNull()
         if (page == null) GestureTarget.Nothing else GestureTarget.HubPage(page)
     }
     is GestureAction.OpenApp -> if (installed(action.appId)) GestureTarget.OpenApp(action.appId)
@@ -138,7 +138,7 @@ internal fun gestureActionLabel(action: GestureAction, appLabel: (AppId) -> Stri
     }
 
 internal fun hubPageLabel(page: String): String =
-    page.replaceFirstChar { it.uppercase() }
+    HubCatalog.canonicalPage(page).replaceFirstChar { it.uppercase() }
 
 /** One row of the gesture settings list. Pure: the Compose host only renders and dispatches. */
 internal sealed interface GestureRow {

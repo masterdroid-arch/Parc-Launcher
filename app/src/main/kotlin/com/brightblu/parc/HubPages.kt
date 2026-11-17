@@ -1,9 +1,11 @@
 package com.brightblu.parc
 
 import com.brightblu.parc.model.textFamily
+import com.brightblu.parc.model.readableAccent
 import com.brightblu.parc.feature.settings.ui.*
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -32,6 +34,17 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.zIndex
+import com.brightblu.parc.model.Springs
 import androidx.compose.ui.unit.sp
 import com.brightblu.parc.model.Metrics
 import com.brightblu.parc.model.ParcSpacing
@@ -55,7 +68,6 @@ internal fun HubPages(
     onToggleExpanded: () -> Unit = {},
     /** T73: active focus mode name, or null. The switch is hidden until a mode exists. */
     focusLabel: String? = null,
-    clock: @Composable () -> Unit = {},
     /** T73: true when at least one focus mode is configured. */
     focusAvailable: Boolean = false,
     onToggleFocus: () -> Unit = {},
@@ -63,7 +75,6 @@ internal fun HubPages(
     comms: @Composable () -> Unit = {},
     /** T121/T130: the demo page body for the current page id, used only while demo is on. */
     demoContent: @Composable (String) -> Unit = {},
-    system: @Composable (List<String>) -> Unit,
 ) {
     val context = LocalContext.current
     val store = remember(context) { HubConfigStore(context) }
@@ -71,19 +82,31 @@ internal fun HubPages(
     val scope = rememberCoroutineScope()
     val view = LocalView.current
     val feel = rememberFeelPlayer()
-    fun resize(size: HubSize) {
-        if (size != config.size) {
+    // T258: the grip resizes what is on screen. A page with its own size keeps it own; every other page
+    // follows the default, which is what the grip then changes.
+    fun resize(page: String?, size: HubSize) {
+        if (size != config.sizeFor(page)) {
             feel.play(view, com.brightblu.parc.ring.FeelEvent.Tick)
-            scope.launch { store.update { it.copy(size = size) } }
+            scope.launch {
+                store.update { if (page != null && page in it.pageSizes) it.withPageSize(page, size) else it.copy(size = size) }
+            }
         }
     }
-    val savedPage by store.lastPage.collectAsState(initial = "clock")
+    val savedPage by store.lastPage.collectAsState(initial = TodayPage.Id)
     val demo = DemoMode.enabled && !LocalHubPreview.current
     // T130: demo pages are not part of HubConfig (Notes is hidden by default), so the demo list
     // is the source of truth for restoring the last page. Real mode keeps the config gate.
-    val selected = if (demo) savedPage else restoredHubPage(savedPage, config)
-    fun select(id: String) { scope.launch { store.rememberPage(id) } }
+    // M13 review: a tapped note reminder shows the Notes page for this visit even when it is hidden or a Focus filter hides it.
+    val noteRequest by NoteOpenRequests.pending.collectAsState()
+    var forcedNotes by remember { mutableStateOf(false) }
+    LaunchedEffect(noteRequest) { if (noteRequest != null) forcedNotes = true }
+    val forcing = !demo && forcedNotes && savedPage == "notes"
+    val selected = if (demo || forcing) savedPage else restoredHubPage(savedPage, config)
+    fun select(id: String) { if (id != "notes") forcedNotes = false; scope.launch { store.rememberPage(id) } }
     var optionsPage by remember { mutableStateOf<String?>(null) }
+    // T242: the small sheet that a hold on a page name opens.
+    var quickPage by remember { mutableStateOf<String?>(null) }
+    val reorderGate = remember { HubReorderGate() }
     // OPUS8 (T133): the Home key closes the hub's sheets and the open page's own dialogs (the page
     // body is keyed on [homeReset], like a page switch). The first page itself is chosen by the
     // host through the stored page. A count seen when the hub (re)appears is not a new press.
@@ -91,6 +114,10 @@ internal fun HubPages(
     val homeSeen = remember { homePresses }
     var homeReset by remember { mutableIntStateOf(0) }
     val openSettings = LocalHubSettings.current
+    quickPage?.takeIf { it in config.orderedPages }?.let { id ->
+        HubPageQuickSheet(id, skin, config, { change -> scope.launch { store.update(change) } },
+            onDismiss = { quickPage = null }, onPageSettings = { quickPage = null; optionsPage = id })
+    }
     optionsPage?.let { id ->
         HubPageOptionsSheet(id, skin, config, { change -> scope.launch { store.update(change) } },
             onDismiss = { optionsPage = null }, onFullSettings = { destination ->
@@ -104,21 +131,30 @@ internal fun HubPages(
     val focusSummary = focusRepo?.summary?.collectAsState()?.value
     var focusControls by remember { mutableStateOf(false) }
     LaunchedEffect(homePresses) {
-        if (homePresses != homeSeen) { optionsPage = null; focusControls = false; homeReset++ }
+        if (homePresses != homeSeen) { optionsPage = null; quickPage = null; focusControls = false; homeReset++ }
     }
     if (focusControls) androidx.compose.material3.AlertDialog(
         onDismissRequest = { focusControls = false },
         containerColor = Color(skin.colors.surface.toInt()),
         title = { HubText("Focus", skin) },
-        text = { Column(Modifier.verticalScroll(rememberHubScrollState())) { FocusHubStatus(skin) } },
+        text = { Column(Modifier.verticalScroll(rememberHubScrollState())) {
+            if (focusState?.active == null) HubText("Focus is off", skin)
+            FocusHubStatus(skin)
+            if (focusState?.active == null && focusSummary == null) HubText("Choose a mode in Focus settings.", skin)
+        } },
         confirmButton = { HubButton("Done", skin) { focusControls = false } },
+        dismissButton = { HubButton("Focus settings", skin) { focusControls = false; openSettings(SettingsPage.Focus) } },
     )
-    val pages = hubPagesFor(demo, config.pages) { focusState?.active?.hubPages?.contains(it) != false }
+    val pages = hubPagesFor(demo, config.pages, arcadeOpen = config.arcadeOpen) { focusState?.active?.hubPages?.let(HubCatalog::canonicalPages)?.contains(it) != false }
+        .let { if (!forcing) it else withForcedHubPage(it, "notes", config.orderedPages) }
     val page = selected.takeIf { it in pages } ?: pages.firstOrNull()
     val density = androidx.compose.ui.platform.LocalDensity.current
     val imeUp = WindowInsets.ime.getBottom(density) > 0
     val scrollGate = LocalHubScrollGate.current
+    val arcadeHost = com.brightblu.parc.arcade.LocalArcadeHost.current
+    val swipeExclusions = remember { HubSwipeExclusions() }
     Column(modifier.fillMaxWidth().fillMaxHeight().clipToBounds()
+        .onGloballyPositioned { swipeExclusions.origin = it.positionInWindow() }
         // T167: direction lock. The first drag past the touch slop is either a page swipe (mostly
         // horizontal, taken here before any page sees it) or a scroll (anything else, left alone).
         // While the reply field owns the IME, horizontal drags belong to text selection.
@@ -127,11 +163,20 @@ internal fun HubPages(
             val threshold = Metrics.hubPageSwipeDp.dp.toPx()
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                // T240: a touch that starts on the page-name strip belongs to the strip's own horizontal scroll.
+                // The strip's outer row is exactly one menu row high and is the first child of this column.
+                if (HubTabGesture.startsOnStrip(down.position.y, Metrics.menuRowHeightDp.dp.toPx())) return@awaitEachGesture
+                // 1.5.1: a sideways-scrolling row on the page (the Library shelves) keeps its own horizontal drags.
+                if (swipeExclusions.contains(down.position)) return@awaitEachGesture
                 var lock = HubDragLock.Undecided
                 var dx = 0f
                 var dy = 0f
                 do {
                     val event = awaitPointerEvent(PointerEventPass.Initial)
+                    // T186: a tab held for reordering owns this finger; it is never a page swipe.
+                    if (reorderGate.active) break
+                    // T200: while a game is running, a drag on the page steers it; it is never a page swipe.
+                    if (arcadeHost?.playing == true) break
                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
                     val delta = change.positionChange()
                     dx += delta.x; dy += delta.y
@@ -147,13 +192,30 @@ internal fun HubPages(
             }
         })) {
         // T158: the tabs lead the card; the focus pass row shows only while a Focus mode is running.
-        if (pages.isNotEmpty()) HubTabStrip(pages, page, skin) { select(it) }
+        if (pages.isNotEmpty()) HubTabStrip(pages, page, skin, reorderGate = reorderGate,
+            onLift = { feel.play(view, com.brightblu.parc.ring.FeelEvent.Menu) },
+            onHold = if (demo) null else { id -> quickPage = id },
+            onSlot = { feel.play(view, com.brightblu.parc.ring.FeelEvent.Tick) },
+            // Demo tabs are sample pages: they never rewrite the saved order.
+            onReorder = if (demo) null else { moved -> scope.launch { store.update { it.reorderVisible(pages, moved) } } }) { select(it) }
+        // T260: the page-name hold has no sign on screen; say so once, the first time there are pages to reorder.
+        val hintPrefs = remember(context) { ParcUiPrefs(context) }
+        var pageNameHint by remember { mutableStateOf(false) }
+        LaunchedEffect(pages.size, demo) {
+            if (!demo && GestureHintRules.pageNameDue(hintPrefs.seenGestureHints(), pages.size)) {
+                kotlinx.coroutines.delay(1_500)
+                pageNameHint = true
+            }
+        }
+        if (pageNameHint) GestureHintChip(GestureHint.PageName, skin,
+            onGotIt = { hintPrefs.markGestureHintSeen(GestureHint.PageName.id); pageNameHint = false },
+            onSkipAll = { hintPrefs.skipAllGestureHints(); pageNameHint = false })
         if (!demo && focusState?.active != null) {
             Row(Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     BasicText("Focus · " + focusState.activeName.orEmpty(), maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        style = TextStyle(fontFamily = skin.textFamily, color = Color(skin.colors.accent.toInt()), fontSize = skin.typography.caption.sizeSp.sp))
+                        style = TextStyle(fontFamily = skin.textFamily, color = Color(skin.colors.readableAccent.toInt()), fontSize = skin.typography.caption.sizeSp.sp))
                     HubText(focusRemaining(focusState), skin)
                 }
                 Box(Modifier.heightIn(min = Metrics.focusControlDp.dp).widthIn(min = Metrics.focusControlDp.dp).semantics { contentDescription = "Emergency Focus pass" }
@@ -163,12 +225,16 @@ internal fun HubPages(
         if (page == null) {
             HubText("All pages hidden · open Hub pages in Settings", skin)
         } else {
-            BoxWithConstraints(Modifier.weight(1f).clipToBounds().pointerInput(page) {
+            val showMoreBelow by remember(scrollGate) {
+                derivedStateOf { scrollGate?.canScrollForward == true }
+            }
+            Box(Modifier.weight(1f)) {
+            BoxWithConstraints(Modifier.fillMaxSize().clipToBounds().pointerInput(page) {
                 detectTapGestures(onLongPress = { optionsPage = page })
             }.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }.drawWithCache {
-                val fadeHeight = Metrics.hubFadeHeightDp.dp.toPx().coerceAtMost(size.height)
+                val fadeHeight = Metrics.hubFadeDrawDp.dp.toPx().coerceAtMost(size.height)
                 // T158: the card can be frosted or see-through, so the fade is a mask on the content, not a colour.
-                val fade = Brush.verticalGradient(listOf(Color.Black, Color.Transparent),
+                val fade = Brush.verticalGradient(0f to Color.Black, Metrics.hubFadeClearFraction to Color.Transparent, 1f to Color.Transparent,
                     startY = size.height - fadeHeight, endY = size.height)
                 // T167: the fade only shows while a page has more content below it.
                 onDrawWithContent {
@@ -177,49 +243,74 @@ internal fun HubPages(
                 }
             }) {
                 val configuredTiles = config.tiles(page).filterNot { it in config.hiddenTiles[page].orEmpty() }
-                val tiles = if (page == "timers" || page == QuickToggleCatalog.PageId) configuredTiles else HubPanelLayout.visibleTiles(configuredTiles, config.size, maxHeight.value, density.fontScale)
-                val rows = if (page == "system") (tiles.size + 1) / 2 else tiles.size
+                val tiles = if (page == "timers" || page == DevicePage.Id || page == ControlsPage.Id) configuredTiles
+                    else HubPanelLayout.visibleTiles(configuredTiles, config.sizeFor(page), maxHeight.value, density.fontScale)
+                val rows = tiles.size
                 val cellHeight = HubPanelLayout.tileHeightDp(maxHeight.value, rows)
-                CompositionLocalProvider(LocalHubSize provides config.size, LocalHubTileHeight provides cellHeight,
+                CompositionLocalProvider(LocalHubSize provides config.sizeFor(page), LocalHubTileHeight provides cellHeight,
                     LocalHubOpenOptions provides { optionsPage = page },
+                    LocalHubSwipeExclusions provides swipeExclusions,
+                    LocalTodayVisiblePages provides pages.toSet(),
+                    LocalTodayOpenPage provides { id -> if (id in pages) select(id) },
                     LocalHubContentHeight provides maxHeight.value) { key(page, homeReset) {
-                    if (tiles.isEmpty() && page !in setOf("clock", "comms", "focus", "notes", WeatherVariant.PageId)) {
+                    if (tiles.isEmpty() && page !in HubCatalog.tilelessPages) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CellLabel("No tiles shown · use …", skin) }
                     } else when (page) {
-                        "clock" -> clock()
                         "comms" -> if (demo) demoContent("comms") else comms()
                         "notes" -> if (demo) demoContent("notes") else NotesHubPage(skin)
-                        "focus" -> if (demo) demoContent("focus") else pageContent(page, tiles)
-                        "power" -> if (demo) demoContent("power") else pageContent(page, tiles)
-                        "system" -> system(tiles)
                         else -> if (demo) demoContent(page) else pageContent(page, tiles)
                     }
                 } }
+                // T262: a page taller than the panel says so in words, not only with a faint fade.
+            }
+                if (showMoreBelow) {
+                    Box(Modifier.align(Alignment.BottomCenter)
+                        .padding(bottom = Metrics.hubScrollHintBottomDp.dp)
+                        .background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha),
+                            RoundedCornerShape(Metrics.hubScrollHintCornerDp.dp))
+                        .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()),
+                            RoundedCornerShape(Metrics.hubScrollHintCornerDp.dp))
+                        .padding(horizontal = Metrics.itemGapDp.dp, vertical = Metrics.lineGapDp.dp)
+                        .semantics { contentDescription = "More below. Scroll the page to see it." },
+                        contentAlignment = Alignment.Center) {
+                        BasicText("More below", style = hudLabelStyle(skin).copy(color = Color(skin.colors.textSecondary.toInt())))
+                    }
+                }
             }
         }
+        // T219: the Focus chip is the grip's stateful front door. It is shown whenever a mode exists or is
+        // running; when Focus is not set up it stays away, so the hub never has a dead control.
+        val focusChip = FocusChip.state(
+            activeName = focusState?.activeName,
+            untilMillis = focusState?.untilMillis,
+            accent = focusState?.active?.accent,
+            available = focusAvailable,
+            pinned = "focus" in pages,
+        )
         // T158: the grip keeps the middle; the page's action and its options sit at the card's inset on either side.
-        val focusButton = if (demo || focusState?.active != null || page == "clock") null
-            else if (focusSummary != null) "Summary" else if (focusAvailable && "focus" !in pages) "Focus" else null
         Row(Modifier.fillMaxWidth().height(Metrics.hubGripHeightDp.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                if (page == "clock") HubButton("Alarms", skin, "Open alarms") {
-                    runCatching { context.startActivity(android.content.Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS)) }
-                } else if (focusButton != null) HubButton(focusButton, skin) {
-                    if ("focus" in pages) select("focus")
-                    else if (focusSummary != null) focusControls = true else onToggleFocus()
+                when (HubGripPriority.start(page, !demo && !LocalHubPreview.current && focusChip.visible)) {
+                    HubGripStart.Alarms -> HubButton("Alarms", skin, "Open alarms") {
+                        runCatching { context.startActivity(android.content.Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS)) }
+                    }
+                    HubGripStart.Focus -> FocusChip(focusChip, skin) {
+                        if (focusChip.opensFocusPage) select("focus") else focusControls = true
+                    }
+                    HubGripStart.None -> Unit
                 }
             }
             Box(Modifier.width(Metrics.hubGripTouchWidthDp.dp).fillMaxHeight()
-                .semantics { contentDescription = "Hub size: ${config.size}. Tap to cycle; drag to resize" }
-                .clickable(enabled = !imeUp) { resize(config.size.next()) }
-                .pointerInput(config.size, imeUp) {
+                .semantics { contentDescription = "Hub size: ${config.sizeFor(page)}. Tap to cycle; drag to resize" }
+                .clickable(enabled = !imeUp) { resize(page, config.sizeFor(page).next()) }
+                .pointerInput(config.sizeFor(page), imeUp) {
                     var travel = 0f
                     detectVerticalDragGestures(onDragStart = { travel = 0f },
                         onVerticalDrag = { change, amount -> if (!imeUp) { change.consume(); travel += amount } },
                         onDragEnd = {
                             if (!imeUp && abs(travel) > Metrics.hubPageSwipeDp.dp.toPx() / 2f) {
                                 val steps = (travel / Metrics.hubPageSwipeDp.dp.toPx()).roundToInt()
-                                resize(HubSize.entries[(config.size.ordinal + steps).coerceIn(0, HubSize.entries.lastIndex)])
+                                resize(page, HubSize.entries[(config.sizeFor(page).ordinal + steps).coerceIn(0, HubSize.entries.lastIndex)])
                             }
                         })
                 }, contentAlignment = Alignment.Center) {
@@ -228,38 +319,6 @@ internal fun HubPages(
             }
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
                 if (page != null) HubButton("…", skin, "${hubPageName(page)} page options") { optionsPage = page }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun HubPageSettings(skin: Skin, config: HubConfig, update: ((HubConfig) -> HubConfig) -> Unit) {
-    val undo = rememberEditorUndo()
-    var optionsPage by remember { mutableStateOf<String?>(null) }
-    val openSettings = LocalHubSettings.current
-    optionsPage?.let { id ->
-        HubPageOptionsSheet(id, skin, config, update, { optionsPage = null }) { destination ->
-            optionsPage = null; openSettings(destination)
-        }
-    }
-    EditorScaffold(EditorSpec.HubPages, skin, empty = config.orderedPages.all { it in config.hiddenPages },
-        undo = if (undo.action != null) ({ undo.run() }) else null,
-        preview = { BasicText("On Home: " + config.orderedPages.filterNot { it in config.hiddenPages }.joinToString(" · "), style = settingsText(skin, skin.colors.accent, true)) }) {
-        HubSizeChoices(skin, config, update)
-        config.orderedPages.forEachIndexed { index, page ->
-            val shown = page !in config.hiddenPages
-            SettingsCard(skin) {
-                SettingRow(hubPageName(page), skin, SettingKind.Toggle, checked = shown) {
-                    update { it.showPage(page, !shown) }
-                    if (shown) undo.offer { update { it.showPage(page, true) } }
-                }
-                SettingRow("${hubPageName(page)} options", skin, SettingKind.Page,
-                    description = "Change this page's content, order and visibility") { optionsPage = page }
-                Row {
-                    HubButton("↑", skin, "Move $page page up", index > 0) { update { it.movePage(page, -1) } }
-                    HubButton("↓", skin, "Move $page page down", index < config.orderedPages.lastIndex) { update { it.movePage(page, 1) } }
-                }
             }
         }
     }
@@ -276,6 +335,30 @@ private fun HubButton(text: String, skin: Skin, description: String = text, enab
     Box(Modifier.height((if (compact) Metrics.hubHeaderHeightDp else Metrics.menuRowHeightDp).dp).widthIn(min = Metrics.menuRowHeightDp.dp)
         .semantics { contentDescription = description }.clickable(enabled = enabled, onClick = click)
         .padding(horizontal = Metrics.lineGapDp.dp), contentAlignment = Alignment.Center) {
-        BasicText(text, style = TextStyle(fontFamily = skin.textFamily, color = Color((if (enabled) skin.colors.accent else skin.colors.lineActive).toInt()), fontSize = skin.typography.caption.sizeSp.sp))
+        BasicText(text, style = TextStyle(fontFamily = skin.textFamily, color = Color((if (enabled) skin.colors.readableAccent else skin.colors.lineActive).toInt()), fontSize = skin.typography.caption.sizeSp.sp))
     }
+}
+
+/**
+ * 1.5.1: places on a hub page that scroll sideways themselves. A drag that starts inside one is not a page swipe.
+ * Positions are window coordinates; [origin] is the page column's own window position.
+ */
+internal class HubSwipeExclusions {
+    var origin: androidx.compose.ui.geometry.Offset = androidx.compose.ui.geometry.Offset.Zero
+    val rects = HashMap<Any, androidx.compose.ui.geometry.Rect>()
+    fun contains(local: androidx.compose.ui.geometry.Offset): Boolean {
+        val p = origin + local
+        return rects.values.any { it.contains(p) }
+    }
+}
+
+internal val LocalHubSwipeExclusions = staticCompositionLocalOf<HubSwipeExclusions?> { null }
+
+/** Marks this element as one that scrolls sideways on its own, so the hub's page swipe leaves it alone. */
+@Composable
+internal fun Modifier.hubOwnsHorizontalDrag(): Modifier {
+    val exclusions = LocalHubSwipeExclusions.current ?: return this
+    val key = remember { Any() }
+    DisposableEffect(exclusions) { onDispose { exclusions.rects.remove(key) } }
+    return this.onGloballyPositioned { exclusions.rects[key] = it.boundsInWindow() }
 }

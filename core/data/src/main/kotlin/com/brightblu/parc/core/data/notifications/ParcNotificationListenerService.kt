@@ -8,7 +8,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 import com.brightblu.parc.core.data.comms.AndroidCommsActions
-import com.brightblu.parc.core.data.comms.CommsHistory
+import com.brightblu.parc.core.data.comms.CommsHistoryStore
 import com.brightblu.parc.core.data.comms.CommsImageLoader
 import com.brightblu.parc.core.data.comms.CommsInbox
 import com.brightblu.parc.core.data.comms.CommsNotificationExtractor
@@ -21,24 +21,23 @@ import com.brightblu.parc.core.data.comms.RawNotification
  * - [NotificationUnreadStore.shared] keeps per-package counts for the ring pulse. It never reads
  *   content.
  * - [CommsInbox.shared] keeps the conversations the Comms page shows, including text and a 1-bit
- *   thumbnail, strictly in memory. Nothing is written to disk, a database or a log, and everything
- *   is dropped on disconnect. The Android action port keeps the matching notifications only to send
- *   a reply, mark one read or cancel one, and is cleared at the same time.
- * - [CommsHistory.shared] keeps the last dismissed messages in memory (T76), also dropped on
- *   disconnect, so a message the user cleared stays readable until the listener goes away or the
- *   process restarts.
+ *   thumbnail, strictly in memory. The Android action port keeps the matching notifications only to
+ *   send a reply, mark one read or cancel one, and is cleared at disconnect.
+ * - [CommsHistoryStore.shared] persists accepted messages from WhatsApp, Telegram and Instagram in
+ *   its own database (T214), text and link spans only, never images and never a backup. It survives
+ *   disconnect and process death; disconnect only marks rows stale.
  *
  * The service is bound by the system after the user grants Notification access under Special access
  * (the settings link is `feature/settings`); Parc never asks for a permission and declares none.
  *
  * Behaviour pinned by the cards:
  * - Connect: rebuild from `activeNotifications`, because anything posted or removed while unbound
- *   was never delivered.
- * - Post/remove: forward the opaque key to the counts and the parsed notification to Comms. Removal
- *   is reported through both overloads the platform has; both stores are idempotent, so a duplicate
- *   report cannot underflow or resurrect a message.
- * - Disconnect: forget the counts and the conversations (they cannot be kept correct while unbound)
- *   and ask the system to rebind, rate-limited by [RebindGate].
+ *   was never delivered; mark stored rows stale first, then mark the ones still active live again.
+ * - Post/remove: forward the opaque key to the counts and the parsed notification to Comms; the
+ *   accepted post is written to history immediately. Removal marks the row stale and keeps it.
+ * - Disconnect: forget the counts and the live conversations (they cannot be kept correct while
+ *   unbound), mark history rows stale without deleting them, and ask the system to rebind,
+ *   rate-limited by [RebindGate].
  *
  * T55 does not add a second service. This is still the only listener Parc declares.
  */
@@ -52,8 +51,9 @@ class ParcNotificationListenerService : NotificationListenerService() {
     /** T55's in-memory conversations, process-wide for the same reason as [store]. */
     private val commsInbox: CommsInbox get() = CommsInbox.shared
 
-    /** T76's dismissed-message history, process-wide for the same reason. */
-    private val commsHistory: CommsHistory get() = CommsHistory.shared
+    /** T214's persistent message history, process-wide for the same reason. */
+    private val commsHistory: CommsHistoryStore
+        get() = CommsHistoryStore.shared(applicationContext)
 
     /** The reply/cancel port; it attaches to this service on connect. */
     private val commsActions: AndroidCommsActions get() = AndroidCommsActions.shared
@@ -72,6 +72,7 @@ class ParcNotificationListenerService : NotificationListenerService() {
     private val work by lazy { android.os.Handler(worker.looper) }
 
     override fun onListenerConnected() {
+        NotificationListenerStatus.onConnected()
         // OPUS6 (audit F10): when Home loads the lock policy after this connect (after a reboot or a
         // kill the system binds the listener first), rebuild everything then, instead of staying
         // empty until each app posts again.
@@ -81,6 +82,9 @@ class ParcNotificationListenerService : NotificationListenerService() {
 
     private fun connectedWork() {
         try {
+        // T214: a fresh connect reconciles the live hint. No row is deleted; active notifications
+        // are re-marked live as they are rebuilt below.
+        historyUpdate { commsHistory.markAllNotLive() }
         val active = activeNotificationsSafely()
         store.rebuilt(unreadKeys(active))
         commsActions.attach(this)
@@ -93,6 +97,7 @@ class ParcNotificationListenerService : NotificationListenerService() {
             runCatching { commsExtractor.extract(sbn) }.getOrNull()?.let(raws::add)
         }
         val accepted = commsInbox.rebuild(raws)
+        recordAccepted(raws, accepted)
         val kept = LinkedHashMap<String, Notification>()
         for (sbn in active.orEmpty()) {
             if (sbn.key !in accepted) continue
@@ -104,8 +109,35 @@ class ParcNotificationListenerService : NotificationListenerService() {
         } catch (_: Exception) { /* Drop malformed or revoked data; never log content. */ }
     }
 
+    /**
+     * T214: write the notifications the inbox accepted on connect. The next post or connect retries
+     * the same identity if a write fails, so a history failure never drops the live card.
+     */
+    private fun recordAccepted(raws: List<RawNotification>, accepted: Set<String>) {
+        for (raw in raws) {
+            if (raw.key !in accepted) continue
+            val parsed = commsInbox.entryFor(raw.key) ?: continue
+            try {
+                commsHistory.record(parsed)
+            } catch (error: Exception) {
+                // Package and exception class only: never a title, sender, key or message body.
+                Log.e(Tag, "history write failed for ${parsed.app}: ${error.javaClass.simpleName}")
+            }
+        }
+    }
+
+    /** T214 state updates are best-effort; history must never break the live listener. */
+    private inline fun historyUpdate(block: () -> Unit) {
+        try {
+            block()
+        } catch (error: Exception) {
+            Log.e(Tag, "history state update failed: ${error.javaClass.simpleName}")
+        }
+    }
+
     override fun onListenerDisconnected() {
         NotificationLockPolicy.onReady = null
+        NotificationListenerStatus.onDisconnected()
         work.post { disconnectedWork() }
     }
 
@@ -113,7 +145,8 @@ class ParcNotificationListenerService : NotificationListenerService() {
         try {
         store.cleared()
         commsInbox.clear()
-        commsHistory.clear()
+        // T214: keep the stored history; a disconnect only means the rows are no longer live.
+        historyUpdate { commsHistory.markAllNotLive() }
         commsActions.detach(this)
         clearPeek()
         requestRebindSafely()
@@ -137,12 +170,31 @@ class ParcNotificationListenerService : NotificationListenerService() {
         peekPosted(notification)
 
         if (!commsInbox.shouldParse(notification.packageName)) {
+            // Package-only diagnostics: never keep text, sender or title for a dropped post.
+            commsInbox.policyDropReason(notification.packageName)?.let { reason ->
+                NotificationListenerStatus.recordDrop(notification.packageName, reason)
+            }
             commsInbox.remove(notification.key)
             commsActions.forget(notification.key)
             return
         }
         val raw = runCatching { commsExtractor.extract(notification) }.getOrNull()
-        val accepted = raw != null && commsInbox.post(raw)
+        val outcome = raw?.let { commsInbox.postWithOutcome(it) }
+        val accepted = outcome?.accepted == true
+        outcome?.drop?.let { drop ->
+            NotificationListenerStatus.recordDrop(drop.packageName, drop.reason)
+        }
+        // T214: write on post, before any removal, so a message survives a kill or disconnect.
+        if (accepted) {
+            commsInbox.entryFor(notification.key)?.let { parsed ->
+                try {
+                    commsHistory.record(parsed)
+                } catch (error: Exception) {
+                    // Package and exception class only; the live card must not be dropped.
+                    Log.e(Tag, "history write failed for ${parsed.app}: ${error.javaClass.simpleName}")
+                }
+            }
+        }
         val body = notification.notification
         if (accepted && body != null) {
             commsActions.remember(notification.key, body)
@@ -163,8 +215,8 @@ class ParcNotificationListenerService : NotificationListenerService() {
         store.removed(key)
         peekStore.remove(key)
         peekActions.forget(key)
-        // File the messages before the inbox drops them, so a dismissed line stays readable.
-        if (sbn != null && NotificationLockPolicy.mayRead(sbn.packageName)) commsInbox.entryFor(key)?.let(commsHistory::record)
+        // T214: keep the row; removal only clears the live hint and records when it happened.
+        historyUpdate { commsHistory.markRemoved(key) }
         commsInbox.remove(key)
         commsActions.forget(key)
 
@@ -182,11 +234,13 @@ class ParcNotificationListenerService : NotificationListenerService() {
 
     override fun onDestroy() {
         NotificationLockPolicy.onReady = null
+        NotificationListenerStatus.clear()
         work.post {
             try {
                 // Belt and braces: some OEM builds destroy the service without a disconnect callback.
                 commsInbox.clear()
-                commsHistory.clear()
+                // T214: never delete the store here. Only mark the rows stale.
+                historyUpdate { commsHistory.markAllNotLive() }
                 commsActions.detach(this)
                 clearPeek()
             } catch (_: Exception) { /* Drop malformed or revoked data; never log content. */ }

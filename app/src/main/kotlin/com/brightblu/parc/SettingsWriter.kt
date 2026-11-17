@@ -1,6 +1,7 @@
 package com.brightblu.parc
 
 import com.brightblu.parc.core.data.ParcPrefs
+import com.brightblu.parc.core.data.comms.CommsExtrasRepository
 import com.brightblu.parc.core.data.icons.IconPackRepository
 import com.brightblu.parc.core.data.search.SearchPrefs
 import com.brightblu.parc.model.HubAppearance
@@ -18,10 +19,14 @@ internal class LiveSinks(
     val badges: (Boolean) -> Unit,
     val badgesInAllApps: (Boolean) -> Unit,
     val markWorkApps: (Boolean) -> Unit,
+    /** T245: the live Lock layout switch. */
+    val layoutLocked: (Boolean) -> Unit,
+    /** T261: the live Left hand switch. */
+    val leftHand: (Boolean) -> Unit = {},
 ) {
     companion object {
         fun direct(ui: ParcUiPrefs) = LiveSinks(ui::setAlignAcrossArcs, ui::setJoystickAim, ui::setHubDoubleTap,
-            ui::setNotificationBadges, ui::setBadgesInAllApps, ui::setMarkWorkApps)
+            ui::setNotificationBadges, ui::setBadgesInAllApps, ui::setMarkWorkApps, ui::setLayoutLocked, ui::setLeftHand)
     }
 }
 
@@ -41,6 +46,7 @@ internal class SettingsWriter(
     private val feel: FeelStore,
     private val iconPacks: IconPackRepository?,
     private val layout: LayoutStore,
+    private val comms: CommsExtrasRepository? = null,
     private val live: LiveSinks = LiveSinks.direct(ui),
 ) {
     suspend fun persist(old: SettingsSnapshot, new: SettingsSnapshot) {
@@ -62,6 +68,8 @@ internal class SettingsWriter(
         if (old.badges != new.badges) live.badges(new.badges)
         if (old.badgesInAllApps != new.badgesInAllApps) live.badgesInAllApps(new.badgesInAllApps)
         if (old.markWorkApps != new.markWorkApps) live.markWorkApps(new.markWorkApps)
+        if (old.layoutLocked != new.layoutLocked) live.layoutLocked(new.layoutLocked)
+        if (old.leftHand != new.leftHand) live.leftHand(new.leftHand)
         if (old.menuNotifications != new.menuNotifications) {
             ui.setMenuNotifications(new.menuNotifications)
             MenuNotifications.applyEnabled(new.menuNotifications)
@@ -74,6 +82,8 @@ internal class SettingsWriter(
         if (old.feel != new.feel) feel.update { new.feel }
         if (old.arcFeel != new.arcFeel) feel.updateArcFeel { new.arcFeel }
         if (old.iconPack != new.iconPack) iconPacks?.select(new.iconPack)
+        if (old.commsEnabled != new.commsEnabled) comms?.setEnabled(new.commsEnabled)
+        if (old.commsRecordHistory != new.commsRecordHistory) comms?.setKeepHistory(new.commsRecordHistory)
     }
 
     companion object {

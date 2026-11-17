@@ -21,6 +21,9 @@ internal object SettingsSnapshotLoader {
         val feel = FeelStore(context)
         val settings = services.prefs.settings.first()
         val searchSnapshot = search.snapshot.first()
+        val commsEnabled = services.comms.enabled.value
+        val commsRecordHistory = services.comms.keepHistory.value
+        val commsStored = services.comms.storedMessages.value
         val hubConfig = hubStore.config.first()
         val gestures = GestureOptionsStore(context).config.first()
         val skins = services.skins
@@ -36,11 +39,16 @@ internal object SettingsSnapshotLoader {
             searchFiles = searchSnapshot.filesEnabled, searchEvents = searchSnapshot.eventsEnabled,
             badges = ui.notificationBadges(), badgesInAllApps = ui.badgesInAllApps(), menuNotifications = ui.menuNotifications(),
             menuNotificationText = ui.menuNotificationText(), markWorkApps = ui.markWorkApps(),
+            layoutLocked = ui.layoutLocked(), leftHand = ui.leftHand(),
             wallpaperSkinSupported = services.wallpaperSkin.supported, wallpaperMode = settings.wallpaperMode,
             wallpaperLook = settings.wallpaperLook,
+            commsEnabled = commsEnabled, commsRecordHistory = commsRecordHistory,
+            commsStoredCount = commsStored.size, commsStorageLine = com.brightblu.parc.CommsExtrasPresentation.storageLine(
+                commsStored.size, com.brightblu.parc.CommsExtrasPresentation.storageBytes(commsStored)),
         )
         val writer = SettingsWriter(look = { lookStore.update(it) }, hub = { hubAppearance.update(it) }, prefs = services.prefs,
-            ui = ui, hubStore = hubStore, search = search, feel = feel, iconPacks = services.appIndex.iconPacks, layout = services.layout)
+            ui = ui, hubStore = hubStore, search = search, feel = feel, iconPacks = services.appIndex.iconPacks,
+            layout = services.layout, comms = services.comms)
         return snapshot to writer
     }
 }

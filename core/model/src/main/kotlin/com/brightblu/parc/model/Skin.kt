@@ -23,6 +23,13 @@ data class SkinColors(
     val moduleSurface: Long = surface,
     val moduleGuide: Long = lineActive,
     val moduleInk: Long = textPrimary,
+    /** T191: opaque, warm dim paper and its readable ink; defaults keep older custom skins usable. */
+    val paper: Long = 0xFFB5AA96L,
+    val ink: Long = 0xFF242018L,
+    /** T236: three calm highlight washes, used at the reader's wash alpha over any page colour. */
+    val highlightSand: Long = 0xFFE7D3A2L,
+    val highlightSage: Long = 0xFFC7D8B8L,
+    val highlightRose: Long = 0xFFE5C4C0L,
 )
 
 /** Font role (sp, numeric weight, tracking in sp). Immutable, non-null, thread-safe. */
@@ -188,7 +195,7 @@ data class Skin(
             bg = 0xFF000000, lineBase = 0xFF2A2236, lineActive = 0xFF4A3B63,
             accent = 0xFFB79CDB, glow = 0x47B79CDB, textPrimary = 0xFFECE7F2,
             textSecondary = 0xFF978FA4, pulse = 0xFFD2BFF0, danger = 0xFFE5736B,
-            scrim = 0xB8000000, surface = 0xFF070609, moduleSurface = 0xFF1A1526,
+            scrim = 0xB8000000, surface = 0xFF070609, moduleSurface = 0xFF1A1526, paper = 0xFFB7A8A1L, ink = 0xFF241E20L,
         ))
     }
 }

@@ -2,6 +2,7 @@ package com.brightblu.parc
 
 import com.brightblu.parc.core.data.notifications.AndroidPeekActions
 import com.brightblu.parc.core.data.notifications.NotificationPeekStore
+import com.brightblu.parc.core.data.notifications.PeekEntry
 import com.brightblu.parc.core.data.notifications.PeekLine
 import com.brightblu.parc.core.data.notifications.PeekRules
 
@@ -31,19 +32,14 @@ internal class ListenerMenuNotifications(
     private val prefs: ParcUiPrefs,
     private val store: NotificationPeekStore = NotificationPeekStore.shared,
     private val actions: AndroidPeekActions = AndroidPeekActions.shared,
-    /** T98: packages hidden by a locked folder; they have no menu lines and no folder counts. */
+    /** T217: every hidden package (permanent, Focus, Lock, hidden folder) has no menu rows or counts. */
     private val blocked: () -> Set<String> = { emptySet() },
 ) : MenuNotificationSource {
-    override fun lines(packageName: String): List<PeekLine> {
-        if (!prefs.menuNotifications() || packageName in blocked()) return emptyList()
-        val showText = prefs.menuNotificationText()
-        return PeekRules.forApp(store.snapshot(), packageName).map { PeekRules.line(it, showText) }
-    }
+    override fun lines(packageName: String): List<PeekLine> =
+        menuLines(packageName, store.snapshot(), prefs.menuNotifications(), prefs.menuNotificationText(), blocked())
 
     override fun counts(): Map<String, Int> =
-        if (prefs.menuNotifications()) {
-            com.brightblu.parc.core.data.lock.LockedApps.visibleCounts(PeekRules.counts(store.snapshot()), blocked())
-        } else emptyMap()
+        menuCounts(store.snapshot(), prefs.menuNotifications(), blocked())
 
     override fun open(key: String): Boolean = actions.open(key)
 
@@ -54,6 +50,18 @@ internal class ListenerMenuNotifications(
         actions.cancelAll(keys)
     }
 }
+
+/** Pure menu projection: a hidden package has no notification rows (T217). */
+internal fun menuLines(packageName: String, entries: Collection<PeekEntry>,
+    enabled: Boolean, showText: Boolean, blocked: Set<String>): List<PeekLine> =
+    if (!enabled || packageName in blocked) emptyList()
+    else PeekRules.forApp(entries, packageName).map { PeekRules.line(it, showText) }
+
+/** Pure folder-count projection: hidden packages contribute no counts (T217). */
+internal fun menuCounts(entries: Collection<PeekEntry>, enabled: Boolean,
+    blocked: Set<String>): Map<String, Int> =
+    if (!enabled) emptyMap()
+    else com.brightblu.parc.core.data.lock.LockedApps.visibleCounts(PeekRules.counts(entries), blocked)
 
 /** Process-level switch for the in-memory collection behind `Notifications in menus`. */
 internal object MenuNotifications {

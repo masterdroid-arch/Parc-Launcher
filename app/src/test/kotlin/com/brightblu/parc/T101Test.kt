@@ -20,7 +20,7 @@ class T101Test {
         val old = "clock:true::;system:true:battery:;power:true:charging:;network:true:traffic:;apps:true:new apps:;" +
             "sound:true:media:;agenda:true:next events:;media:true:now playing:;comms:true::"
         val config = HubConfig.decode(old)
-        assertEquals(listOf("clock", "system", "power", "network", "apps", "sound", "timers", "agenda", "media", "focus", "comms"), config.pages)
+        assertEquals(listOf("today", "device", "apps", "controls", "timers", "agenda", "media", "focus", "comms"), config.pages)
         assertTrue("timers" !in config.hiddenPages)
         assertEquals("timers", restoredHubPage("timers", config))
         assertEquals(config.encode(), HubConfig.decode(config.encode()).encode())
@@ -30,7 +30,7 @@ class T101Test {
         val old = "clock:true::;comms:true::;media:true:now playing:;agenda:true:next events:;sound:true:media:;" +
             "apps:true:new apps:;network:true:traffic:;power:true:charging:;system:true:battery:"
         val config = HubConfig.decode(old)
-        assertEquals(listOf("clock", "focus", "comms", "media", "timers", "agenda", "sound", "apps", "network", "power", "system"), config.pages)
+        assertEquals(listOf("today", "focus", "comms", "media", "timers", "agenda", "controls", "apps", "device"), config.pages)
     }
 
     @Test fun timersPageAndTilesCanBeHiddenAndSurviveEncoding() {

@@ -2,6 +2,7 @@ package com.brightblu.parc.feature.settings.folders
 
 import com.brightblu.parc.model.AppId
 import com.brightblu.parc.model.FolderId
+import com.brightblu.parc.model.LayoutJson
 import com.brightblu.parc.model.LayoutRepository
 
 /**
@@ -50,6 +51,14 @@ class LayoutFolderWriter(private val repository: LayoutRepository) : FolderEditW
             } else {
                 if (current.name != desired.name) repository.renameFolder(desired.id, desired.name)
                 syncMembers(desired.id, current.appIds, desired.appIds)
+                // T218: the hide flag is a tag on the folder, so it is written with the whole
+                // document. Every other folder, slot and pin is kept exactly as it is.
+                if (current.tags != desired.tags) {
+                    val snapshot = repository.layout.value
+                    repository.importLayout(LayoutJson.encode(snapshot.copy(folders = snapshot.folders.map {
+                        if (it.id == desired.id) it.copy(tags = desired.tags) else it
+                    })))
+                }
             }
         }
         return FolderEditResult.Applied

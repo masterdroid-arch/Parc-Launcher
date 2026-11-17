@@ -12,14 +12,14 @@ internal data class HomeMenuModel(val anchorXDp: Float, val anchorYDp: Float)
 /** The four rows, in order, with the words the owner approved (UXREVIEW answer 6). */
 internal enum class HomeMenuRow(val label: String, val target: SettingsTarget?) {
     EditHome("Edit home", null),
-    Look("Wallpaper and look", SettingsTarget(SettingsPage.Look, "WallpaperImage")),
+    Look("Wallpaper and look", SettingsTarget(SettingsPage.AppearanceWallpaper, "WallpaperImage")),
     HubPages("Hub pages", SettingsTarget(SettingsPage.HubPages)),
     Settings("Parc settings", SettingsTarget(SettingsPage.Root)),
 }
 
 /** OPUS8 (T133): the edit-mode instruction bar and the empty-spot sheet words, in one place. */
 internal object EditModeText {
-    const val Instructions = "Drag an app to move it. Tap + to add. Tap Done when finished."
+    const val Instructions = "Drag an app to move it. Drag an empty arc to turn it. Tap + to add. Tap Done when finished."
     const val NewFolder = "New folder"
     const val AddApp = "Add app"
     const val Close = "Close"
@@ -42,5 +42,13 @@ internal object EditModeText {
 internal object HomeKey {
     /** The first page the hub shows (same list and order as the hub itself), or null when none. */
     fun firstHubPage(demo: Boolean, configured: List<String>, allowed: (String) -> Boolean = { true }): String? =
-        hubPagesFor(demo, configured, allowed).firstOrNull()
+        hubPagesFor(demo, configured, allowed = allowed).firstOrNull()
+
+    /**
+     * T241: a HOME intent means "go to the first hub page" only when Parc was already in front.
+     * The same intent is also how Android brings Parc back from another app, the reader or
+     * recents; that is a return, not a Home press, and keeps the page the user left.
+     */
+    fun shouldResetOnHomeIntent(homeIntent: Boolean, alreadyInFront: Boolean): Boolean =
+        homeIntent && alreadyInFront
 }

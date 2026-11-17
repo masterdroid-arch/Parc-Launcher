@@ -38,7 +38,9 @@ class SnapshotTest(unittest.TestCase):
     def test_exclusions(self):
         for name in ('app/build/out', 'core/data/.kotlin/cache', 'app/debug.keystore',
                      'private/input.json', 'reports/image.png', 'keys/secret',
-                     'app/src/local.properties', 'app/src/image.APK', 'PROJECT.md'):
+                     'app/src/local.properties', 'app/src/image.APK', 'PROJECT.md',
+                     'app/src/personalExtras/kotlin/x.kt', 'app/src/personalExtras/assets/data.json',
+                     'app/src/testPersonalExtras/kotlin/x.kt'):
             if name == 'PROJECT.md':
                 self.assertNotIn(Path(name), snapshot.export_files(snapshot.ROOT))
             else:

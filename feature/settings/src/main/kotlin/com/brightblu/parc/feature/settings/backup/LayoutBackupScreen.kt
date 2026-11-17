@@ -18,6 +18,9 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -31,12 +34,24 @@ import com.brightblu.parc.model.TypeToken
 /**
  * Backup screen (T17, F-15): export the layout JSON to a document the user picks, or restore one.
  *
+ * T266 adds the weekly automatic backup: off until the user turns it on and picks a folder with
+ * Android's folder picker. The switch and the folder row are the only controls; the last run and a
+ * failed run are reported below them in plain words.
+ *
  * Colours and sizes come only from [Skin] and [Metrics]. The pickers use Storage Access Framework
  * contracts, so no permission is needed. This composable owns the launchers; the production host
  * lives in `:app`, so today the screen is reachable through the debug review host.
  */
 @Composable
-fun LayoutBackupScreen(controller: BackupController, skin: Skin, modifier: Modifier = Modifier, topPaddingDp: Float = Metrics.keepOutTopDp) {
+fun LayoutBackupScreen(
+    controller: BackupController,
+    skin: Skin,
+    modifier: Modifier = Modifier,
+    topPaddingDp: Float = Metrics.keepOutTopDp,
+    weekly: WeeklyBackupUiState = WeeklyBackupUiState(),
+    onWeeklyEnabled: (Boolean) -> Unit = {},
+    onWeeklyFolder: (String) -> Boolean = { true },
+) {
     val state by controller.state.collectAsState()
     val export = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(BackupFileName.MimeType),
@@ -44,6 +59,16 @@ fun LayoutBackupScreen(controller: BackupController, skin: Skin, modifier: Modif
     val restore = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let { controller.restoreFrom(it.toString()) } }
+    var enableAfterPick by remember { mutableStateOf(false) }
+    val folder = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri != null) {
+            val kept = onWeeklyFolder(uri.toString())
+            if (kept && enableAfterPick) onWeeklyEnabled(true)
+        }
+        enableAfterPick = false
+    }
     LayoutBackupContent(
         state = state,
         skin = skin,
@@ -51,6 +76,21 @@ fun LayoutBackupScreen(controller: BackupController, skin: Skin, modifier: Modif
         onImport = { restore.launch(BackupFileName.ImportMimeTypes) },
         onConfirmRestore = controller::confirmRestore,
         onCancelRestore = controller::cancelRestore,
+        weekly = weekly,
+        onToggleWeekly = {
+            when {
+                weekly.enabled -> onWeeklyEnabled(false)
+                !weekly.folderName.isNullOrBlank() -> onWeeklyEnabled(true)
+                else -> {
+                    enableAfterPick = true
+                    folder.launch(null)
+                }
+            }
+        },
+        onChooseWeeklyFolder = {
+            enableAfterPick = false
+            folder.launch(null)
+        },
         modifier = modifier,
         topPaddingDp = topPaddingDp,
     )
@@ -67,6 +107,9 @@ fun LayoutBackupContent(
     onConfirmRestore: () -> Unit = {},
     onCancelRestore: () -> Unit = {},
     topPaddingDp: Float = Metrics.keepOutTopDp,
+    weekly: WeeklyBackupUiState = WeeklyBackupUiState(),
+    onToggleWeekly: () -> Unit = {},
+    onChooseWeeklyFolder: () -> Unit = {},
 ) {
     ParcPage(
         modifier.background(color(skin.colors.bg)).padding(top = topPaddingDp.dp),
@@ -79,6 +122,43 @@ fun LayoutBackupContent(
             style = style(skin, skin.colors.textSecondary, skin.typography.caption),
             modifier = Modifier.fillMaxWidth(),
         )
+        SettingsSection("Automatic backup", skin)
+        SettingsCard(skin) {
+            SettingRow(
+                "Back up every week",
+                skin,
+                SettingKind.Toggle,
+                description = "While charging and idle, save the same backup into a folder you choose. Keeps the last 4 weekly files (named parc-weekly-date).",
+                checked = weekly.enabled,
+                divider = true,
+                onClick = onToggleWeekly,
+            )
+            SettingRow(
+                "Backup folder",
+                skin,
+                SettingKind.Action,
+                description = weekly.folderName ?: "No folder chosen",
+                icon = "▤",
+                divider = true,
+                onClick = onChooseWeeklyFolder,
+            )
+            SettingRow(
+                "Last automatic backup",
+                skin,
+                SettingKind.Value,
+                value = weekly.lastBackupLabel,
+                divider = false,
+                onClick = {},
+            )
+        }
+        val failure = weekly.failureLabel
+        if (failure != null) {
+            BasicText(
+                failure,
+                style = style(skin, skin.colors.warn, skin.typography.caption),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         ActionRow(
             label = "Export backup",
             detail = state.suggestedFileName,

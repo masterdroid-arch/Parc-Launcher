@@ -112,7 +112,7 @@ class T136Test {
     }
 
     @Test fun demoUsesFixedSampleStates() {
-        assertTrue(QuickToggleCatalog.PageId in DemoHubPages)
+        assertTrue(ControlsPage.Id in DemoHubPages)
         val tiles = QuickToggleTiles.tiles(QuickToggleCatalog.tiles, QuickToggleInputs.Demo).associateBy { it.id }
         assertEquals("Off", tiles.getValue("torch").state)
         assertEquals("On", tiles.getValue("do not disturb").state)
@@ -120,35 +120,38 @@ class T136Test {
         assertEquals("1 min", tiles.getValue("screen timeout").state)
     }
 
-    @Test fun newUsersGetThePageHidden() {
-        assertTrue(QuickToggleCatalog.PageId in HubCatalog.pages)
-        assertFalse(QuickToggleCatalog.PageId in HubConfig().pages)
-        assertEquals(QuickToggleCatalog.tiles, HubConfig().tiles(QuickToggleCatalog.PageId))
+    @Test fun controlsStartsHiddenAndCarriesTheQuickTiles() {
+        assertTrue(ControlsPage.Id in HubCatalog.pages)
+        assertFalse(ControlsPage.Id in HubConfig().pages)
+        assertEquals(HubCatalog.controlsTiles, HubConfig().tiles(ControlsPage.Id))
+        assertEquals(QuickToggleCatalog.tiles, HubConfig().tiles(ControlsPage.Id).filter { it in QuickToggleCatalog.tiles })
     }
 
-    @Test fun oldSavedConfigGainsTheHiddenPageAfterSoundAndKeepsEverythingElse() {
+    @Test fun oldSavedConfigGainsTheQuickTilesInsideControlsAndKeepsEverythingElse() {
         // A config saved before T136: every earlier page, Notes shown, Power hidden.
         val old = "clock:true::;system:true:battery,thermal:;power:false:charging:;network:true:traffic:;apps:true:new apps:;" +
             "sound:true:media:;timers:true:timers:;agenda:true:next events:;media:true:now playing:;focus:true::;notes:true::;comms:true::"
         val config = HubConfig.decode(old)
-        assertEquals(config.orderedPages.indexOf("sound") + 1, config.orderedPages.indexOf(QuickToggleCatalog.PageId))
-        assertTrue(QuickToggleCatalog.PageId in config.hiddenPages)
-        assertEquals(listOf("clock", "system", "network", "apps", "sound", "timers", "agenda", "media", "focus", "notes", "comms"), config.pages)
-        val shown = config.showPage(QuickToggleCatalog.PageId, true).showTile(QuickToggleCatalog.PageId, "mobile data", false)
-            .move(QuickToggleCatalog.PageId, "wi-fi", -99)
+        assertTrue(config.orderedPages.indexOf(ControlsPage.Id) > config.orderedPages.indexOf("apps"))
+        assertTrue(config.orderedPages.indexOf(ControlsPage.Id) < config.orderedPages.indexOf("timers"))
+        assertFalse(ControlsPage.Id in config.hiddenPages)
+        assertEquals(listOf("today", "device", "apps", "controls", "timers", "agenda", "media", "focus", "notes", "comms"), config.pages)
+        val shown = config.showTile(ControlsPage.Id, "mobile data", false)
+            .move(ControlsPage.Id, "wi-fi", -99)
         val restored = HubConfig.decode(shown.encode())
-        assertTrue(QuickToggleCatalog.PageId in restored.pages)
-        assertEquals("wi-fi", restored.tiles(QuickToggleCatalog.PageId).first())
-        assertEquals(setOf("mobile data"), restored.hiddenTiles[QuickToggleCatalog.PageId])
+        assertTrue(ControlsPage.Id in restored.pages)
+        assertEquals("wi-fi", restored.tiles(ControlsPage.Id).first())
+        assertEquals(setOf("mobile data"), restored.hiddenTiles[ControlsPage.Id])
     }
 
     @Test fun pageAndTileNamesReadAsWords() {
-        assertEquals("Quick toggles", hubPageName(QuickToggleCatalog.PageId))
-        assertEquals("Clock", hubPageName("clock"))
-        assertEquals("Quick toggles", hubPageTitle(false, QuickToggleCatalog.PageId))
-        assertEquals("Wi-Fi", hubTileLabel(QuickToggleCatalog.PageId, "wi-fi"))
-        assertEquals("Do Not Disturb", hubTileLabel(QuickToggleCatalog.PageId, "do not disturb"))
-        assertEquals("Wifi link", hubTileLabel("network", "wifi link"))
+        assertEquals("Controls", hubPageName(QuickToggleCatalog.PageId))
+        assertEquals("Controls", hubPageName(ControlsPage.Id))
+        assertEquals("Device", hubPageName("system"))
+        assertEquals("Controls", hubPageTitle(false, ControlsPage.Id))
+        assertEquals("Wi-Fi", hubTileLabel(ControlsPage.Id, "wi-fi"))
+        assertEquals("Do Not Disturb", hubTileLabel(ControlsPage.Id, "do not disturb"))
+        assertEquals("Wifi link", hubTileLabel(DevicePage.Id, "wifi link"))
         // Tile ids are stored inside the ':' ';' ',' separated config text.
         QuickToggleCatalog.tiles.forEach { id -> assertTrue(id.none { it in ":;," }) }
     }

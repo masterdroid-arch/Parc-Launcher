@@ -53,6 +53,7 @@ import com.brightblu.parc.model.FolderId
 import com.brightblu.parc.model.Layer
 import com.brightblu.parc.model.Metrics
 import com.brightblu.parc.model.ParcLayout
+import com.brightblu.parc.model.rememberPageInsets
 import com.brightblu.parc.model.Skin
 import com.brightblu.parc.model.Slot
 import com.brightblu.parc.model.SlotPosition
@@ -88,6 +89,8 @@ data class MenuModel(
     val label: String = "",
     val inFolder: FolderId? = null,
     val hidden: Boolean = false,
+    /** T246: true only while the menu was opened on a Home arc; folder and All-apps menus hide the row. */
+    val onArc: Boolean = true,
     val page: MenuPage = MenuPage.Root,
     val folders: List<Folder> = emptyList(),
     /** Label of the pin row; an empty string hides the row because no pinned slot is free (T68). */
@@ -127,16 +130,19 @@ data class FolderMenuModel(
     val notices: List<FolderNotice> = emptyList(),
     /** T98: which lock rows the menu shows. */
     val lock: FolderMenuLock = FolderMenuLock.None,
+    /** T218: the folder carries the `parc:hidden` tag. Hide and Lock are separate actions. */
+    val hidden: Boolean = false,
 )
 
 /** One row action in either menu. Pure identifier, so the item builders stay unit-testable. */
 enum class MenuAction {
-    Shortcut, TogglePin, MoveToFolder, RemoveFromFolder, Hide, AppInfo, Uninstall,
+    Shortcut, TogglePin, MoveToFolder, RemoveFromFolder, RemoveFromArc, Hide, AppInfo, Uninstall,
     OpenMoveToFolder, OpenUninstall, Rename, AddApps, MoveEarlier, MoveLater, Delete,
     OpenRename, OpenDelete, Save, Back, Dismiss, AddApp,
     OpenNewFolder, SaveNewFolder, CancelNewFolder, SortAZ,
     OpenNotification, DismissNotification, ClearNotifications, LaunchApp,
     LockFolder, UnlockFolder, LockNow,
+    HideFolder, UnhideFolder,
 }
 
 /** A tappable row model. [detail] carries a payload id; [showDetail] hides it from the label row. */
@@ -185,6 +191,9 @@ fun appMenuRootItems(menu: MenuModel): List<MenuItem> {
     if (menu.inFolder != null) {
         items += MenuItem.Row(MenuRowModel("Remove from folder", MenuAction.RemoveFromFolder))
     }
+    if (menu.onArc && menu.inFolder == null) {
+        items += MenuItem.Row(MenuRowModel("Remove from arc", MenuAction.RemoveFromArc))
+    }
     items += MenuItem.Row(MenuRowModel("Hide from Parc", MenuAction.Hide))
     items += MenuItem.Row(MenuRowModel("App info", MenuAction.AppInfo))
     // A system app that has never been updated cannot be uninstalled, so the row would fail.
@@ -220,9 +229,15 @@ fun folderMenuRootItems(menu: FolderMenuModel): List<MenuItem> =
         MenuItem.Row(MenuRowModel("Sort A to Z", MenuAction.SortAZ)),
         MenuItem.Row(MenuRowModel("Move earlier", MenuAction.MoveEarlier, if (menu.canMoveEarlier) "" else "At the start")),
         MenuItem.Row(MenuRowModel("Move later", MenuAction.MoveLater, if (menu.canMoveLater) "" else "At the end")),
-    ) + folderLockItems(menu) + listOf(
-        MenuItem.Row(MenuRowModel("Delete", MenuAction.OpenDelete)),
-    )
+    ) + folderLockItems(menu) +
+        (if (menu.lock == FolderMenuLock.None) emptyList() else listOf(MenuItem.Divider)) +
+        listOf(
+            MenuItem.Row(MenuRowModel(
+                if (menu.hidden) "Unhide folder" else "Hide folder",
+                if (menu.hidden) MenuAction.UnhideFolder else MenuAction.HideFolder,
+            )),
+            MenuItem.Row(MenuRowModel("Delete", MenuAction.OpenDelete)),
+        )
 
 /** T98: `Lock folder` for a plain folder; `Lock now` and `Unlock folder` for a locked one that is open. */
 private fun folderLockItems(menu: FolderMenuModel): List<MenuItem> = when (menu.lock) {
@@ -385,6 +400,13 @@ fun folderNameIssue(draft: String, folders: List<Folder>, folderId: FolderId): S
 private fun menuBody(skin: Skin, content: @Composable () -> Unit) {
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    // T230: the same safe area as a page. A menu taller than it scrolls inside this box, so its last
+    // row stays above the navigation/gesture bar and its right edge stays out of the Back strip.
+    val insets = rememberPageInsets()
+    val maxWidthDp = (screenWidthDp - maxOf(insets.startDp, Metrics.keepOutLeftDp)
+        - maxOf(insets.endDp, Metrics.keepOutRightDp)).coerceAtLeast(Metrics.menuMinWidthDp)
+    val maxHeightDp = (screenHeightDp - maxOf(insets.topDp, Metrics.keepOutTopDp)
+        - maxOf(insets.bottomDp, Metrics.keepOutBottomDp)).coerceAtLeast(Metrics.touchTargetDp)
     // T157: a menu grows from 0.92 and fades in on `Springs.sheet`; a system animator scale of 0 shows it at once.
     val sheet = rememberSheetProgress(open = true, stiffnessScale = 1f / skin.motionScale)
     // T166: 220 dp is the least; a row whose label and hint need more (large text) widens the menu up to the screen gutters.
@@ -396,9 +418,9 @@ private fun menuBody(skin: Skin, content: @Composable () -> Unit) {
                 val grown = Metrics.menuOpenFromScale + (1f - Metrics.menuOpenFromScale) * p
                 scaleX = grown; scaleY = grown
             }
-            .widthIn(min = Metrics.menuMinWidthDp.dp, max = (screenWidthDp - 2 * Metrics.screenGutterDp).dp)
+            .widthIn(min = Metrics.menuMinWidthDp.dp, max = maxWidthDp.dp)
             .width(IntrinsicSize.Max)
-            .heightIn(max = (screenHeightDp - Metrics.keepOutTopDp - Metrics.keepOutBottomDp).dp)
+            .heightIn(max = maxHeightDp.dp)
             .menuSurface(skin)
             .verticalScroll(rememberScrollState()),
     ) { content() }
@@ -406,8 +428,8 @@ private fun menuBody(skin: Skin, content: @Composable () -> Unit) {
 
 /**
  * The app long-press popup (DESIGN §2.3/2.4, S9, extended by T30): shortcuts, Pin/Unpin, Move to
- * folder, Remove from folder, Hide, App info and Uninstall, with the confirmation and folder-picker
- * pages. The popup owns outside-tap and Back dismissal via [Popup].
+ * folder, Remove from folder, Remove from arc, Hide, App info and Uninstall, with the confirmation
+ * and folder-picker pages. The popup owns outside-tap and Back dismissal via [Popup].
  */
 @Composable
 fun LongPressMenu(

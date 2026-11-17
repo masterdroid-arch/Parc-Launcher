@@ -11,4 +11,13 @@
         <item name="android:windowSplashScreenBackground">@android:color/black</item>
         <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
     </style>
+    <!-- T210: the reader grows out of the shelf cover, so its window is see-through and has no
+         platform open animation. The page itself draws opaquely from its first frame. -->
+    <style name="Theme.Parc.Reader" parent="Theme.Parc">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowSplashScreenBackground">@android:color/transparent</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+    </style>
 </resources>

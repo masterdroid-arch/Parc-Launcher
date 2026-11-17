@@ -22,6 +22,11 @@ class ParcApplication : Application() {
         if (getProcessName() != packageName) return
         // T101: after a restart or reboot, finish timers that ended meanwhile and re-arm the rest.
         try { TimerEngine.reconcile(this) } catch (e: Exception) { ParcLog.e("Timers", "reconcile failed", e) }
+        // T183: same for note reminders (arm again, show the ones that came due).
+        try { NoteReminders.reconcile(this) } catch (e: Exception) { ParcLog.e("Notes", "reminder reconcile failed", e) }
+        // T266: a weekly job the user turned on is re-armed at every start, so a reboot cannot leave
+        // it unscheduled. Turning it off cancels the same unique job.
+        try { WeeklyBackupScheduler.sync(this) } catch (e: Exception) { ParcLog.e("Backup", "weekly schedule sync failed", e) }
         val guard = CrashGuard(this)
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->

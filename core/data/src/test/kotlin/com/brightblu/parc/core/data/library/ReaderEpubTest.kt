@@ -60,6 +60,71 @@ class ReaderEpubTest {
         <body><h1>$title</h1>$body</body></html>
     """.trimIndent()
 
+    @Test fun xhtmlDeclarationsAreLocalAndFindKeepsAccents() {
+        val xhtml11 = """<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN"
+            "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">"""
+        val markup = chapter("Um capítulo", "<p>A manhã&nbsp;chegou.</p>").replace("<html", "$xhtml11\n<html")
+        zip(mapOf("META-INF/container.xml" to container(), "OEBPS/content.opf" to opf("""<itemref idref="one"/>"""),
+            "OEBPS/text/one.xhtml" to markup)).use {
+            val doc = ReaderEpub.parse(it, "id", "", "")
+            // Find must work without the accent as well as with it.
+            for (query in listOf("MANHÃ", "manha")) {
+                val hit = ReaderSearch.inDoc(doc, query).single()
+                assertEquals("manhã", hit.match)
+                assertEquals(doc.chapters.single().text.indexOf("manhã"), hit.offset)
+            }
+        }
+
+        // The other neutral declarations a book may carry, including single quotes and HTML5.
+        for (doctype in listOf(
+            """<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Strict//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd'>""",
+            """<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">""",
+            "<!doctype html>",
+        )) {
+            val root = ReaderHtml.parseXml(markup.replace(xhtml11, doctype).toByteArray(), xhtml = true)
+            assertEquals("html", root.localName)
+        }
+
+        // An internal subset (entity expansion), a substituted host and a local file URL are all
+        // refused before parsing, so nothing is fetched or expanded. A second declaration is refused
+        // too, and a package document never gets the chapter allowance.
+        for (blocked in listOf(
+            xhtml11.replace("dtd\">", "dtd\" [<!ENTITY local 'text'>]>"),
+            xhtml11.replace("www.w3.org", "example.invalid"),
+            xhtml11.replace("http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd", "file:///etc/passwd"),
+            "$xhtml11\n$xhtml11",
+        )) {
+            assertTrue(blocked,
+                runCatching { ReaderHtml.parseXml(markup.replace(xhtml11, blocked).toByteArray(), xhtml = true) }.isFailure)
+        }
+        assertTrue(runCatching { ReaderHtml.parseXml(markup.toByteArray()) }.isFailure)
+    }
+
+    @Test fun failureKindsSeparateUnsupportedMarkupFromAnIncompleteArchive() {
+        // The archive has no container: incomplete, not a markup problem.
+        zip(mapOf("OEBPS/text/one.xhtml" to chapter("One", "<p>Body.</p>"))).use {
+            val error = runCatching { ReaderEpub.parse(it, "id", "", "") }.exceptionOrNull()
+                as? ReaderBookException
+            assertEquals(ReaderBookProblem.BrokenArchive, error?.problem)
+        }
+        // The manifest lists a page the archive does not contain.
+        zip(mapOf("META-INF/container.xml" to container(), "OEBPS/content.opf" to opf("""<itemref idref="one"/>"""))).use {
+            val error = runCatching { ReaderEpub.parse(it, "id", "", "") }.exceptionOrNull()
+                as? ReaderBookException
+            assertEquals(ReaderBookProblem.BrokenArchive, error?.problem)
+        }
+        // A chapter that declares its own entity subset is refused before any expansion.
+        val unsafe = chapter("One", "<p>Body.</p>")
+            .replace("<html", """<!DOCTYPE html [<!ENTITY local "expanded">]>
+<html""")
+        zip(mapOf("META-INF/container.xml" to container(), "OEBPS/content.opf" to opf("""<itemref idref="one"/>"""),
+            "OEBPS/text/one.xhtml" to unsafe)).use {
+            val error = runCatching { ReaderEpub.parse(it, "id", "", "") }.exceptionOrNull()
+                as? ReaderBookException
+            assertEquals(ReaderBookProblem.UnsupportedMarkup, error?.problem)
+        }
+    }
+
     @Test fun spineOrderAndNavContentsAreRead() {
         val zip = zip(mapOf(
             "META-INF/container.xml" to container(),

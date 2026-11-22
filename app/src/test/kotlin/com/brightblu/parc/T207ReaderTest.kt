@@ -38,16 +38,18 @@ class T207ReaderTest {
         ReaderChapter(1, "Two", "<h1>Two</h1><p>Second page text.</p>", "TwoSecond page text."),
     ), emptyList())
 
-    @Test fun theReaderIsItsOwnActivityWithoutItsOwnTaskAffinity() {
+    @Test fun theReaderIsItsOwnActivityAndFollowsTheUserRotation() {
         // T209 turns this activity into the open-with target, so it is exported and its VIEW
-        // filters are asserted in T209FilesTest; the task affinity and rotation rules stay.
+        // filters are asserted in T209FilesTest. T345 gives the reader the user's rotation so a
+        // landscape sensor or rotation lock is respected while the launcher stays portrait.
         val manifest = File("src/main/AndroidManifest.xml").readText()
         val activity = Regex("""<activity[^>]*android:name="\.reader\.ReaderActivity"[^>]*>""").find(manifest)
         assertNotNull("ReaderActivity must be declared", activity)
         val line = activity!!.value
         assertTrue(line.contains("android:exported=\"true\""))
         assertTrue(line.contains("android:taskAffinity=\"\""))
-        assertFalse(line.contains("android:screenOrientation"))
+        assertTrue(line.contains("android:screenOrientation=\"user\""))
+        assertTrue(line.contains("android:excludeFromRecents=\"true\""))
         assertNotNull(Class.forName("com.brightblu.parc.reader.ReaderActivity"))
     }
 

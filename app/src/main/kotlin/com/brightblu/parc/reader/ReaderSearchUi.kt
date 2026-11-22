@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
@@ -49,6 +51,17 @@ internal object ReaderSearchMessages {
 }
 
 /**
+ * T344: the query, the result list and its scroll live above the sheet, so following a match and
+ * pressing Back returns to the same list at the same place.
+ */
+internal class ReaderSearchSession {
+    var query by mutableStateOf("")
+    var hits by mutableStateOf<List<ReaderSearchHit>?>(null)
+    var searched by mutableStateOf<String?>(null)
+    var busy by mutableStateOf(false)
+}
+
+/**
  * T254: search inside the open book. One field, one list; each row shows the match in its sentence
  * and where it is (chapter and percent, or page). Tap a row to jump there. Search starts after a
  * short pause in typing and is replaced as the text changes.
@@ -62,17 +75,20 @@ internal fun ReaderSearchSheet(
     search: suspend (String) -> List<ReaderSearchHit>,
     onDismiss: () -> Unit,
     onJump: (ReaderSearchHit) -> Unit,
+    session: ReaderSearchSession = remember { ReaderSearchSession() },
+    listState: LazyListState = rememberLazyListState(),
 ) {
-    var query by remember { mutableStateOf("") }
-    var hits by remember { mutableStateOf<List<ReaderSearchHit>?>(null) }
-    var busy by remember { mutableStateOf(false) }
+    val query = session.query
     LaunchedEffect(query) {
-        hits = null
-        if (unavailable != null || !ReaderSearch.isSearchable(query)) { busy = false; return@LaunchedEffect }
-        busy = true
+        if (session.searched == query && session.hits != null) return@LaunchedEffect
+        session.hits = null
+        session.searched = null
+        if (unavailable != null || !ReaderSearch.isSearchable(query)) { session.busy = false; return@LaunchedEffect }
+        session.busy = true
         delay(300)
-        hits = search(query)
-        busy = false
+        session.hits = search(query)
+        session.searched = query
+        session.busy = false
     }
     val shape = RoundedCornerShape(Metrics.readerSheetCornerDp.dp)
     ReaderSheetFrame("Search in book", skin, onDismiss) {
@@ -80,7 +96,7 @@ internal fun ReaderSearchSheet(
             verticalArrangement = Arrangement.spacedBy(Metrics.readerRowGapDp.dp)) {
             BasicTextField(
                 value = query,
-                onValueChange = { query = it.take(80) },
+                onValueChange = { session.query = it.take(80) },
                 singleLine = true,
                 enabled = unavailable == null,
                 textStyle = readerValueStyle(skin),
@@ -97,19 +113,19 @@ internal fun ReaderSearchSheet(
                     }
                 },
             )
-            val current = hits
+            val current = session.hits
             when {
                 unavailable != null -> BasicText(unavailable, style = readerLabelStyle(skin))
                 !ReaderSearch.isSearchable(query) -> BasicText(
                     if (query.isEmpty()) "" else ReaderSearchMessages.TypeMore, style = readerLabelStyle(skin))
-                busy || current == null -> BasicText(ReaderSearchMessages.Searching, style = readerLabelStyle(skin))
+                session.busy || current == null -> BasicText(ReaderSearchMessages.Searching, style = readerLabelStyle(skin))
                 current.isEmpty() -> BasicText(emptyHint ?: ReaderSearchMessages.NoMatch, style = readerLabelStyle(skin))
                 else -> {
                     BasicText(
                         if (current.size >= ReaderSearch.MaxResults) ReaderSearchMessages.capped(current.size)
                         else if (current.size == 1) "1 match" else "${current.size} matches",
                         style = readerLabelStyle(skin))
-                    LazyColumn(Modifier.fillMaxWidth().weight(1f),
+                    LazyColumn(Modifier.fillMaxWidth().weight(1f), state = listState,
                         verticalArrangement = Arrangement.spacedBy(Metrics.readerRowGapDp.dp)) {
                         items(current, key = { "${it.chapter}:${it.page}:${it.offset}" }) { hit ->
                             Column(Modifier.fillMaxWidth()

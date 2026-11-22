@@ -9,7 +9,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import com.brightblu.parc.AppGraph
 import com.brightblu.parc.configureParcWindow
 import com.brightblu.parc.core.data.library.BookPosition
@@ -43,6 +42,12 @@ class ReaderActivity : ComponentActivity() {
         attributes.screenBrightness = if (value <= 0f) WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
             else value.coerceIn(0.05f, 1f)
         window.attributes = attributes
+    }
+
+    /** T345: reader-only keep-awake. The flag leaves with this activity's window. */
+    internal fun setKeepAwake(on: Boolean) {
+        if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
@@ -142,7 +147,7 @@ class ReaderActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
     }
 
-    /** Bar visible means the system bars are visible too; page colour decides the icon tint. */
+    /** Bar visible means the system bars are visible too; the control surface decides the icon tint. */
     internal fun setReaderChrome(visible: Boolean, light: Boolean) {
         lastLightPage = light
         // T223: composition effects can run before onCreate returns. Never ask Window/PhoneWindow
@@ -153,12 +158,13 @@ class ReaderActivity : ComponentActivity() {
         val controller = WindowCompat.getInsetsController(window, decor)
         controller.isAppearanceLightStatusBars = light
         controller.isAppearanceLightNavigationBars = light
-        controller.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        // Immersive navigation consumes the first edge swipe to reveal system bars.
+        // Keep Android's Back affordance available while the page is chrome-free.
+        controller.show(WindowInsetsCompat.Type.navigationBars())
         if (visible) {
-            controller.show(WindowInsetsCompat.Type.systemBars())
+            controller.show(WindowInsetsCompat.Type.statusBars())
         } else {
-            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.hide(WindowInsetsCompat.Type.statusBars())
         }
     }
 }

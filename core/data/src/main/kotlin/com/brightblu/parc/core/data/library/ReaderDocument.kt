@@ -62,8 +62,26 @@ data class ReaderBookDoc(
     }
 }
 
+/**
+ * What the reader should offer when a book cannot open. The message is still the whole sentence
+ * the person reads; the kind only decides which recovery action can actually help.
+ */
+enum class ReaderBookProblem {
+    Other,
+    /** The markup uses something the hardened parser refuses; retrying or moving the file will not help. */
+    UnsupportedMarkup,
+    /** The archive is incomplete or its contents are inconsistent; a complete copy can replace it. */
+    BrokenArchive,
+    /** The file moved, its folder grant was lost, or another app no longer exposes it. */
+    LostAccess,
+}
+
 /** A malformed or unsupported book. The activity shows [message] in plain words. */
-class ReaderBookException(message: String, cause: Throwable? = null) : Exception(message, cause)
+class ReaderBookException(
+    message: String,
+    cause: Throwable? = null,
+    val problem: ReaderBookProblem = ReaderBookProblem.Other,
+) : Exception(message, cause)
 
 /**
  * Position maths. The stored position is chapter + character offset, so changing the font size,

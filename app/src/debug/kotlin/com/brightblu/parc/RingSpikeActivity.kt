@@ -42,7 +42,7 @@ class RingSpikeActivity : ComponentActivity() {
                 }
                 var assets by remember { mutableStateOf<SpikeAssets?>(null) }
                 LaunchedEffect(geometry) {
-                    assets = SpikeAssets.create(skin, geometry.count)
+                    assets = SpikeAssets.create(skin, geometry.count, resources.getFont(com.brightblu.parc.core.model.R.font.figtree_variable))
                     Log.i("Parc", "M0 assets ready: 23 icons per level, 112px, background rasterization")
                 }
                 val loaded = assets

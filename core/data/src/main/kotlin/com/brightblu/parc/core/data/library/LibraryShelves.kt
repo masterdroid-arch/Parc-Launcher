@@ -166,10 +166,25 @@ object LibraryShelfRules {
         }
     }
 
-    private fun fileName(book: Book): String {
+    /** T346: the file's own name, used by Details so two copies of one title can be told apart. */
+    fun fileName(book: Book): String {
         val last = book.uri.substringAfterLast('/')
         return runCatching { java.net.URLDecoder.decode(last.replace("+", "%2B"), "UTF-8") }.getOrDefault(last)
             .substringAfterLast('/').substringAfterLast(':')
+    }
+
+    /**
+     * T346: the shelf's own search over the books currently on the shelf. A blank query keeps every
+     * book; otherwise title, author and file name are matched without regard to case.
+     */
+    fun search(books: List<Book>, query: String): List<Book> {
+        val needle = query.trim()
+        if (needle.isEmpty()) return books
+        return books.filter { book ->
+            book.title.contains(needle, ignoreCase = true) ||
+                book.author.contains(needle, ignoreCase = true) ||
+                fileName(book).contains(needle, ignoreCase = true)
+        }
     }
 
     fun matches(rule: ShelfRule, book: Book): Boolean = when (rule.kind) {

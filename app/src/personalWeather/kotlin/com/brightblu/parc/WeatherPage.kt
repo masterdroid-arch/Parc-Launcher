@@ -71,7 +71,11 @@ internal object WeatherVariant {
     /** M13 review: the saved places travel in the backup (not the cached forecasts). */
     fun backupStores(context: android.content.Context): List<com.brightblu.parc.core.data.backup.BackupStore> = listOf(
         com.brightblu.parc.core.data.backup.BackupStore(com.brightblu.parc.core.data.backup.BackupSpecs.weather,
-            WeatherBackupAccess(com.brightblu.parc.core.data.backup.PreferencesStoreAccess(context.applicationContext.weatherDataStore))))
+            WeatherBackupAccess(com.brightblu.parc.core.data.backup.PreferencesStoreAccess(context.applicationContext.weatherDataStore))),
+        DeepLKeyStore.of(context).backupStore(),
+    )
+
+    fun hasBackupKey(context: android.content.Context) = PrefsKeyBlobStorage(context).read() != null
 
     /** T192: cached home forecast only; Today never starts a request. */
     suspend fun today(context: android.content.Context, now: Instant): TodayWeather? =

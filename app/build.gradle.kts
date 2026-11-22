@@ -128,7 +128,9 @@ android {
     // T239: family compiles the real weather/translate code from src/personalWeather and its manifest and tests.
     sourceSets.getByName("family").apply {
         java.srcDir("src/personalWeather/kotlin")
-        manifest.srcFile("src/personalWeather/AndroidManifest.xml")
+        // T293: family has its own manifest. It shares the weather/translate code but never the
+        // personal auto update, the pack downloader or REQUEST_INSTALL_PACKAGES.
+        manifest.srcFile("src/family/AndroidManifest.xml")
     }
     sourceSets.getByName("testFamily").apply {
         java.srcDir("src/testPersonalWeather/kotlin")
@@ -228,10 +230,13 @@ androidComponents.onVariants { variant ->
             if (variant.flavorName == "personal" || variant.flavorName == "personalWeather" || variant.flavorName == "family") {
                 val base = if (variant.buildType == "debug") personalPermissions - "com.brightblu.parc.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" else personalPermissions
                 // T137: the weather variant adds exactly INTERNET and nothing else.
-                val expected = if (variant.flavorName != "personal") base + "android.permission.INTERNET" else base
+                // T293: the personal and weather builds also add INTERNET and REQUEST_INSTALL_PACKAGES for the
+                // private-repo auto update and the data-pack downloader; family and play never do.
+                val updatePerms = setOf("android.permission.INTERNET", "android.permission.REQUEST_INSTALL_PACKAGES", "android.permission.ACCESS_NETWORK_STATE")
+                val expected = if (variant.flavorName == "family") base + "android.permission.INTERNET" else base + updatePerms
                 check(permissions == expected) { "${variant.flavorName} permissions changed: $permissions" }
             } else {
-                val forbidden = setOf("INTERNET", "USE_EXACT_ALARM", "SCHEDULE_EXACT_ALARM", "DUMP", "REQUEST_DELETE_PACKAGES", "QUERY_ALL_PACKAGES", "MANAGE_EXTERNAL_STORAGE")
+                val forbidden = setOf("INTERNET", "USE_EXACT_ALARM", "SCHEDULE_EXACT_ALARM", "DUMP", "REQUEST_DELETE_PACKAGES", "REQUEST_INSTALL_PACKAGES", "QUERY_ALL_PACKAGES", "MANAGE_EXTERNAL_STORAGE")
                     .map { "android.permission.$it" }.toSet()
                 check(permissions.intersect(forbidden).isEmpty()) { "Forbidden Play permissions: ${permissions.intersect(forbidden)}" }
                 listOf("fileSearchEnabled" to listOf("READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO", "READ_MEDIA_AUDIO"),
@@ -243,13 +248,16 @@ androidComponents.onVariants { variant ->
                     names.forEach { check(("android.permission.$it" in permissions) == enabled) { "$flag disagrees with $it" } }
                 }
             }
-            if (variant.flavorName != "personalWeather" && variant.flavorName != "family") check("android.permission.INTERNET" !in permissions)
+            if (variant.flavorName == "play") check("android.permission.INTERNET" !in permissions)
         }
     }
     // T137: the normal builds must contain no network code at all. Scan every Parc class (app and
     // Parc's own modules) compiled into this variant for network classes and the weather host.
     val scan = tasks.register<NoNetworkClassesTask>("verify${capitalized}NoNetworkClasses") {
-        weatherVariant.set(variant.flavorName == "personalWeather" || variant.flavorName == "family")
+        // T293: personal also contains the private-repo updater, so only play must stay network-free.
+        // The public copy has no personalExtras folder, so there the personal variant has no updater and must stay network-free.
+        val hasPersonalExtras = file("src/personalExtras").isDirectory
+        weatherVariant.set((variant.flavorName == "personal" && hasPersonalExtras) || variant.flavorName == "personalWeather" || variant.flavorName == "family")
         report.set(layout.buildDirectory.file("reports/noNetwork/${variant.name}.txt"))
     }
     variant.artifacts.forScope(com.android.build.api.variant.ScopedArtifacts.Scope.ALL).use(scan)

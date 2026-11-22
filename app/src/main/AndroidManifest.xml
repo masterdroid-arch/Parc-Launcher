@@ -88,6 +88,7 @@
              back returns to the Library. T209 makes it the open-with target for EPUB, PDF and plain
              text; opening this way never adds the file to the library (the bar offers that action). -->
         <activity android:name=".reader.ReaderActivity" android:exported="true" android:taskAffinity=""
+            android:screenOrientation="user" android:excludeFromRecents="true"
             android:launchMode="singleTop" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|fontScale"
             android:theme="@style/Theme.Parc.Reader" android:windowSoftInputMode="adjustResize">
             <intent-filter>

@@ -105,6 +105,8 @@ class LibraryStore(
     }
 
     /** Removes only the library row. Never deletes the source file or revokes its grant. */
+    suspend fun relocate(id: String, uri: String) = updateBook(id) { it.copy(uri = uri) }
+
     suspend fun remove(id: String) = mutate { it.filterNot { book -> book.id == id } }
 
     suspend fun savePosition(id: String, position: BookPosition, progress: Double, openedAt: Long) {
@@ -193,6 +195,22 @@ class LibraryStore(
 
     /** Settle the one-time last-page question, whether the answer was yes or not now. */
     suspend fun markFinishAsked(id: String): Boolean = updateBook(id) { LibraryShelfRules.markFinishAsked(it) }
+
+    /**
+     * T346: delete one book's bookmarks and highlights, only when the user asks for this on removal.
+     * Returns whether anything was there to delete; the book row and the source file are untouched.
+     */
+    suspend fun deleteMarks(bookId: String): Boolean = withContext(io) {
+        var removed = false
+        store.edit { prefs ->
+            val document = ReaderMarksJson.decode(prefs[MarksKey])
+            if (document.books.containsKey(bookId)) {
+                prefs[MarksKey] = ReaderMarksJson.encode(document.withBook(bookId, ReaderBookMarks()))
+                removed = true
+            }
+        }
+        removed
+    }
 
     /** T251: the reader reached the last page; the Library page can then ask its one-time question. */
     suspend fun markReachedEnd(id: String): Boolean = updateBook(id) { LibraryShelfRules.markReachedEnd(it) }

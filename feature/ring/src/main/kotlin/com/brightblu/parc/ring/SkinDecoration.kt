@@ -6,7 +6,7 @@ import kotlin.math.*
 
 /** Prepared once with each skin/viewport scene. Drawing only reuses bitmap/path/paint storage. */
 internal class SkinDecoration(skin: Skin, widthDp: Float, heightDp: Float, private val density: Float,
-    arcs: List<ArcSpec>) {
+    arcs: List<ArcSpec>, wordFace: Typeface?) {
     private val spec = skin.drawingSpec()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = skin.colors.lineBase.toInt(); style = Paint.Style.STROKE
@@ -19,7 +19,7 @@ internal class SkinDecoration(skin: Skin, widthDp: Float, heightDp: Float, priva
     private val compass = Path()
     private val numeralPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = skin.colors.textSecondary.toInt(); textSize = skin.typography.caption.sizeSp * density
-        typeface = Typeface.create(spec.annotationFamily, Typeface.NORMAL); textAlign = Paint.Align.CENTER
+        typeface = wordFace; textAlign = Paint.Align.CENTER
     }
     private val numerals = ArrayList<String>()
     private val numeralX = ArrayList<Float>()
@@ -130,10 +130,10 @@ internal class SkinDecoration(skin: Skin, widthDp: Float, heightDp: Float, priva
 
 /** Bounded, renderer-local cache. Preparation may overlap; published drawing assets are immutable. */
 internal class SkinDecorationCache(private val skin: Skin, private val width: Float,
-    private val height: Float, private val density: Float) {
+    private val height: Float, private val density: Float, private val wordFace: Typeface?) {
     private val entries = LinkedHashMap<List<ArcSpec>, SkinDecoration>()
     @Synchronized fun get(arcs: List<ArcSpec>): SkinDecoration = entries[arcs] ?: run {
-        val result = SkinDecoration(skin, width, height, density, arcs)
+        val result = SkinDecoration(skin, width, height, density, arcs, wordFace)
         if (entries.size >= 2) entries.remove(entries.keys.first())
         entries[arcs.toList()] = result
         result

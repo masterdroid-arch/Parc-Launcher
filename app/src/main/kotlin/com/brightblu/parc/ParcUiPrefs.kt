@@ -56,6 +56,22 @@ internal class ParcUiPrefs(context: Context) {
         awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
+    /** T312: per-arc "Maximum apps", keyed by arc id; 0 (or absent) means Auto. */
+    fun arcMaximums(): Map<String, Int> = ArcMaximums.decode(prefs.getString(ArcMaximums.Key, "").orEmpty())
+
+    fun setArcMaximums(map: Map<String, Int>) {
+        prefs.edit().putString(ArcMaximums.Key, ArcMaximums.encode(map)).apply()
+    }
+
+    val arcMaximumsFlow: kotlinx.coroutines.flow.Flow<Map<String, Int>> get() = kotlinx.coroutines.flow.callbackFlow {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == ArcMaximums.Key) trySend(arcMaximums())
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        trySend(arcMaximums())
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
     /** The persisted top-level mode; folders are never persisted. */
     fun mode(): Layer =
         if (prefs.getString(KeyMode, null) == Layer.AllApps.name) Layer.AllApps else Layer.Home

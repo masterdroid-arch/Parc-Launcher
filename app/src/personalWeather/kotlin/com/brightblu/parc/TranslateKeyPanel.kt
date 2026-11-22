@@ -31,7 +31,7 @@ internal object TranslatePrivacy {
         "(when you tap Translate), the target language and your DeepL key to DeepL " +
         "(api-free.deepl.com or api.deepl.com, over https) so it can translate it. Nothing else is sent, nothing about the phone, " +
         "and nothing typed or selected in other modes. DeepL's free plan may store the texts it receives; read DeepL's own terms. " +
-        "The key stays on this phone, encrypted, and is not in backups. " +
+        "Parc encrypts the key on this phone. Manual and weekly backups include it, readable unless you set a backup passphrase. " +
         "The last 20 translations are kept on the phone only, outside backups. You can clear them here."
 }
 

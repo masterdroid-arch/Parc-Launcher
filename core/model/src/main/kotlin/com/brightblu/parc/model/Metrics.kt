@@ -123,6 +123,11 @@ object Metrics {
     const val hubArcMarginDp = 12f
     const val hubTopGapDp = 8f
     const val hubTileMaxHeightDp = 160f
+    // T330: the full-screen hub. Pulling the grip up this far opens it; swiping down this far closes it.
+    const val hubFullOpenPullDp = 72f
+    const val hubFullCloseSwipeDp = 96f
+    /** T330: in the full-screen view a tile may grow past the card's 160 dp, so the page uses the extra height. */
+    const val hubFullTileMaxHeightDp = 220f
     const val hubArtworkMaxDp = 96f
     const val hubHeaderHeightDp = 24f
     const val hubCompactHeightDp = 176f
@@ -457,6 +462,9 @@ object Metrics {
     const val menuCornerDp = 20f
     const val menuMinWidthDp = 220f
     const val menuGapDp = 8f
+    // T324: the wallpaper picker sheet. It is a chooser sheet like the empty-spot and arc sheets, so it
+    // keeps the menu corner; the body never grows past this share of the screen, then it scrolls.
+    const val wallpaperSheetMaxHeightFraction = 0.8f
     const val editDotRadiusDp = 2f
     const val editLiftDp = 12f
     const val editLiftScale = 1.12f
@@ -634,6 +642,8 @@ object Metrics {
     const val bookFindSelectedTintAlpha = 0.12f
     const val bookFindGroupHeaderHeightDp = 48f
     const val bookFindStickyBarClearanceDp = 72f
+    /** T346: extra room while the selection bar is shown, so the last row can scroll clear of it. */
+    const val bookFindSelectionBarExtraDp = 56f
     const val bookFindRowSettleOffsetDp = 8f
     const val bookFindRowSettleDelayMs = 18
     const val bookFindSortMenuWidthDp = 160f
@@ -683,6 +693,14 @@ object Metrics {
     const val readerPageBlackPaper = 0xFF000000L
     const val readerPageBlackInk = 0xFFE6EAF0L
     const val readerPageBlackSecondary = 0xFF8C97A6L
+    // T345: paired pure-paper modes. Body ink and paper are exactly #000000 and #FFFFFF; the
+    // secondary tone is a neutral grey for rules and captions, not body text.
+    const val readerPageBlackOnWhitePaper = 0xFFFFFFFFL
+    const val readerPageBlackOnWhiteInk = 0xFF000000L
+    const val readerPageBlackOnWhiteSecondary = 0xFF666666L
+    const val readerPageWhiteOnBlackPaper = 0xFF000000L
+    const val readerPageWhiteOnBlackInk = 0xFFFFFFFFL
+    const val readerPageWhiteOnBlackSecondary = 0xFFB3B3B3L
     // T255: Night is dimmer and warmer than Black, so it is easy on the eyes in the dark.
     const val readerNightPaper = 0xFF0A0908L
     const val readerNightInk = 0xFFB5A998L
@@ -692,6 +710,28 @@ object Metrics {
     const val readerMaxImageBytes = 4_000_000
     const val readerMaxImagesBytes = 16_000_000
     const val readerMaxSourceBytes = 128_000_000L
+    // T343: reflowable text is laid out in small chunks. Only the current chunk and one neighbour
+    // either side stay in the DOM, so an unusual chapter cannot make the whole book lay out.
+    // Page starts are cached per chunk; unseen chunks use the measured characters per page.
+    const val readerChunkChars = 16_000
+    const val readerChunkWindow = 3
+    const val readerCharsPerPageFallback = 900.0
+    // T344: the shared bottom panel. The slider is a touch target in its own right; the bubble
+    // follows the finger above it and reports the destination without moving the page.
+    const val readerJumpSliderHeightDp = 40f
+    const val readerJumpTrackHeightDp = 3f
+    const val readerJumpThumbDp = 8f
+    const val readerJumpBubbleHeightDp = 28f
+    const val readerJumpBubbleWidthDp = 240f
+    const val readerJumpBubbleInsetDp = 6f
+    const val readerJumpPercentStep = 0.01f
+    const val readerJumpEntryWidthDp = 280f
+    // T350: the always-visible page badge in the corner of the reading surface. The chip is tiny;
+    // the touch target behind it is the standard 48 dp.
+    const val readerPageBadgeInsetDp = 8f
+    const val readerPageBadgeHorizontalPaddingDp = 8f
+    const val readerPageBadgeVerticalPaddingDp = 4f
+    const val readerPageBadgeCornerDp = 8f
     // T209: the Files search mode lists a lazy, bounded set of files above the field.
     const val searchFilesMaxHeightDp = 320f
     const val searchFilesRowGapDp = 4f

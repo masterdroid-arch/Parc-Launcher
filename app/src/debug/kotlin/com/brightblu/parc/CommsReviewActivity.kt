@@ -29,6 +29,12 @@ class CommsReviewActivity : ComponentActivity() {
         val live = intent.getBooleanExtra("live", false)
         val repository = if (live) CommsRepositories.create(this, ParcPrefs.create(this), scope) else ReviewComms()
         setContent {
+            // The host exists to look at Messages; show the page (hidden for a new user) and open it.
+            LaunchedEffect(Unit) {
+                val hub = HubConfigStore(this@CommsReviewActivity)
+                hub.update { it.showPage("comms", true) }
+                hub.rememberPage("comms")
+            }
             val skin = if (intent.getStringExtra("skin") == "phosphor") com.brightblu.parc.model.Phosphor.Skin else Skin.Midnight
             BoxWithConstraints(Modifier.fillMaxSize().background(Color(skin.colors.bg.toInt()))) {
                 val density = androidx.compose.ui.platform.LocalDensity.current

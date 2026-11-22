@@ -35,8 +35,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -224,14 +222,13 @@ private fun CommonplaceCard(item: CommonplaceItem, skin: Skin, onClick: (() -> U
         .then(if (onClick != null || onLongClick != null) Modifier.combinedClickable(
             role = Role.Button, onClick = { onClick?.invoke() }, onLongClick = { onLongClick?.invoke() }) else Modifier)
         .padding(Metrics.commonplaceInsetDp.dp), verticalArrangement = Arrangement.spacedBy(Metrics.commonplaceGapDp.dp)) {
-        // 1.5.1: a kept passage is read in a smaller serif than Today's quote card, so several cards show at once.
-        BasicText(item.text, maxLines = Metrics.commonplaceMaxLines, overflow = TextOverflow.Ellipsis, style = TextStyle(color = Color(skin.colors.ink.toInt()), fontFamily = FontFamily.Serif,
-            fontSize = Metrics.commonplaceTextSp.sp, lineHeight = Metrics.commonplaceLineSp.sp))
-        if (item.note.isNotBlank()) BasicText(item.note, maxLines = 2, overflow = TextOverflow.Ellipsis, style = TextStyle(color = Color(skin.colors.ink.toInt()).copy(alpha = 0.8f),
-            fontSize = Metrics.commonplaceCaptionSp.sp))
-        BasicText(item.caption, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(
-            color = Color(skin.colors.ink.toInt()).copy(alpha = 0.72f), fontFamily = FontFamily.Serif,
-            fontSize = Metrics.commonplaceCaptionSp.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium))
+        val ink = Color(skin.colors.ink.toInt())
+        BasicText(item.text, maxLines = Metrics.commonplaceMaxLines, overflow = TextOverflow.Ellipsis,
+            style = hudValueStyle(skin, skin.colors.ink).copy(lineHeight = Metrics.commonplaceLineSp.sp))
+        if (item.note.isNotBlank()) BasicText(item.note, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            style = hudLabelStyle(skin).copy(color = ink.copy(alpha = 0.8f)))
+        BasicText(item.caption, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            style = hudLabelStyle(skin).copy(color = ink.copy(alpha = 0.72f)))
     }
 }
 

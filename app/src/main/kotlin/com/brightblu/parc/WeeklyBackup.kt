@@ -21,6 +21,7 @@ import androidx.work.WorkManager
 internal enum class WeeklyBackupFailure(val id: String) {
     /** The chosen folder or its Android grant is gone. */
     FolderGone("folder_gone"),
+    PassphraseMissing("passphrase_missing"),
     /** The folder has no room for the backup. */
     NoSpace("no_space"),
     /** The layout or a settings store could not be read. */
@@ -80,6 +81,12 @@ internal class WeeklyBackupStore(context: Context) {
         prefs.edit().putString(KeyFolderUri, uri).putString(KeyFolderName, name).commit()
     }
 
+    fun clearMissingPassphrase() {
+        if (prefs.getString(KeyLastFailure, null) == WeeklyBackupFailure.PassphraseMissing.id) {
+            prefs.edit().remove(KeyLastFailure).remove(KeyLastFailureAt).apply()
+        }
+    }
+
     fun recordSuccess(now: Long) {
         prefs.edit().putLong(KeyLastSuccess, now).remove(KeyLastFailure).remove(KeyLastFailureAt).commit()
     }
@@ -116,6 +123,7 @@ internal object WeeklyBackupText {
 
     /** One clear line; the screen shows it under the weekly rows. */
     fun failure(failure: WeeklyBackupFailure): String = when (failure) {
+        WeeklyBackupFailure.PassphraseMissing -> "Enter your passphrase again"
         WeeklyBackupFailure.FolderGone -> "Last backup failed: the folder is gone. Choose it again."
         WeeklyBackupFailure.NoSpace -> "Last backup failed: not enough space in the folder."
         WeeklyBackupFailure.Unreadable -> "Last backup failed: your setup could not be read."

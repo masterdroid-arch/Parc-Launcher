@@ -41,9 +41,11 @@ class SettingsRegistryTest {
     /** Every snapshot field a registry row may change, and so one SettingsWriter.persist must save. */
     private val fields: List<Pair<String, (SettingsSnapshot) -> Any?>> = listOf(
         "look" to { s -> s.look }, "hub" to { s -> s.hub }, "skinId" to { s -> s.skinId }, "counts" to { s -> s.counts },
+        "arcMaximums" to { s -> s.arcMaximums },
         "aligned" to { s -> s.aligned }, "joystick" to { s -> s.joystick }, "hubDoubleTap" to { s -> s.hubDoubleTap },
         "haptics" to { s -> s.haptics }, "feel" to { s -> s.feel }, "arcFeel" to { s -> s.arcFeel }, "clockVisible" to { s -> s.clockVisible },
         "iconPack" to { s -> s.iconPack }, "statsVisible" to { s -> s.statsVisible }, "hubSize" to { s -> s.hubSize },
+        "hubFullScreen" to { s -> s.hubFullScreen },
         "searchPhoneSettings" to { s -> s.searchPhoneSettings }, "searchFiles" to { s -> s.searchFiles },
         "searchEvents" to { s -> s.searchEvents }, "badges" to { s -> s.badges }, "badgesInAllApps" to { s -> s.badgesInAllApps },
         "menuNotifications" to { s -> s.menuNotifications }, "menuNotificationText" to { s -> s.menuNotificationText },
@@ -55,10 +57,12 @@ class SettingsRegistryTest {
     /** Where each value lives in a backup: store id and key. The keys are the stores' own, unchanged by T175. */
     private val backupKey: Map<String, Pair<String, String>> = mapOf(
         "look" to ("look" to "look_v1"), "hub" to ("hub" to "arc_hub_colour"), "skinId" to ("settings" to "skin_id"),
-        "counts" to ("ui_prefs" to "arcs_shown"), "aligned" to ("ui_prefs" to "align_across_arcs"), "joystick" to ("ui_prefs" to "joystick_aim"),
+        "counts" to ("ui_prefs" to "arcs_shown"), "arcMaximums" to ("ui_prefs" to "arc_maximums"),
+        "aligned" to ("ui_prefs" to "align_across_arcs"), "joystick" to ("ui_prefs" to "joystick_aim"),
         "hubDoubleTap" to ("ui_prefs" to "hub_double_tap"), "haptics" to ("settings" to "haptics"), "feel" to ("feel" to "haptic_preset"),
         "arcFeel" to ("feel" to "arc_spin_limit"), "clockVisible" to ("settings" to "clock_visible"), "iconPack" to ("icon_pack" to "selected_pack"),
         "statsVisible" to ("settings" to "stats_visible"), "hubSize" to ("hub" to "hub_size"),
+        "hubFullScreen" to ("hub" to "config_v1"),
         "searchPhoneSettings" to ("search" to "source_settings"), "searchFiles" to ("search" to "source_files"),
         "searchEvents" to ("search" to "source_events"), "badges" to ("ui_prefs" to "notification_badges"),
         "badgesInAllApps" to ("ui_prefs" to "badges_in_all_apps"), "menuNotifications" to ("ui_prefs" to "menu_notifications"),
@@ -98,8 +102,8 @@ class SettingsRegistryTest {
     }
 
     @Test fun everyValueRoundTripsAndIsSavedByTheWriter() {
-        val persisted = setOf("look", "hub", "skinId", "counts", "aligned", "joystick", "hubDoubleTap", "haptics", "feel", "arcFeel",
-            "clockVisible", "iconPack", "statsVisible", "hubSize", "searchPhoneSettings", "searchFiles", "searchEvents",
+        val persisted = setOf("look", "hub", "skinId", "counts", "arcMaximums", "aligned", "joystick", "hubDoubleTap", "haptics", "feel", "arcFeel",
+            "clockVisible", "iconPack", "statsVisible", "hubSize", "hubFullScreen", "searchPhoneSettings", "searchFiles", "searchEvents",
             "badges", "badgesInAllApps", "menuNotifications", "menuNotificationText", "markWorkApps", "layoutLocked", "leftHand",
             "wallpaperMode", "wallpaperLook",
             "commsEnabled", "commsRecordHistory")

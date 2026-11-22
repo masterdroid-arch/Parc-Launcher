@@ -29,6 +29,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.brightblu.parc.core.data.editMainApp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -79,6 +80,7 @@ import com.brightblu.parc.feature.settings.ui.SettingsSearch
 import com.brightblu.parc.feature.settings.ui.SettingsTheme
 import com.brightblu.parc.feature.settings.ui.settingsText
 import com.brightblu.parc.model.AppId
+import com.brightblu.parc.model.FolderId
 import com.brightblu.parc.model.HubAppearance
 import com.brightblu.parc.model.LookSettings
 import com.brightblu.parc.model.Metrics
@@ -90,8 +92,6 @@ import com.brightblu.parc.model.hidden
 import com.brightblu.parc.model.locked
 import com.brightblu.parc.model.rememberPageInsets
 import com.brightblu.parc.model.textFamily
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import com.brightblu.parc.ring.FeelEvent
 import com.brightblu.parc.ring.FeelPlayer
 import com.brightblu.parc.ring.FeelPrefs
@@ -186,7 +186,6 @@ internal fun ParcSettings(
     }
     val lockGate = rememberFolderLockGate(services)
     val lockWindows by services.folderLock.windows.collectAsState()
-    val lockedPickerPackages by services.lockedPackages.collectAsState()
     val settingsLayout by services.layout.layout.collectAsState()
     val hiddenFolderIds = lockWindows.let { settingsLayout.folders.filter { lockGate.isFolderLockedNow(it.id) }.map { it.id }.toSet() }
     val hubStore = remember(context) { HubConfigStore(context) }
@@ -235,6 +234,7 @@ internal fun ParcSettings(
     var menuNotificationText by remember { mutableStateOf(menuPrefs.menuNotificationText()) }
     var agendaSettings by remember { mutableStateOf(menuPrefs.agenda()) }
     val counts by remember(menuPrefs) { menuPrefs.countsFlow }.collectAsState(initial = menuPrefs.layoutCounts())
+    val arcMaximums by remember(menuPrefs) { menuPrefs.arcMaximumsFlow }.collectAsState(initial = menuPrefs.arcMaximums())
     val wallpaperSkin by services.wallpaperSkin.skin.collectAsState()
     val customSkinCatalog by services.customSkins.skins.collectAsState()
     val settingsController = remember(services, wallpaperSkin, customSkinCatalog) {
@@ -245,7 +245,7 @@ internal fun ParcSettings(
     val hiddenAppsState by hiddenController.state.collectAsState()
     val hiddenFoldersController = remember(services) { HiddenFoldersController(services.layout, scope) }
     val backupController = remember(services) {
-        BackupController(LayoutBackupService(services.layout, AndroidBackupFileStore(context)), scope)
+        BackupController(LayoutBackupService(services.layout, AndroidBackupFileStore(context)), scope, BackupPassphraseStore(context))
     }
     val weeklyBackupStore = remember(context) { WeeklyBackupStore(context) }
     val weeklyBackup by weeklyBackupStore.state.collectAsState(initial = weeklyBackupStore.read())
@@ -270,14 +270,29 @@ internal fun ParcSettings(
         com.brightblu.parc.ring.RingLayout(g.widthDp, g.heightDp, g.insets, g.options.copy(alignAcrossArcs = alignedArcs))
             .arcs.maxOf { it.slotCapacity }.coerceAtLeast(3)
     }
+    // T312: the arcs' visible capacities (same geometry Home draws), for the "over by n" detail.
+    val sceneArcs = remember(services.geometry, counts, alignedArcs, leftHand) {
+        val g = services.geometry
+        com.brightblu.parc.ring.RingLayout(g.widthDp, g.heightDp, g.insets,
+            g.options.copy(alignAcrossArcs = alignedArcs, arcsShown = counts.arcs, iconsPerArc = counts.icons,
+                mirrored = leftHand)).arcs
+    }
+    val arcOver = remember(settingsLayout, sceneArcs, arcMaximums) {
+        val newFolderSpot = ArcChooser.newFolderSpot(settingsLayout, sceneArcs.lastOrNull()?.id ?: "",
+            settingsLayout.folders.firstOrNull { it.id == FolderId(NewFolderKey) }?.hidden == true)
+        ArcChooser.choices(settingsLayout, sceneArcs, arcMaximums, newFolderSpot)
+            .filter { it.over > 0 }.associate { it.arcId to it.over }
+    }
 
     // T175: everything the pages read, as one value.
     val snapshot = SettingsSnapshot(
         skins = settingsState.skins, skinId = settingsState.selectedSkinId, look = look, hub = hubAppearance, counts = counts,
+        arcMaximums = arcMaximums, arcOver = arcOver,
         maxIconsPerArc = maxIcons, aligned = alignedArcs, joystick = joystick, hubDoubleTap = hubDoubleTap, gestures = gestures,
         haptics = settings.haptics, feel = feelPrefs, arcFeel = arcFeel, clockVisible = settings.clockVisible,
         iconPacks = iconPacks.map { it.packageName to it.label }, iconPack = iconPack, statsVisible = settings.statsVisible,
-        hubSize = hubConfig.size, searchPhoneSettings = searchSnapshot.phoneSettingsEnabled,
+        hubSize = hubConfig.size, hubFullScreen = hubConfig.fullScreenEnabled,
+        searchPhoneSettings = searchSnapshot.phoneSettingsEnabled,
         searchFiles = searchSnapshot.filesEnabled, searchEvents = searchSnapshot.eventsEnabled,
         fileSearchAvailable = BuildConfig.FILE_SEARCH_ENABLED, badges = badgesEnabled, badgesInAllApps = badgesInAllApps,
         menuNotifications = menuNotifications, menuNotificationText = menuNotificationText, markWorkApps = markWorkApps,
@@ -332,10 +347,17 @@ internal fun ParcSettings(
         }
     }
     val customRow: @Composable (SettingDef) -> Unit = { def ->
-        RegistryCustom(def, snapshot, skin, services, look, onChangeLook, chooseWallpaper,
-            onChoose = { chooseWallpaper++ }, onValue = onValue,
-            onPreviewSkin = { previewSkin = it }, onEditSkin = { screen = SettingsScreen.Page(SettingsPage.SkinStudio) },
-            onWhatsNew = { screen = SettingsScreen.Page(SettingsPage.WhatsNew) })
+        if (def.id == "ArcMaximums") {
+            // T312: per-arc "Maximum apps" rows, persisted like every other setting.
+            ArcMaximumsSection(snapshot, skin, onSet = { map ->
+                scope.launch { writer.persist(snapshot, snapshot.copy(arcMaximums = map)) }
+            })
+        } else {
+            RegistryCustom(def, snapshot, skin, services, look, onChangeLook, chooseWallpaper,
+                onChoose = { chooseWallpaper++ }, onValue = onValue,
+                onPreviewSkin = { previewSkin = it }, onEditSkin = { screen = SettingsScreen.Page(SettingsPage.SkinStudio) },
+                onWhatsNew = { screen = SettingsScreen.Page(SettingsPage.WhatsNew) })
+        }
     }
 
     val backTarget = remember { SettingsBackTarget() }
@@ -390,7 +412,13 @@ internal fun ParcSettings(
                 SettingsPage.Messages -> SettingsRegistryPage(page, snapshot, skin, target, back, onValue, onOpen, customRow,
                     footerFor = { card -> if (card == "History") "Messages from WhatsApp, Telegram and Instagram are stored on this phone. Not in backups. Clear them any time." else "" })
                 SettingsPage.MainApps -> SettingsPageFrame(skin, onBack = back) {
-                    ParcPage(safeTop = false, scroll = false, padBottom = false) { MainAppsSettingsSection(skin, lockedPickerPackages) { back() } }
+                    ParcPage(safeTop = false, scroll = false, padBottom = false) {
+                        MainAppsSettingsSection(skin, settingsLayout, apps) { edit ->
+                            services.layout.updateLayout { current ->
+                                current.editMainApp(edit, menuPrefs.layoutLocked())
+                            }
+                        }
+                    }
                 }
                 SettingsPage.Rotation -> SettingsPageFrame(skin, onBack = back) {
                     ParcPage(safeTop = false, scroll = false, padBottom = false) {
@@ -472,6 +500,8 @@ internal fun ParcSettings(
                     LayoutBackupScreen(
                         backupController, skin, Modifier.fillMaxSize(), topPaddingDp = Metrics.rowGapDp,
                         weekly = weeklyBackupUi,
+                        hasBackupKey = { WeatherVariant.hasBackupKey(context) },
+                        showUpdateTokenNote = UpdateVariant.Available,
                         onWeeklyEnabled = { enabled ->
                             weeklyBackupStore.setEnabled(enabled)
                             if (enabled) WeeklyBackupScheduler.restart(context) else WeeklyBackupScheduler.cancel(context)
@@ -559,8 +589,7 @@ private fun SettingsRegistryPage(
     footerFor: (String) -> String = { card ->
         when (card) {
             "Both hubs" -> "One glass for both cards, in every skin. Off gives flat cards at their opacity."
-            "Wallpaper" -> if (snapshot.look.wallpaper == com.brightblu.parc.model.WallpaperStyle.System)
-                "Parc cannot read the phone wallpaper's picture, so glass frosts its main colour." else ""
+            "Wallpaper" -> WallpaperSheetRules.note(snapshot.look.wallpaper)
             else -> ""
         }
     },
@@ -569,6 +598,9 @@ private fun SettingsRegistryPage(
         SettingsContent(skin, page.title) {
             SettingsIntro(skin, page.intro)
             RegistryRows(page, snapshot, skin, target, onValue, onOpen, custom, footer = footerFor)
+            // T324: the last card's footer sentence ends clear of the gesture strip (it used to sit
+            // right at the bottom edge, so it read as clipped until the page was scrolled).
+            Spacer(Modifier.height(Metrics.rowGapDp.dp))
         }
     }
 }
@@ -584,28 +616,37 @@ private fun RegistryCustom(def: SettingDef, s: SettingsSnapshot, skin: Skin, ser
             SkinGallery(state, skin, services, look, onPreview = onPreviewSkin, onEdit = onEditSkin)
         }
         "WallpaperImage" -> WallpaperChooser(def, s, skin, look, onChangeLook, chooseRequest, onChoose, onValue)
+        // T325: the page title ("This build") is the only heading; the version is a row, not a second title.
         "About" -> Column(Modifier.padding(vertical = Metrics.rowGapDp.dp)) {
-            BasicText("Parc ${BuildConfig.VERSION_NAME}", style = style(skin, skin.colors.textPrimary, skin.typography.title),
-                modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp).semantics { heading() })
             BasicText("A home screen with thumb-reach arcs. Settings and layout stay on this device.",
                 style = settingsText(skin, skin.colors.textSecondary, true),
                 modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp).padding(top = Metrics.lineGapDp.dp))
-            BasicText("Parc is free on every channel, with no locked features and no Play Billing. Donations are the only money.",
+            BasicText(SupportLinks.donateNote,
                 style = settingsText(skin, skin.colors.textSecondary, true),
                 modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp).padding(top = Metrics.lineGapDp.dp))
-            // T270: only the Weather-enabled flavours have the INTERNET permission, so only they claim online features.
-            val online = BuildConfig.FLAVOR == "personalWeather" || BuildConfig.FLAVOR == "family"
-            BasicText(if (online) "This build is online only for Weather and Translate (your own DeepL key): no accounts, ads, analytics or tracking."
-                else "This build has no internet access: no accounts, ads, analytics or tracking.",
+            // T293: the personal and weather builds are online for the private-repo update and the data
+            // packs; only play has no internet at all. Each build says exactly what it is online for.
+            val onlineLine = when (BuildConfig.FLAVOR) {
+                "personal" -> "This build is online only to check for updates and download language packs: no accounts, ads, analytics or tracking."
+                "personalWeather" -> "This build is online only for Weather, Translate (your own DeepL key), updates and language packs: no accounts, ads, analytics or tracking."
+                "family" -> "This build is online only for Weather and Translate (your own DeepL key): no accounts, ads, analytics or tracking."
+                else -> "This build has no internet access: no accounts, ads, analytics or tracking."
+            }
+            BasicText(onlineLine,
                 style = settingsText(skin, skin.colors.textSecondary, true),
                 modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp).padding(top = Metrics.lineGapDp.dp))
             Spacer(Modifier.height(Metrics.rowGapDp.dp))
             SettingsCard(skin) {
                 val stamp = BuildStamp.lines()
                 stamp.forEachIndexed { index, (label, value) ->
-                    SettingRow(label, skin, SettingKind.Value, value = value, divider = index < stamp.lastIndex, onClick = {})
+                    // T325: every build row keeps its value on the right, so Version, Version code, Built on
+                    // and Code commit line up instead of Built alone dropping under its label.
+                    SettingRow(label, skin, SettingKind.Value, value = value,
+                        allowLongValueBeside = true, divider = index < stamp.lastIndex, onClick = {})
                 }
             }
+            // T293: check for updates, the token and the data-pack rows (personal and weather builds only).
+            UpdateVariant.AboutContent(skin)
             if (SupportLinks.isVisible(SupportLinks.donate)) {
                 Spacer(Modifier.height(Metrics.rowGapDp.dp))
                 val context = LocalContext.current

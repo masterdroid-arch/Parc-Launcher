@@ -98,7 +98,7 @@ object ReaderHtml {
         spine: Map<String, Int>,
         resource: (String) -> ByteArray?,
     ): String {
-        val root = parseXml(xhtml)
+        val root = parseXml(xhtml, xhtml = true)
         val body = elements(root, "body").firstOrNull() ?: root
         val out = StringBuilder()
         val images = ImageBudget()
@@ -238,7 +238,38 @@ object ReaderHtml {
 
     private fun safeId(id: String): String = id.filter { it.isLetterOrDigit() || it in "_.:-" }.take(200)
 
-    internal fun parseXml(bytes: ByteArray): Element {
+    // T347: a handful of book declarations are neutral metadata, not a document type to resolve.
+    // Only these complete prologs are removed, and only for a spine/nav XHTML file. Anything with
+    // an internal subset, a different public id or a different system URL stays in the document
+    // and is rejected below, so no external DTD is ever fetched and no entity is expanded.
+    private val localXhtmlDoctypes = setOf(
+        "<!doctype html>",
+        "<!doctype html public \"-//w3c//dtd xhtml 1.1//en\" \"http://www.w3.org/tr/xhtml11/dtd/xhtml11.dtd\">",
+        "<!doctype html public \"-//w3c//dtd xhtml 1.0 strict//en\" \"http://www.w3.org/tr/xhtml1/dtd/xhtml1-strict.dtd\">",
+        "<!doctype html public \"-//w3c//dtd xhtml 1.0 transitional//en\" \"http://www.w3.org/tr/xhtml1/dtd/xhtml1-transitional.dtd\">",
+        "<!doctype html public \"-//w3c//dtd xhtml 1.0 frameset//en\" \"http://www.w3.org/tr/xhtml1/dtd/xhtml1-frameset.dtd\">",
+    )
+
+    private fun localDoctypeRange(raw: String): IntRange? {
+        var at = if (raw.startsWith("\u00EF\u00BB\u00BF")) 3 else 0
+        while (at < raw.length && raw[at].isWhitespace()) at++
+        if (raw.startsWith("<?xml", at, ignoreCase = true)) {
+            val end = raw.indexOf("?>", at)
+            if (end < 0) return null
+            at = end + 2
+            while (at < raw.length && raw[at].isWhitespace()) at++
+        }
+        if (!raw.startsWith("<!DOCTYPE", at, ignoreCase = true)) return null
+        val end = raw.indexOf('>', at)
+        if (end < 0) return null
+        val declaration = raw.substring(at, end + 1)
+        if (declaration.length > 512) return null
+        val normalized = declaration.replace(Regex("\\s+"), " ")
+            .replace('\'', '"').lowercase(java.util.Locale.ROOT)
+        return if (normalized in localXhtmlDoctypes) at..end else null
+    }
+
+    internal fun parseXml(bytes: ByteArray, xhtml: Boolean = false): Element {
         require(bytes.isNotEmpty() && bytes.size <= Metrics.readerMaxDocumentChars)
         val builder = DocumentBuilderFactory.newInstance().apply {
             isNamespaceAware = true
@@ -247,18 +278,22 @@ object ReaderHtml {
             runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
             runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
         }.newDocumentBuilder()
-        require(!String(bytes, Charsets.ISO_8859_1).replace("\u0000", "").contains("<!DOCTYPE", true))
+        val raw = String(bytes, Charsets.ISO_8859_1)
+        val declaration = if (xhtml) localDoctypeRange(raw) else null
+        val local = declaration?.let { raw.removeRange(it) } ?: raw
+        require(!local.replace("\u0000", "").contains("<!DOCTYPE", true))
+        val input = if (declaration == null) bytes else local.toByteArray(Charsets.ISO_8859_1)
         builder.setEntityResolver { _, _ -> throw SAXException("External entities are not allowed") }
         builder.setErrorHandler(object : DefaultHandler() {
             override fun error(e: org.xml.sax.SAXParseException) { throw e }
             override fun fatalError(e: org.xml.sax.SAXParseException) { throw e }
         })
         return try {
-            builder.parse(InputSource(ByteArrayInputStream(bytes))).documentElement
+            builder.parse(InputSource(ByteArrayInputStream(input))).documentElement
         } catch (_: Exception) {
             // Many EPUBs use HTML named entities that are not declared in XHTML. A second attempt
             // with the common ones expanded to numeric references keeps those books readable.
-            val text = ReaderText.decode(bytes)
+            val text = ReaderText.decode(input)
             val expanded = text
                 .replace("&nbsp;", "&#160;").replace("&mdash;", "&#8212;")
                 .replace("&ndash;", "&#8211;").replace("&hellip;", "&#8230;")

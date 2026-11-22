@@ -5,13 +5,18 @@ import android.content.Intent
 import android.net.Uri
 
 /**
- * T267: the one place for Parc's donation link.
+ * The one place for Parc's donation link (T267, set by T309).
  *
- * [donate] stays empty until the owner supplies the URL. An empty value keeps the
- * "Support Parc" row out of About, so no dead link is ever shown.
+ * [donate] is the Ko-fi page. An empty value keeps the "Support Parc" row out of
+ * About, so no dead link is ever shown. [donateNote] is the plain, honest wording
+ * shown beside the row.
  */
 internal object SupportLinks {
-    const val donate: String = ""
+    const val donate: String = "https://ko-fi.com/parcapp"
+
+    /** Shown in About next to the Support row: free, optional tip, nothing locked behind it. */
+    const val donateNote: String =
+        "Parc is free and always will be. If it helps you, you can leave a tip on Ko-fi. Nothing is locked behind it."
 
     /** A link is shown only when it has a destination. Pure so the empty case can be tested. */
     fun isVisible(url: String): Boolean = url.isNotBlank()

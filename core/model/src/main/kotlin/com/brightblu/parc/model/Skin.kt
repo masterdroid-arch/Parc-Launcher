@@ -1,7 +1,10 @@
 package com.brightblu.parc.model
 
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNames
 
 /** ARGB sRGB colours as unsigned-range Longs. Immutable, non-null, thread-safe. */
 @Serializable
@@ -37,6 +40,7 @@ data class SkinColors(
 data class TypeToken(val sizeSp: Float, val weight: Int, val trackingSp: Float)
 
 /** Typography from DESIGN §2.2. Immutable, non-null, thread-safe; font loading belongs to app. */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class TypographyTokens(
     val family: String = "Figtree",
@@ -47,16 +51,25 @@ data class TypographyTokens(
     val search: TypeToken = TypeToken(20f, 400, 0f),
     val label: TypeToken = TypeToken(12f, 500, 0.2f),
     val caption: TypeToken = TypeToken(11f, 500, 0.3f),
-    val menu: TypeToken = TypeToken(15f, 450, 0f),
+    val menu: TypeToken = TypeToken(15f, 400, 0f),
     val maxDynamicTypeScale: Float = 1.3f,
     val fixedSlotLabels: Boolean = true,
     val numeralFamily: String = "",
     val clockDot: TypeToken = TypeToken(56f, 500, 0f),
+    @SerialName("stat") @JsonNames("countDot")
     val countDot: TypeToken = TypeToken(28f, 600, 0f),
     val bigDot: TypeToken = TypeToken(88f, 600, 0f),
+    val section: TypeToken = TypeToken(17f, 500, 0f),
+    val body: TypeToken = TypeToken(15f, 400, 0f),
 ) {
+    val stat: TypeToken get() = countDot
+
     init {
         require(numeralFamily == "" || numeralFamily == "Doto")
+        for (role in listOf(section, body)) {
+            require(role.sizeSp.isFinite() && role.sizeSp > 0f && role.trackingSp.isFinite())
+            require(role.weight in 300..600 && role.weight % 100 == 0)
+        }
         for (role in listOf(clockDot, countDot, bigDot)) {
             require(role.sizeSp.isFinite() && role.sizeSp >= 24f)
             require(role.weight in 100..900 && role.trackingSp.isFinite())
@@ -204,5 +217,11 @@ data class Skin(
 object SkinJson {
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = false }
     fun encode(skin: Skin): String = json.encodeToString(Skin.serializer(), skin)
-    fun decode(source: String): Skin = json.decodeFromString(Skin.serializer(), source)
+    fun decode(source: String): Skin {
+        val skin = json.decodeFromString(Skin.serializer(), source)
+        val typography = skin.typography
+        // Older exports wrote the former menu default explicitly.
+        if (typography.menu.weight != 450) return skin
+        return skin.copy(typography = typography.copy(menu = typography.menu.copy(weight = 400)))
+    }
 }

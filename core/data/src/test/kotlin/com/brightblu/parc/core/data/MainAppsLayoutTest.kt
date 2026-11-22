@@ -3,6 +3,7 @@ package com.brightblu.parc.core.data
 import com.brightblu.parc.model.ArcAssignment
 import com.brightblu.parc.model.ParcLayout
 import com.brightblu.parc.model.Slot
+import com.brightblu.parc.model.SlotPosition
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -106,7 +107,7 @@ class MainAppsLayoutTest {
         val h = RepositoryHarness(seed = seeded(), mainAppsStore = store)
         h.repository.load(installed)
         // Alpha also sits on A2 in the user's own arrangement.
-        h.repository.pin(alpha, com.brightblu.parc.model.SlotPosition("A2", 0))
+        h.repository.pin(alpha, SlotPosition("A2", 0))
 
         store.ids = listOf(gamma)
         store.revision = 2L
@@ -114,5 +115,64 @@ class MainAppsLayoutTest {
 
         assertTrue(alpha in h.repository.layout.value.pins)
         assertEquals(mapOf(0 to Slot.App(gamma)), h.repository.layout.value.a1())
+    }
+
+    @Test
+    fun `row operations preserve search placements drag results and overflow through restart`() = runTest {
+        val h = RepositoryHarness(seed = seeded())
+        val repo = h.repository
+        repo.load(installed)
+        val overflow = SlotPosition("A1", 7)
+        val placed = SlotPosition("A1", 2)
+        // Search pins a previously unplaced result to the chosen position.
+        repo.pin(beta, placed)
+        repo.pin(gamma, overflow)
+        repo.move(placed, placed.copy(index = 3))
+        fun slots() = repo.layout.value.a1()
+        assertEquals(mapOf(0 to Slot.App(alpha), 3 to Slot.App(beta), 7 to Slot.App(gamma)), slots())
+        repo.updateLayout { it.editMainApp(MainAppEdit.Remove(alpha, 0), locked = false) }
+        assertEquals(mapOf(3 to Slot.App(beta), 7 to Slot.App(gamma)), slots())
+        repo.updateLayout { it.editMainApp(MainAppEdit.Add(alpha), locked = false) }
+        repo.updateLayout { it.editMainApp(MainAppEdit.Move(alpha, 0, 1, null), locked = false) }
+        val expected = mapOf(1 to Slot.App(alpha), 3 to Slot.App(beta), 7 to Slot.App(gamma))
+        assertEquals(expected, slots())
+        assertEquals(expected, h.newRepository().also { it.load(installed) }.layout.value.a1())
+    }
+
+    @Test
+    fun `lock at save and a replaced destination both refuse the edit`() = runTest {
+        val repo = RepositoryHarness(seed = seeded()).repository
+        repo.load(installed)
+        val tap = MainAppEdit.Move(alpha, 0, 1, null)
+        repo.pin(beta, SlotPosition("A1", 1))
+        val before = repo.layout.value
+        for (locked in listOf(true, false)) {
+            val error = runCatching { repo.updateLayout { it.editMainApp(tap, locked) } }.exceptionOrNull()
+            assertTrue(error is MainAppEditRefused)
+            if (locked) assertTrue(error!!.message!!.contains("Unlock"))
+            assertEquals(before, repo.layout.value)
+        }
+    }
+
+    @Test
+    fun `onboarding suggestions keep legacy positions beyond the fourth row`() = runTest {
+        val repo = RepositoryHarness(seed = seeded()).repository
+        repo.load(installed)
+        repo.pin(alpha, SlotPosition("A1", 9))
+        repo.applyMainApps(listOf(beta))
+        assertEquals(mapOf(0 to Slot.App(beta), 9 to Slot.App(alpha)), repo.layout.value.a1())
+        assertEquals(setOf(alpha, beta), repo.layout.value.pins)
+    }
+
+    @Test
+    fun `adding an outer arc app fills only the inner hole and moves its pin`() = runTest {
+        val repo = RepositoryHarness(seed = seeded()).repository
+        repo.load(installed)
+        repo.pin(beta, SlotPosition("A2", 0))
+        repo.pin(gamma, SlotPosition("A1", 2))
+        repo.updateLayout { it.editMainApp(MainAppEdit.Add(beta), locked = false) }
+        assertEquals(mapOf(0 to Slot.App(alpha), 1 to Slot.App(beta), 2 to Slot.App(gamma)), repo.layout.value.a1())
+        assertTrue(repo.layout.value.arcs.first { it.arc.id == "A2" }.slots.isEmpty())
+        assertEquals(setOf(alpha, beta, gamma), repo.layout.value.pins)
     }
 }

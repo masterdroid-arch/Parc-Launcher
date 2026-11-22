@@ -95,6 +95,8 @@ data class MenuModel(
     val folders: List<Folder> = emptyList(),
     /** Label of the pin row; an empty string hides the row because no pinned slot is free (T68). */
     val pinLabel: String = "Pin",
+    /** T313: true when the app already sits on a Home arc; the All-apps menu says "Move to arc". */
+    val placed: Boolean = false,
     /** False for a system app that has never been updated, where the platform refuses ACTION_DELETE. */
     val canUninstall: Boolean = true,
     val draftName: String = "",
@@ -136,7 +138,7 @@ data class FolderMenuModel(
 
 /** One row action in either menu. Pure identifier, so the item builders stay unit-testable. */
 enum class MenuAction {
-    Shortcut, TogglePin, MoveToFolder, RemoveFromFolder, RemoveFromArc, Hide, AppInfo, Uninstall,
+    Shortcut, TogglePin, AddToArc, MoveToFolder, RemoveFromFolder, RemoveFromArc, Hide, AppInfo, Uninstall,
     OpenMoveToFolder, OpenUninstall, Rename, AddApps, MoveEarlier, MoveLater, Delete,
     OpenRename, OpenDelete, Save, Back, Dismiss, AddApp,
     OpenNewFolder, SaveNewFolder, CancelNewFolder, SortAZ,
@@ -176,14 +178,18 @@ fun appMenuRootItems(menu: MenuModel): List<MenuItem> {
         items += MenuItem.Row(MenuRowModel("Set Parc as your home screen for shortcuts", MenuAction.Dismiss))
     } else {
         menu.shortcuts.take(MenuShortcutLimit).forEach {
-            items += MenuItem.Row(MenuRowModel(it.label, MenuAction.Shortcut, it.id))
+            items += MenuItem.Row(MenuRowModel(it.label, MenuAction.Shortcut, it.id, showDetail = false))
         }
     }
     // The shortcut block's own divider follows; a notification section above a shortcut block needs one more.
     if (notificationRows > 0 && items.size > notificationRows) items.add(notificationRows, MenuItem.Divider)
     items += MenuItem.Divider
     if (menu.pinned) {
-        items += MenuItem.Row(MenuRowModel("Unpin", MenuAction.TogglePin))
+        items += MenuItem.Row(MenuRowModel("Clear pin, keep on arc", MenuAction.TogglePin))
+    } else if (!menu.onArc && menu.inFolder == null) {
+        // T313: the All-apps ring offers one add-or-move row through the shared chooser, never a
+        // "Pin to arc N" that only reaches the two inner arcs.
+        items += MenuItem.Row(MenuRowModel(addToArcLabel(menu.placed), MenuAction.AddToArc))
     } else if (menu.pinLabel.isNotEmpty()) {
         items += MenuItem.Row(MenuRowModel(menu.pinLabel, MenuAction.TogglePin))
     }
@@ -330,6 +336,13 @@ fun pinPosition(layout: ParcLayout, position: SlotPosition): SlotPosition? {
     if (current != null && current.arc.layer == Layer.Home && current.arc.index <= 1) return position
     return firstPinnedVacancy(layout)
 }
+
+/**
+ * T313: the one add-or-move label shared by the All-apps menu and the search app menu. An app that
+ * already sits on a Home arc reads "Move to arc" (the write relocates its single copy); a new app
+ * reads "Add to arc".
+ */
+fun addToArcLabel(placed: Boolean): String = if (placed) "Move to arc" else "Add to arc"
 
 /**
  * Label of the pin row (T68): names the arc that will receive the app. An empty label means no
@@ -575,7 +588,7 @@ private fun MenuRow(row: MenuRowModel, skin: Skin, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(Metrics.menuRowHeightDp.dp)
+            .heightIn(min = Metrics.menuRowHeightDp.dp)
             .parcPress(source)
             .clickable(interactionSource = source, indication = LocalIndication.current, onClick = onClick)
             .padding(horizontal = Metrics.textGutterDp.dp),
@@ -584,8 +597,10 @@ private fun MenuRow(row: MenuRowModel, skin: Skin, onClick: () -> Unit) {
         BasicText(
             row.label,
             style = rowStyle(skin, danger = row.action == MenuAction.Uninstall || row.action == MenuAction.Delete),
-            modifier = Modifier.weight(1f).padding(end = Metrics.rowGapDp.dp),
-            maxLines = 1,
+            modifier = Modifier.weight(1f).then(
+                if (row.showDetail && row.detail.isNotEmpty()) Modifier.padding(end = Metrics.rowGapDp.dp) else Modifier
+            ),
+            maxLines = if (row.action == MenuAction.Shortcut) Int.MAX_VALUE else 1,
             overflow = TextOverflow.Ellipsis,
         )
         if (row.showDetail && row.detail.isNotEmpty()) {

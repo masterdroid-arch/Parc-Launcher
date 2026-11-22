@@ -1,6 +1,5 @@
 package com.brightblu.parc
 
-import androidx.compose.ui.text.font.FontFamily
 import com.brightblu.parc.model.ParcFonts
 import com.brightblu.parc.model.Phosphor
 import com.brightblu.parc.model.Skin
@@ -8,7 +7,6 @@ import com.brightblu.parc.model.TypographyTokens
 import com.brightblu.parc.model.textFamily
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SkinFontFamilyTest {
@@ -19,13 +17,13 @@ class SkinFontFamilyTest {
         assertEquals(ParcFonts.Figtree, figtreeSkin.textFamily)
     }
 
-    @Test fun monospaceSkinGetsMonospace() {
-        assertEquals(FontFamily.Monospace, Phosphor.Skin.textFamily)
+    @Test fun monospaceSkinGetsFigtree() {
+        assertEquals(ParcFonts.Figtree, Phosphor.Skin.textFamily)
     }
 
-    @Test fun monospaceFallbackWins() {
+    @Test fun monospaceFallbackGetsFigtree() {
         val skin = figtreeSkin.copy(typography = TypographyTokens(fallbackFamily = "monospace"))
-        assertEquals(FontFamily.Monospace, skin.textFamily)
+        assertEquals(ParcFonts.Figtree, skin.textFamily)
     }
 
     @Test fun emptyFamilyDefaultsToFigtree() {
@@ -38,11 +36,11 @@ class SkinFontFamilyTest {
         assertEquals(ParcFonts.Figtree, skin.textFamily)
     }
 
-    @Test fun systemIsTheExplicitOptOut() {
+    @Test fun legacySystemFamilyGetsFigtree() {
         val fromFamily = figtreeSkin.copy(typography = TypographyTokens(family = "system"))
         val fromFallback = figtreeSkin.copy(typography = TypographyTokens(family = "", fallbackFamily = "system"))
-        assertNull(fromFamily.textFamily)
-        assertNull(fromFallback.textFamily)
+        assertEquals(ParcFonts.Figtree, fromFamily.textFamily)
+        assertEquals(ParcFonts.Figtree, fromFallback.textFamily)
     }
 
     @Test fun dotIsNeverTheTextFont() {

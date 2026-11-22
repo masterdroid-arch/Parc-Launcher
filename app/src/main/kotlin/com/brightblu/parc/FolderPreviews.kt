@@ -17,7 +17,7 @@ internal object FolderPreviews {
 
     fun prepare(layout: ParcLayout, apps: List<AppEntry>, usage: UsageRepository, skin: Skin,
         lockedFolders: Set<FolderId> = emptySet(), hiddenPackages: Set<String> = emptySet(),
-        icon: (AppId) -> Bitmap?): Map<FolderId, Bitmap> {
+        wordFace: android.graphics.Typeface? = null, icon: (AppId) -> Bitmap?): Map<FolderId, Bitmap> {
         // T217: the same Visibility set as the arcs, so no permanently hidden, Focus-blocked,
         // locked or hidden-folder app can appear in a preview raster.
         val available = apps.filterNot { it.packageName in hiddenPackages }.mapTo(mutableSetOf()) { it.id }
@@ -59,6 +59,7 @@ internal object FolderPreviews {
                         canvas.drawCircle(rect.centerX(), rect.centerY(), mini / 2f, paint)
                         paint.color = skin.colors.textPrimary.toInt()
                         paint.textAlign = Paint.Align.CENTER
+                        paint.typeface = wordFace
                         paint.textSize = mini * Metrics.previewPlaceholderTextFraction
                         val label = apps.firstOrNull { it.id == id }?.label.orEmpty().take(1)
                         canvas.drawText(label, rect.centerX(), rect.centerY() - (paint.ascent() + paint.descent()) / 2f, paint)

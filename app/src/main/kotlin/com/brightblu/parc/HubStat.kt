@@ -35,16 +35,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.brightblu.parc.model.Metrics
 import com.brightblu.parc.model.Skin
+import com.brightblu.parc.model.TypeToken
 
 /*
- * 1.5.1: the hub page type scale, written once and used by Today, Records, Rhythm and the personal extra pages.
- *   figure   28 sp  the skin's countDot numeral (DotNumerals); the one big thing in a row
- *   title    17 sp  words where a row has no number
- *   body     15 sp  hudValueStyle: values beside a figure
- *   caption  11 sp  the skin's caption: labels, dates, units, in a muted colour that stays readable on glass
+ * T322: the hub page type scale, written once and used by Today, Records, Steps and the rest.
+ *   figure   28 sp  the skin's stat numeral (DotNumerals); the one big thing in a row
+ *   heading  28 sp  a page or session heading
+ *   section  17 sp  words where a row has no number, and card titles
+ *   body     15 sp  values and the label beside a figure, so neither crushes the other
+ *   caption  11 sp  quiet dates, units and hints, in a muted colour that stays readable on glass
  * A row is label over value, 56 dp at least, left aligned after a 24 dp icon column, with a thin divider between rows.
  */
 
@@ -55,9 +56,14 @@ internal fun hubMuted(skin: Skin): Color =
 internal fun hubCaptionStyle(skin: Skin): TextStyle = hudLabelStyle(skin).copy(color = hubMuted(skin), fontWeight = FontWeight.Medium)
 
 internal fun hubTitleStyle(skin: Skin, color: Long? = null): TextStyle =
-    hudValueStyle(skin, color).copy(fontSize = Metrics.hubTitleSp.sp, fontWeight = FontWeight.Medium)
+    hudValueStyle(skin, color, HubType.section(skin.typography))
 
-internal fun hubBodyStyle(skin: Skin, color: Long? = null): TextStyle = hudValueStyle(skin, color).copy(fontWeight = FontWeight.Medium)
+internal fun hubBodyStyle(skin: Skin, color: Long? = null): TextStyle =
+    hudValueStyle(skin, color, HubType.body(skin.typography))
+
+/** T322: a label in a figure-and-label pair. Body by default, or another role when the page asks. */
+internal fun hubPairLabelStyle(skin: Skin, role: TypeToken? = null): TextStyle =
+    hudValueStyle(skin, role = role ?: HubType.figureLabel(skin.typography)).copy(color = hubMuted(skin))
 
 @Composable
 internal fun HubDivider(skin: Skin, modifier: Modifier = Modifier) {
@@ -97,7 +103,10 @@ internal fun HubStatRow(
     side: String? = null,
     sideAccent: Boolean = false,
     sideAsCaption: Boolean = false,
+    /** T322: a figure's label is body by default; pass caption for a quieter row. */
+    labelRole: TypeToken? = null,
 ) {
+    val labelStyle = hubPairLabelStyle(skin, labelRole)
     Row(modifier.fillMaxWidth().heightIn(min = Metrics.hubStatRowDp.dp).padding(vertical = Metrics.hubStatRowPadDp.dp),
         verticalAlignment = Alignment.CenterVertically) {
         if (icon != null) {
@@ -107,7 +116,7 @@ internal fun HubStatRow(
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Metrics.hubSectionGapDp.dp / 2)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp), verticalAlignment = Alignment.Bottom) {
                 if (label.isNotEmpty()) BasicText(label, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = hubCaptionStyle(skin))
+                    style = labelStyle)
                 if (labelAside != null) BasicText(labelAside, Modifier.widthIn(max = Metrics.hubStatSideMaxDp.dp * 1.2f), maxLines = 1, overflow = TextOverflow.Ellipsis,
                     style = hubCaptionStyle(skin).copy(color = hubMuted(skin).copy(alpha = 0.8f), textAlign = TextAlign.End))
             }
@@ -174,11 +183,11 @@ internal fun HubSearchField(query: String, hint: String, description: String, sk
         androidx.compose.foundation.text.BasicTextField(
             value = query, onValueChange = onQuery, enabled = enabled, singleLine = true,
             modifier = Modifier.weight(1f).semantics { contentDescription = description },
-            textStyle = hudValueStyle(skin).copy(fontSize = 14.sp),
+            textStyle = hudValueStyle(skin, role = HubType.body(skin.typography)),
             cursorBrush = androidx.compose.ui.graphics.SolidColor(Color(skin.colors.accent.toInt())),
             decorationBox = { inner ->
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                    if (query.isEmpty()) BasicText(hint, maxLines = 1, style = hubCaptionStyle(skin).copy(fontSize = 14.sp))
+                    if (query.isEmpty()) BasicText(hint, maxLines = 1, style = hubPairLabelStyle(skin, HubType.body(skin.typography)))
                     inner()
                 }
             })

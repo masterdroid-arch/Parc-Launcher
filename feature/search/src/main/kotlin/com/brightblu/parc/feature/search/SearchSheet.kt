@@ -902,7 +902,7 @@ private fun SearchField(
 }
 
 private fun searchStyle(skin: Skin): TextStyle = TextStyle(
-    fontFamily = if (skin.style.annotationFamily == "monospace" && skin.style.clockFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else if (skin.style.header == com.brightblu.parc.model.HeaderStyle.ruled) androidx.compose.ui.text.font.FontFamily.Serif else skin.textFamily,
+    fontFamily = skin.textFamily,
     color = Color(skin.colors.textPrimary.toInt()),
     fontSize = skin.typography.search.sizeSp.sp,
     fontWeight = FontWeight(skin.typography.search.weight),
@@ -910,7 +910,7 @@ private fun searchStyle(skin: Skin): TextStyle = TextStyle(
 )
 
 private fun captionStyle(skin: Skin): TextStyle = TextStyle(
-    fontFamily = if (skin.style.annotationFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else skin.textFamily,
+    fontFamily = skin.textFamily,
     color = Color(skin.colors.textSecondary.toInt()),
     fontSize = skin.typography.caption.sizeSp.sp,
     fontWeight = FontWeight(skin.typography.caption.weight),

@@ -58,21 +58,12 @@ class MainAppsControllerTest {
         io = Dispatchers.Unconfined,
     )
 
-    @Test fun `settings preserves an explicitly empty selection after save and reopen`() = runTest {
-        val store = FakeStore()
-        fun open() = MainAppsController(FakeSource(listOf(alpha, bravo)), { listOf(alpha.id) },
-            store, this, Dispatchers.Unconfined, useSuggestions = false)
-        val editor = open()
-        advanceUntilIdle()
-        assertTrue(editor.state.value.selected.isEmpty())
-        editor.toggle(alpha.id)
-        editor.saveSelection(editor.state.value.selected)
-        assertEquals(listOf(alpha.id), store.saved)
-        assertEquals(listOf(alpha.id), open().also { advanceUntilIdle() }.state.value.selected)
-        editor.toggle(alpha.id)
-        editor.saveSelection(editor.state.value.selected)
-        assertEquals(emptyList<AppId>(), store.saved)
-        assertTrue(open().also { advanceUntilIdle() }.state.value.selected.isEmpty())
+    @Test fun `settings rows follow sparse live positions even when the suggestion is different`() {
+        val choices = listOf(alpha, bravo).map { MainAppChoice(it.id, it.label, it.packageName) }
+        val state = MainAppsState(options = choices, suggestions = listOf(alpha.id),
+            liveSlots = listOf(null, com.brightblu.parc.model.Slot.App(bravo.id), null, null))
+        assertEquals(listOf(null, choices[1], null, null), state.slots)
+        assertTrue(state.isSelected(bravo.id))
     }
 
     @Test

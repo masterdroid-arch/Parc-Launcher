@@ -37,7 +37,10 @@ class T236ReaderTest {
         assertTrue(html.contains("function beginSelection"))
         assertTrue(html.contains("function applyHighlights"))
         assertTrue(html.contains("function bookmarkOnPage"))
-        assertTrue(html.contains("Reader.bookmarkPage"))
+        // A transformed range is already in viewport coordinates, including on later pages.
+        assertTrue(html.contains("rect.left>=0&&rect.left<W"))
+        assertTrue(html.contains("Reader.bookmarkPage(mark?mark.c:-1,mark?mark.o:0,3)"))
+        assertTrue(html.contains("bookmarkPositions=list||[];if(initialized)bookmarkOnPage()"))
         assertTrue(html.contains("""[{"c":0,"s":4,"e":7,"t":"sage"}]"""))
         assertTrue(html.contains("""[{"c":0,"o":8,"p":-1}]"""))
         assertTrue(html.contains("rgba("))
@@ -100,7 +103,9 @@ class T236ReaderTest {
         assertTrue(screen.contains("ReaderSelectionLayer("))
         assertTrue(screen.contains("ReaderSelectionMenu("))
         assertTrue(screen.contains("ReaderBookmarkRibbon("))
-        assertTrue(screen.contains("ReaderBarAction(if (bookmarked) \"Bookmarked\" else \"Bookmark\""))
+        val controls = File(root, "ReaderControls.kt").readText()
+        assertTrue(controls.contains("if (bookmarked) \"Remove bookmark\" else \"Add bookmark\""))
+        assertTrue(screen.contains("onDeleteBookmark(pageBookmark.id) else onToggleBookmark(position)"))
         assertTrue(screen.contains("ReaderSheet.Marks"))
         assertTrue(screen.contains("QuoteEditorSheet(draft, skin, quotesStore)"))
         assertTrue(ui.contains("ReaderMarksMath.PdfMarksExplanation"))
@@ -108,7 +113,7 @@ class T236ReaderTest {
         assertTrue(ui.contains("onLongClickLabel = \"Delete mark\""))
         assertTrue(ui.contains("detectHorizontalDragGestures("))
         assertTrue(pdf.contains("ReaderSheet.Marks"))
-        assertTrue(pdf.contains("Bookmarked"))
+        assertTrue(pdf.contains("onBookmark = { onToggleBookmark(BookPosition(page = displayedPage"))
         assertTrue(pdf.contains("ReaderMarksSheet("))
     }
 

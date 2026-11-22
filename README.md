@@ -1,6 +1,6 @@
 # Parc Launcher
 
-<img src="docs/media/launch/hero-launch.svg" alt="Parc, a calm home screen for Android: a phone with the Glass skin, seen from above at an angle" width="100%">
+<img src="docs/media/launch/hero-launch.svg" alt="Parc, a calm home screen for Android: your apps sit on arcs, right under your thumb" width="100%">
 
 A calm home screen for Android. Your apps sit on arcs that sweep up from the
 bottom-right corner, under your thumb. Aim with the joystick, release to open.
@@ -10,31 +10,24 @@ with no locked features and no Play Billing; donations are the only money.
 Parc is a personal project, shared as open source. It is designed for a phone
 held in the right hand, in portrait, at about 384 x 853 dp.
 
-<img src="docs/media/launch/keynote.svg" alt="A one-minute film of Parc: the arc home screen, glass hubs, per-hub opacity, the stats hub pages, the nine skins and the privacy promise" width="100%">
-
 ## See it in motion
 
 <table>
 <tr>
+<td width="50%"><img src="docs/media/launch/arc-orbit.svg" alt="Apps on arcs: aim from the hub, release over an app, it opens" width="100%"><br><b>Apps on arcs.</b><br>Aim from the hub, release over an app, it opens.</td>
 <td width="50%"><img src="docs/media/launch/glass-closeup.svg" alt="Close-up of the frosted glass hubs" width="100%"><br><b>Glass that feels like glass.</b><br>Frosted hubs over your own picture, each with its own opacity.</td>
-<td width="50%"><img src="docs/media/launch/arc-orbit.svg" alt="The arcs seen from above" width="100%"><br><b>Apps on arcs.</b><br>Aim from the hub, release over an app, it opens.</td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/media/launch/stats-flip.svg" alt="The stats hub pages flipping past" width="100%"><br><b>The stats hub.</b><br>Today, Device, Notes and more, one swipe apart.</td>
 <td width="50%"><img src="docs/media/launch/skins-wipe.svg" alt="The nine skins wiping across the screen" width="100%"><br><b>Nine skins.</b><br>From Midnight to Phosphor, glass on or off.</td>
-</tr>
-<tr>
-<td colspan="2"><img src="docs/media/launch/privacy-vault.svg" alt="Free everywhere; Weather and Translate are the only online features; no tracking" width="100%"><br><b>Private by design.</b> Weather and Translate (your own DeepL key) are the only online features. No accounts, no ads, no analytics, no tracking.</td>
+<td width="50%"><img src="docs/media/stats-hub.svg" alt="The stats hub pages, one swipe apart" width="100%"><br><b>The stats hub.</b><br>Today, Device, Notes and more, one swipe apart.</td>
 </tr>
 </table>
 
 <img src="docs/media/how-it-works.svg" alt="Aim from the hub, release over an app, it opens" width="100%">
 
-<img src="docs/media/screens.svg" alt="Parc on a phone with the Glass skin" width="100%">
-
 ## What it does
 
-Version 1.5.1. The 1.5 line makes Home easier to arrange, merges related hub
+Version 1.5.11. The 1.5 line makes Home easier to arrange, merges related hub
 pages, makes search find more, and takes the reader through search, comfort,
 define, translate and read aloud. It also adds library shelves and shelf rules,
 comic (CBZ) reading, weekly automatic backups, and demo content for every page.
@@ -239,8 +232,6 @@ All of these use Parc's built-in sample data (invented titles, places and messag
 
 Wallpapers in the screenshots: photos by Bharath Kumar, Micke Lindström, Pebri Ramadhan Mas and Plasmanica Generator on Unsplash. The Files, comics and reader-search shots use files invented for testing.
 
-<img src="docs/media/stats-hub.svg" alt="The stats hub pages, one swipe apart" width="100%">
-
 ## Privacy
 
 <img src="docs/media/privacy.svg" alt="Weather and Translate are the only online features; no accounts, ads, analytics or tracking" width="100%">
@@ -259,7 +250,8 @@ forecasts for offline use. Refresh normally runs every 30 minutes per place
 while Weather is on screen; a failed first fetch can retry after five minutes.
 Nothing is fetched in the background. Saved places are in Parc backups;
 cached forecasts are not. Translate sends text only in Translate mode, after a
-short pause or Enter. The key and saved translations stay out of backups.
+short pause or Enter. The key is in Parc backups, readable unless you set a
+backup passphrase; saved translations stay out of backups.
 The builds use the same package; updates require the same signing key.
 There are no Parc accounts, ads, analytics, tracking or crash uploads.
 
@@ -368,6 +360,16 @@ licence; see `TRADEMARK.md` before publishing a modified build.
 Contributions are welcome. Read `CONTRIBUTING.md` first; a signed entry in
 `CLA-SIGNATURES.md`, under the terms of `CLA.md`, is required before a change is
 merged.
+
+## Support
+
+Parc is free, with no ads, no accounts and no tracking, and it will stay that
+way. If it helps you, you can leave a tip on Ko-fi:
+
+https://ko-fi.com/parcapp
+
+Nothing is locked behind it. Tapping the link leaves Parc and opens Ko-fi in
+your browser; Parc shares nothing.
 
 ## Contact
 

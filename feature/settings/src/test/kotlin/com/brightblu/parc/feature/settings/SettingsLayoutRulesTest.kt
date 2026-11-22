@@ -21,4 +21,12 @@ class SettingsLayoutRulesTest {
         assertFalse(SettingsLayoutRules.valueBeside(""))
         assertFalse(SettingsLayoutRules.valueBeside("  "))
     }
+
+    @Test fun aBuildStampRowMayKeepItsLongValueBesideTheTitle() {
+        val builtOn = "2026-11-21 17:23"
+        assertFalse(SettingsLayoutRules.valueBeside(builtOn))
+        assertTrue(SettingsLayoutRules.valueBeside(builtOn, allowLong = true))
+        assertTrue(SettingsLayoutRules.valueBeside("1.5.8", allowLong = true))
+        assertFalse(SettingsLayoutRules.valueBeside("", allowLong = true))
+    }
 }

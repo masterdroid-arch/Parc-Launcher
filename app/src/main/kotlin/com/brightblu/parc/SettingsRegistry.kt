@@ -114,7 +114,7 @@ internal enum class SettingsPage(
 
     // Nested pages and editors (parent chains below)
     HubPages(SettingsGroup.Appearance, "Pages & alerts", "Hub pages, their order, size, Agenda and alerts",
-        "Every hub page, its visibility and order, plus the two page-level settings.", parent = Hubs,
+        "Every hub page, its visibility and order, and the stats hub's size and full-screen view.", parent = Hubs,
         aliases = listOf("Stats hub pages", "Hub pages", "Pages")),
     HubOptions(SettingsGroup.Appearance, "Hub page options", "One page's tiles and behaviour",
         "The tiles, order and behaviour of one hub page.", parent = HubPages),
@@ -179,6 +179,10 @@ internal data class SettingsSnapshot(
     val look: LookSettings = LookSettings(wallpaper = WallpaperStyle.System),
     val hub: HubAppearance = HubAppearance(),
     val counts: LayoutCounts = LayoutCounts(),
+    /** T312: per-arc "Maximum apps", keyed by arc id; 0 (or absent) means Auto. */
+    val arcMaximums: Map<String, Int> = emptyMap(),
+    /** T312: arcs that hold more items than their maximum, arc id to "over by n". */
+    val arcOver: Map<String, Int> = emptyMap(),
     val maxIconsPerArc: Int = 7,
     val aligned: Boolean = false,
     val joystick: Boolean = true,
@@ -193,6 +197,8 @@ internal data class SettingsSnapshot(
     val iconPack: String? = null,
     val statsVisible: Boolean = true,
     val hubSize: HubSize = HubSize.Standard,
+    /** T330: the stats hub can be pulled up into a full-screen view. */
+    val hubFullScreen: Boolean = true,
     val searchPhoneSettings: Boolean = true,
     val searchFiles: Boolean = true,
     val searchEvents: Boolean = true,
@@ -279,9 +285,11 @@ internal object SettingsRegistry {
     private fun <T> choice(id: String, title: String, help: String, page: SettingsPage, card: String, effect: SettingEffect,
         values: (SettingsSnapshot) -> List<T>, label: (T) -> String, get: (SettingsSnapshot) -> T,
         set: (SettingsSnapshot, T) -> SettingsSnapshot, control: SettingControl = SettingControl.Choice,
-        words: List<String> = emptyList(), shown: (SettingsSnapshot) -> Boolean = { true }) =
+        words: List<String> = emptyList(), shown: (SettingsSnapshot) -> Boolean = { true },
+        detail: ((SettingsSnapshot) -> String)? = null) =
         SettingDef(id, title, help, page, card, control, effect, words, { s -> values(s).map(label) },
-            { s -> values(s).indexOf(get(s)).coerceAtLeast(0) }, { s, i -> set(s, values(s)[i.coerceIn(values(s).indices)]) }, shown)
+            { s -> values(s).indexOf(get(s)).coerceAtLeast(0) }, { s, i -> set(s, values(s)[i.coerceIn(values(s).indices)]) }, shown,
+            detail = detail)
 
     private fun hubOpacityLabel(p: Int) = "$p %"
 
@@ -294,6 +302,12 @@ internal object SettingsRegistry {
             SettingsPage.HomeArcs, "Arcs", SettingEffect.Visual, { s -> listOf(0) + (3..s.maxIconsPerArc.coerceAtLeast(3)).toList() },
             { if (it == 0) "Auto" else it.toString() }, { it.counts.icons }, { s, v -> s.copy(counts = s.counts.copy(icons = v)) },
             words = listOf("slots", "apps per ring")),
+        // T312: one "Maximum apps" row per shown arc, rendered inline by the Settings host. Auto keeps
+        // the screen's visible count; a number is the arc's own ceiling, so an arc can rotate to hold
+        // more than it shows.
+        SettingDef("ArcMaximums", "Maximum apps", "How many apps each arc can hold. Auto keeps as many as the screen shows",
+            SettingsPage.HomeArcs, "Maximum apps", SettingControl.Custom, SettingEffect.Logic,
+            words = listOf("apps", "maximum", "capacity", "inner", "outer")),
         choice("ArcLayout", "Arc layout", "Line up icons across arcs or stagger them between arcs", SettingsPage.HomeArcs, "Arcs",
             SettingEffect.Visual, { listOf(false, true) }, { if (it) "Aligned" else "Staggered" }, { it.aligned },
             { s, v -> s.copy(aligned = v) }, words = listOf("align", "stagger")),
@@ -404,6 +418,12 @@ internal object SettingsRegistry {
         choice("HubSize", "Stats hub size", "Compact is short. Standard and Tall are the same height; Tall shows every tile of a page",
             SettingsPage.HubPages, "Stats hub", SettingEffect.Visual, { HubSize.entries }, { it.name }, { it.hubSize },
             { s, v -> s.copy(hubSize = v) }, words = listOf("hub height", "tall", "compact"), shown = { it.statsVisible }),
+        // T330: the way to the full-screen hub. Named the same words the view uses for its Expand control.
+        switch("HubFullScreen", "Full-screen hub",
+            "Pull the hub up or tap Expand to use the whole screen. Swipe down or press Back to close",
+            SettingsPage.HubPages, "Stats hub", SettingEffect.Visual,
+            listOf("full screen", "fullscreen", "expand", "whole screen"), shown = { it.statsVisible },
+            get = { it.hubFullScreen }) { s, on -> s.copy(hubFullScreen = on) },
         page("Agenda", "Agenda", "Choose calendars and how many days to show", SettingsPage.HubPages, "Pages", SettingsPage.Agenda,
             listOf("calendar", "events"), shown = { it.statsVisible }, detail = { it.agendaSummary }),
         page("StatsAlerts", "Stats alerts and history", "Set warning levels and show history graphs", SettingsPage.HubPages, "Alerts",

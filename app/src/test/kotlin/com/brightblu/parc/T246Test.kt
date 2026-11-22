@@ -147,34 +147,6 @@ class T246Test {
         assertEquals(entryB, NewAppPrompt.candidate(listOf(entryB), setOf(entryB.id), emptySet(), entryB.installTime))
     }
 
-    // ---- spot picker -----------------------------------------------------------------------
-
-    @Test fun thePickerListsOnlyFreeHomeSpotsWithTheirArcAndSpotNames() {
-        val value = layout(
-            a1 = mapOf(0 to Slot.App(a)),
-            folder = emptyMap(),
-        )
-        val all = ArcSpotChoices.free(value)
-        assertEquals(
-            listOf("A1/1", "A1/2", "A1/3", "A2/0", "A2/1", "A2/2", "A2/3"),
-            all.map { "${it.position.arcId}/${it.position.index}" },
-        )
-        assertEquals("Inner arc \u00B7 spot 2", all.first().label)
-        assertEquals("Outer arc \u00B7 spot 1", all[3].label)
-
-        val shown = ArcSpotChoices.free(value, visibleArcIds = setOf("A1"), visibleCapacities = mapOf("A1" to 2))
-        assertEquals(listOf("A1/1"), shown.map { "${it.position.arcId}/${it.position.index}" })
-        assertTrue(ArcSpotChoices.isFree(value, SlotPosition("A1", 1)))
-        assertFalse(ArcSpotChoices.isFree(value, SlotPosition("A1", 0)))
-        assertFalse(ArcSpotChoices.isFree(value, SlotPosition("F1", 0)))
-        assertFalse(ArcSpotChoices.isFree(value, SlotPosition("A2", 4)))
-    }
-
-    @Test fun aFullArcSetHasNoSpots() {
-        val full = layout(a1 = (0 until 4).associateWith { Slot.App(AppId("test/$it@0")) })
-        assertTrue(ArcSpotChoices.free(full, visibleArcIds = setOf("A1")).isEmpty())
-    }
-
     // ---- session fixture -------------------------------------------------------------------
 
     private class Index(entries: List<AppEntry>) : AppIndex {

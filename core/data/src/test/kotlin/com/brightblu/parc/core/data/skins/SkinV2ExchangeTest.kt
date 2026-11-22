@@ -14,7 +14,8 @@ class SkinV2ExchangeTest {
         colors = Skin.Dusk.colors.copy(moduleSurface = 0xFFE4E4E4, moduleGuide = 0xFFBEBEBE, moduleInk = 0xFF111111),
         shape = ShapeTokens(moduleStyle = ModuleStyle.frosted, tileCornerDp = 23f, moduleCornerDp = 37f),
         typography = TypographyTokens(numeralFamily = "Doto", clockDot = TypeToken(60f, 600, 1f),
-            countDot = TypeToken(32f, 700, 0f), bigDot = TypeToken(96f, 800, 0f)))
+            countDot = TypeToken(32f, 700, 0f), bigDot = TypeToken(96f, 800, 0f),
+            section = TypeToken(18f, 600, 1f), body = TypeToken(16f, 400, 0f)))
 
     @Test fun exportImportAndDiskReloadPreserveEveryNewToken() {
         val imported = SkinExchange.import(SkinExchange.export(skin), Skin.Midnight, emptySet()) as SkinImportResult.Imported

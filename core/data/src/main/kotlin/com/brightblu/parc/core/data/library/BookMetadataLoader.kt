@@ -97,6 +97,8 @@ class BookMetadataLoader(context: Context) {
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) { cover?.recycle(); throw e }
                 catch (_: Exception) { cover?.recycle(); cover = null } // Broken metadata gets a typographic cover.
+                // T346: a featureless first page is no artwork; it gets the title and file type card.
+                cover?.let { bitmap -> if (CoverArt.isBlank(bitmap)) { bitmap.recycle(); cover = null } }
                 val book = Book(id, found.uri, title, author, found.format,
                     found.sizeBytes, addedAt)
                 val bitmap = cover ?: typographicCover(book, style)
@@ -128,8 +130,14 @@ class BookMetadataLoader(context: Context) {
         work.withLock {
             // Keep size-specific art separate from the old fixed-size thumbnail entries.
             val key = "display-v1:${book.id}:$width:$height"
-            runCatching { cache.get(key)?.let { decodeCover(it, width, height, requireSharp = true) } }
-                .getOrNull()?.let { return@withLock it }
+            val cached = runCatching { cache.get(key)?.let { decodeCover(it, width, height, requireSharp = true) } }
+                .getOrNull()
+            if (cached != null) {
+                // T346: an older run may have cached a blank page; drop it and draw the fallback.
+                if (!CoverArt.isBlank(cached)) return@withLock cached
+                cached.recycle()
+                runCatching { cache.remove(key) }
+            }
             val cover = try {
                 when (book.format) {
                     BookFormat.EPUB -> withLocalCopy(book.uri) { local ->
@@ -171,15 +179,18 @@ class BookMetadataLoader(context: Context) {
                 }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (_: Exception) { null }
-            if (cover != null) {
+            // T346: never cache or show a featureless light page as a cover.
+            val usable = cover?.takeUnless { CoverArt.isBlank(it) }
+            if (usable !== cover) cover?.recycle()
+            if (usable != null) {
                 runCatching {
                     ByteArrayOutputStream().use { output ->
-                        cover.compress(Bitmap.CompressFormat.PNG, 100, output)
+                        usable.compress(Bitmap.CompressFormat.PNG, 100, output)
                         cache.put(key, output.toByteArray())
                     }
                 }
             }
-            cover
+            usable
         }
     }
 

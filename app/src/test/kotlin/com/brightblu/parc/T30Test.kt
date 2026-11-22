@@ -84,7 +84,7 @@ class T30Test {
             isDefaultHome = false, label = "App A")
         val items = appMenuRootItems(menu)
         assertEquals("Set Parc as your home screen for shortcuts", (items.first() as MenuItem.Row).row.label)
-        assertTrue(rows(items).contains("Unpin"))
+        assertTrue(rows(items).contains("Clear pin, keep on arc"))
         assertEquals(appMenuRootItems(menu).none { (it as? MenuItem.Row)?.row?.action == MenuAction.Shortcut }, true)
     }
 

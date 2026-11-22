@@ -20,7 +20,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -171,7 +170,7 @@ private fun TimersTile(book: TimerBook, now: Long, skin: Skin, onPreset: (Int) -
 
 @Composable
 private fun StopwatchTile(sw: Stopwatch, now: Long, skin: Skin, onToggle: () -> Unit, onLap: () -> Unit, onReset: () -> Unit) {
-    val big = remember(skin) { hudValueStyle(skin).copy(fontSize = Metrics.hubValueSp.sp) }
+    val big = remember(skin) { hudValueStyle(skin, role = HubType.figure(skin.typography)) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
         CellLabel("Stopwatch", skin)
         BasicText(TimerFormat.stopwatch(sw.elapsed(now)), style = big, maxLines = 1)

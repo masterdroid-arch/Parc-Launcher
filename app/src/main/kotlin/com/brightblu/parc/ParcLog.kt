@@ -20,6 +20,8 @@ internal object LogRedaction {
     const val MaxLineChars = 400
 
     private val url = Regex("""(?i)\b[a-z][a-z0-9+.-]{1,12}://\S+""")
+    /** T293: a GitHub token (classic, fine-grained, OAuth) is never kept in a log line, whatever put it there. */
+    private val githubToken = Regex("""\b(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]+""")
     private val email = Regex("""[\w.+-]+@[\w-]+(\.[\w-]+)+""")
     private val doubleQuoted = Regex("\"[^\"\\n]*\"")
     private val singleQuoted = Regex("(?<![A-Za-z0-9])'[^'\\n]*'")
@@ -39,6 +41,7 @@ internal object LogRedaction {
     /** Redacts [text] for storage. Never throws; blank in, blank out. */
     fun redact(text: String): String {
         var s = text
+        s = githubToken.replace(s, "<token>")
         s = url.replace(s, "<url>")
         s = email.replace(s, "<email>")
         s = doubleQuoted.replace(s, "\"<text>\"")

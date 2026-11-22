@@ -58,9 +58,10 @@ fun MainAppsEditor(
             SlotRow(
                 index = index,
                 choice = choice,
+                label = shown.slotLabel(index),
                 skin = skin,
-                canMoveUp = index > 0 && choice != null,
-                canMoveDown = index < shown.slots.lastIndex && choice != null && shown.slots[index + 1] != null,
+                canMoveUp = choice != null && shown.canMoveTo(index - 1),
+                canMoveDown = choice != null && shown.canMoveTo(index + 1),
                 onClick = { choice?.let { onToggle(it.id) } },
                 onMove = onMove,
             )
@@ -91,6 +92,7 @@ fun MainAppsEditor(
 private fun SlotRow(
     index: Int,
     choice: MainAppChoice?,
+    label: String,
     skin: Skin,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
@@ -116,7 +118,7 @@ private fun SlotRow(
             contentAlignment = Alignment.CenterStart,
         ) {
             BasicText(
-                choice?.label ?: "empty",
+                label,
                 style = style(
                     skin, if (choice == null) skin.colors.textSecondary else skin.colors.textPrimary,
                     skin.typography.menu,

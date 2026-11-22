@@ -78,7 +78,7 @@ class T235LibraryTest {
         val pdf = File("src/main/kotlin/com/brightblu/parc/reader/ReaderPdf.kt").readText()
         assertTrue(pdf.contains("renderZoom"))
         assertTrue(pdf.contains("renderScaleForZoom"))
-        assertTrue(pdf.contains("cache.ensure(targets, viewportWidth, maxRenderHeight, maxCachePages, renderScale)"))
+        assertTrue(pdf.contains("cache.ensure(targets, viewportWidth, maxRenderHeight, maxCachePages, renderScale,"))
         assertTrue(pdf.contains("ReaderPdfMessages.PageFailed"))
     }
 }

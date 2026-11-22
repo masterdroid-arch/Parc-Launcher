@@ -10,7 +10,7 @@ internal object BuildStamp {
         builtAt: String = BuildConfig.BUILD_TIME, commit: String = BuildConfig.GIT_COMMIT): List<Pair<String, String>> = listOf(
         "Version" to versionName,
         "Version code" to versionCode.toString(),
-        "Built" to builtAt,
+        "Built on" to builtAt,
         "Code commit" to commit,
     )
 

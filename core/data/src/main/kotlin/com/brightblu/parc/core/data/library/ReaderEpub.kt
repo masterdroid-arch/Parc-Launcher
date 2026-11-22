@@ -23,13 +23,13 @@ object ReaderEpub {
     fun parse(zip: ZipFile, id: String, bookTitle: String, bookAuthor: String): ReaderBookDoc {
         val archive = Archive(zip)
         val container = archive.read("META-INF/container.xml", MaxXmlBytes)
-            ?: throw ReaderBookException("This EPUB is missing its contents list.")
+            ?: throw ReaderBookException("This EPUB is missing its contents list.", problem = ReaderBookProblem.BrokenArchive)
         val opfPath = EpubMetadataParser.packagePath(container)
-            ?: throw ReaderBookException("This EPUB is missing its package document.")
+            ?: throw ReaderBookException("This EPUB is missing its package document.", problem = ReaderBookProblem.BrokenArchive)
         val opf = archive.read(opfPath, MaxXmlBytes)
-            ?: throw ReaderBookException("This EPUB is missing its package document.")
+            ?: throw ReaderBookException("This EPUB is missing its package document.", problem = ReaderBookProblem.BrokenArchive)
         val root = runCatching { ReaderHtml.parseXml(opf) }.getOrElse {
-            throw ReaderBookException("This book is damaged or not a valid EPUB.", it)
+            throw ReaderBookException("This EPUB uses package markup the reader cannot open.", it, ReaderBookProblem.UnsupportedMarkup)
         }
         val metadata = runCatching { EpubMetadataParser.parseOpf(opf, opfPath) }.getOrNull()
         val title = metadata?.title?.takeIf { it.isNotBlank() } ?: bookTitle
@@ -45,22 +45,22 @@ object ReaderEpub {
             }
         val byId = items.associateBy { it.id }
         val spine = ReaderHtml.elements(root, "spine").firstOrNull()
-            ?: throw ReaderBookException("This EPUB has no reading order.")
+            ?: throw ReaderBookException("This EPUB has no reading order.", problem = ReaderBookProblem.BrokenArchive)
         val spineIds = ReaderHtml.elements(spine, "itemref").mapNotNull { it.getAttribute("idref").takeIf { id -> id.isNotBlank() } }
         val spineItems = spineIds.mapNotNull { byId[it] }
             .filter { it.mediaType in setOf("application/xhtml+xml", "text/html") || it.path.endsWith(".xhtml", true) || it.path.endsWith(".html", true) }
             .distinctBy { it.path }
             .take(MaxSpineItems)
-        if (spineItems.isEmpty()) throw ReaderBookException("This EPUB has no readable pages.")
+        if (spineItems.isEmpty()) throw ReaderBookException("This EPUB has no readable pages.", problem = ReaderBookProblem.BrokenArchive)
         val pathToChapter = spineItems.mapIndexed { index, item -> item.path to index }.toMap()
 
         val chapters = spineItems.mapIndexed { index, item ->
             val bytes = archive.read(item.path, MaxChapterBytes)
-                ?: throw ReaderBookException("This EPUB is missing a page.")
+                ?: throw ReaderBookException("This EPUB is missing a page.", problem = ReaderBookProblem.BrokenArchive)
             val html = runCatching {
                 ReaderHtml.sanitize(bytes, item.path, pathToChapter) { path -> archive.read(path, Metrics.readerMaxImageBytes) }
             }.getOrElse {
-                throw ReaderBookException("This book is damaged or not a valid EPUB.", it)
+                throw ReaderBookException("This EPUB uses chapter markup the reader cannot open.", it, ReaderBookProblem.UnsupportedMarkup)
             }
             val tocTitle = chapterTitle(html, bytes, item.path)
             ReaderChapter(index, tocTitle, html, ReaderHtml.text(html))
@@ -83,7 +83,7 @@ object ReaderEpub {
             ?.takeIf { it.isNotEmpty() }
         if (heading != null) return heading.take(120)
         val documentTitle = runCatching {
-            val root = ReaderHtml.parseXml(xhtml)
+            val root = ReaderHtml.parseXml(xhtml, xhtml = true)
             ReaderHtml.elements(root, "title").firstOrNull()?.textContent?.trim()
         }.getOrNull()?.takeIf { it.isNotEmpty() }
         return documentTitle?.take(120)
@@ -111,7 +111,7 @@ object ReaderEpub {
 
     private fun parseNav(bytes: ByteArray, navPath: String, pathToChapter: Map<String, Int>,
         chapters: List<ReaderChapter>): List<ReaderTocEntry> {
-        val root = ReaderHtml.parseXml(bytes)
+        val root = ReaderHtml.parseXml(bytes, xhtml = true)
         val navs = ReaderHtml.elements(root, "nav")
         val tocNav = navs.firstOrNull { nav ->
             val type = nav.getAttribute("epub:type").ifBlank { nav.getAttribute("type") }

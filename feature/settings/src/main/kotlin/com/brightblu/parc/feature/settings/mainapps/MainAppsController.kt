@@ -49,7 +49,6 @@ class MainAppsController(
     private val store: MainAppsStore,
     private val scope: CoroutineScope,
     private val io: CoroutineDispatcher = Dispatchers.IO,
-    private val useSuggestions: Boolean = true,
 ) {
     private val stateFlow = MutableStateFlow(MainAppsState())
     val state: StateFlow<MainAppsState> = stateFlow.asStateFlow()
@@ -72,7 +71,7 @@ class MainAppsController(
             } catch (_: Exception) {
                 emptyList()
             }
-            stateFlow.value = MainAppsPicker.initial(choices, stored, if (useSuggestions) suggested else emptyList())
+            stateFlow.value = MainAppsPicker.initial(choices, stored, suggested)
         }
     }
 
@@ -102,13 +101,9 @@ class MainAppsController(
         }
     }
 
-    /** Settings auto-save preserves an intentionally empty selection; onboarding retains defaults. */
-    suspend fun saveSelection(ids: List<AppId>) { store.save(ids) }
-    fun restoreSelection(ids: List<AppId>) { stateFlow.update { it.copy(selected = ids) } }
-
     companion object {
         /** Builds the production controller for an app context and composition scope. */
-        fun create(context: android.content.Context, scope: CoroutineScope, useSuggestions: Boolean = true): MainAppsController {
+        fun create(context: android.content.Context, scope: CoroutineScope): MainAppsController {
             val installed = AndroidInstalledApps.create(context)
             val suggestions = AndroidMainAppSuggestions(context)
             return MainAppsController(
@@ -116,7 +111,6 @@ class MainAppsController(
                 suggestions = suggestions::suggest,
                 store = ParcPrefs.create(context).asMainAppsStore(),
                 scope = scope,
-                useSuggestions = useSuggestions,
             )
         }
     }

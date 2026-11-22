@@ -17,6 +17,7 @@ internal class AndroidIconProducer(
     private val source: LauncherSource,
     private val iconPacks: IconPackRepository? = null,
     private val colors: SkinColors = Skin.Midnight.colors,
+    private val wordFace: Typeface? = null,
 ) : IconProducer<Bitmap> {
     override suspend fun rasterise(id: AppId, sizePx: Int): Bitmap? {
         iconPacks?.iconFor(id.flattenedComponent(), sizePx)?.let { return it }
@@ -34,7 +35,7 @@ internal class AndroidIconProducer(
 
         paint.color = colors.textPrimary.toInt()
         paint.textAlign = Paint.Align.CENTER
-        paint.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+        paint.typeface = wordFace
         paint.textSize = IconRasterGeometry.letterTileTextSize(sizePx)
         val baseline = radius - (paint.descent() + paint.ascent()) / 2f
         canvas.drawText(firstLetter(label).toString(), radius, baseline, paint)

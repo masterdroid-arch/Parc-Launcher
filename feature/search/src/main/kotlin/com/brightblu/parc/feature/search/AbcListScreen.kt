@@ -1,8 +1,10 @@
 package com.brightblu.parc.feature.search
 
 import com.brightblu.parc.model.textFamily
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,6 +40,8 @@ fun AbcListScreen(
     skin: Skin,
     onLaunch: (AppId) -> Unit,
     modifier: Modifier = Modifier,
+    /** T313: a long press on a row opens the app actions; null keeps the old tap-only list. */
+    onAppLongPress: ((AppEntry) -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -59,7 +63,7 @@ fun AbcListScreen(
                 index.sections.forEach { section ->
                     item(key = "header-${section.key}") { SectionHeader(section.key, skin) }
                     items(section.apps, key = { it.id.value }) { entry ->
-                        AppRow(entry, skin) { onLaunch(entry.id) }
+                        AppRow(entry, skin, onLaunch = { onLaunch(entry.id) }, onLongPress = onAppLongPress)
                     }
                 }
             }
@@ -78,7 +82,7 @@ private fun SectionHeader(key: Char, skin: Skin) {
         BasicText(
             key.toString(),
             style = TextStyle(
-                fontFamily = if (skin.style.annotationFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else skin.textFamily,
+                fontFamily = skin.textFamily,
                 color = Color(skin.colors.textSecondary.toInt()),
                 fontSize = skin.typography.caption.sizeSp.sp,
                 fontWeight = FontWeight(skin.typography.caption.weight),
@@ -88,19 +92,32 @@ private fun SectionHeader(key: Char, skin: Skin) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AppRow(entry: AppEntry, skin: Skin, onClick: () -> Unit) {
+private fun AppRow(
+    entry: AppEntry,
+    skin: Skin,
+    onLaunch: () -> Unit,
+    onLongPress: ((AppEntry) -> Unit)?,
+) {
+    val click = if (onLongPress == null) {
+        Modifier.clickable(onClick = onLaunch)
+    } else {
+        Modifier.combinedClickable(
+            onClick = onLaunch,
+            onLongClick = { onLongPress(entry) },
+        )
+    }
     Box(
-        Modifier
+        click
             .fillMaxWidth()
-            .clickable(onClick = onClick)
             .height(Metrics.menuRowHeightDp.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         BasicText(
             entry.label,
             style = TextStyle(
-                fontFamily = if (skin.style.annotationFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else skin.textFamily,
+                fontFamily = skin.textFamily,
                 color = Color(skin.colors.textPrimary.toInt()),
                 fontSize = skin.typography.menu.sizeSp.sp,
                 fontWeight = FontWeight(skin.typography.menu.weight),
@@ -131,7 +148,7 @@ private fun LetterIndex(
                 BasicText(
                     key.toString(),
                     style = TextStyle(
-                fontFamily = if (skin.style.annotationFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else skin.textFamily,
+                fontFamily = skin.textFamily,
                         color = Color(skin.colors.textSecondary.toInt()),
                         fontSize = skin.typography.caption.sizeSp.sp,
                     ),

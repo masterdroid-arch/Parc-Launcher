@@ -3,6 +3,10 @@ package com.brightblu.parc.reader
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalDensity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -21,6 +25,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.text.BasicText
@@ -38,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -199,17 +205,36 @@ internal fun ComicReaderPage(
     val colors = remember(settings.pageColor, settings.night, skin) { readerColors(settings, skin) }
     val pageCount = comic.pageCount.coerceAtLeast(1)
     val pager = rememberPagerState(initialPage = initialPosition.page.coerceIn(0, pageCount - 1)) { pageCount }
-    var barsVisible by remember { mutableStateOf(false) }
+    var chrome by remember { mutableStateOf(ReaderChrome.Hidden) }
+    val barsVisible = chrome != ReaderChrome.Hidden
     var sheet by remember { mutableStateOf(ReaderSheet.None) }
+    var lastSheet by remember { mutableStateOf(ReaderSheet.None) }
+    LaunchedEffect(sheet) { if (sheet != ReaderSheet.None) lastSheet = sheet }
+    val displayedSheet = if (sheet != ReaderSheet.None) sheet else lastSheet
+    var returnSheet by remember { mutableStateOf<ReaderSheet?>(null) }
+    var previousPlace by remember(book.id) { mutableStateOf<BookPosition?>(null) }
+    val marksState = rememberLazyListState()
     var zoomNow by remember { mutableFloatStateOf(1f) }
     val scope = rememberCoroutineScope()
     val latestPosition = rememberUpdatedState(onPosition)
     val latestLast = rememberUpdatedState(onLastPage)
     val latestReady = rememberUpdatedState(onReady)
 
-    BackHandler(enabled = sheet != ReaderSheet.None) { sheet = ReaderSheet.None }
-    LaunchedEffect(barsVisible, sheet, colors.light) {
-        (context as? ReaderActivity)?.setReaderChrome(visible = barsVisible || sheet != ReaderSheet.None, light = colors.light)
+    val keyboard = LocalSoftwareKeyboardController.current
+    val keyboardUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val backAction = ReaderJump.backAction(keyboard = keyboardUp, sheet = sheet != ReaderSheet.None,
+        returnList = returnSheet != null, panel = chrome == ReaderChrome.Panel)
+    BackHandler(enabled = backAction != ReaderBack.ExitReader) {
+        when (backAction) {
+            ReaderBack.CloseSheet -> sheet = ReaderSheet.None
+            ReaderBack.ReopenList -> { sheet = returnSheet ?: ReaderSheet.None; returnSheet = null }
+            ReaderBack.HidePanel -> chrome = ReaderChrome.Toolbar
+            ReaderBack.HideKeyboard -> keyboard?.hide()
+            ReaderBack.ExitReader -> Unit
+        }
+    }
+    LaunchedEffect(barsVisible, sheet, skin.colors.surface) {
+        (context as? ReaderActivity)?.setReaderChrome(visible = barsVisible || sheet != ReaderSheet.None, light = readerChromeIsLight(skin))
     }
     DisposableEffect(settings.volumeKeys, pager) {
         val activity = context as? ReaderActivity
@@ -230,6 +255,28 @@ internal fun ComicReaderPage(
     // A page turn always starts at fit zoom on the new page.
     LaunchedEffect(pager) { snapshotFlow { pager.currentPage }.collect { zoomNow = 1f } }
 
+    // T344: a deliberate jump remembers the page left behind, just as the PDF reader does.
+    fun movePage(target: Int) {
+        previousPlace = BookPosition(page = pager.currentPage)
+        scope.launch { pager.animateScrollToPage(target.coerceIn(0, pageCount - 1)) }
+    }
+
+    fun jumpPage(target: Int, from: ReaderSheet) {
+        previousPlace = BookPosition(page = pager.currentPage)
+        returnSheet = from
+        sheet = ReaderSheet.None
+        chrome = ReaderChrome.Hidden
+        scope.launch { pager.animateScrollToPage(target.coerceIn(0, pageCount - 1)) }
+    }
+
+    fun returnToPreviousPlace() {
+        val place = previousPlace ?: return
+        previousPlace = null
+        returnSheet = null
+        sheet = ReaderSheet.None
+        scope.launch { pager.scrollToPage(place.page.coerceIn(0, pageCount - 1)) }
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(colors.paper.toInt()))) {
         val widthPx = constraints.maxWidth.coerceAtLeast(1)
         val heightPx = constraints.maxHeight.coerceAtLeast(1)
@@ -248,60 +295,105 @@ internal fun ComicReaderPage(
                 skin = skin,
                 isCurrent = index == pager.currentPage,
                 onZoom = { zoomNow = it },
-                onTap = { barsVisible = !barsVisible },
+                onTap = { chrome = chrome.toggled() },
                 onFirstDraw = { if (index == pager.currentPage) latestReady.value() },
             )
         }
 
         val page = pager.currentPage
-        AnimatedVisibility(
-            visible = barsVisible,
-            modifier = Modifier.align(Alignment.TopCenter),
-            enter = fadeIn(spring(Springs.sheet.damping, Springs.sheet.stiffness)),
-            exit = fadeOut(spring(Springs.sheet.damping, Springs.sheet.stiffness)),
-        ) {
-            ReaderPdfBar(
+        if (sheet == ReaderSheet.None) ReaderControlsToggle(barsVisible) { chrome = chrome.toggled() }
+        if (barsVisible) {
+            val singlePage = ReaderJump.isSinglePage(ReaderJumpKind.Page, pageCount)
+            val fraction = ReaderJump.fractionForPage(page, pageCount)
+            val currentPlace = BookPosition(page = page)
+            ReaderControls(
+                showPanel = chrome == ReaderChrome.Panel,
                 title = book.title,
-                page = page,
-                pageCount = pageCount,
-                zoom = 1f,
                 skin = skin,
-                onAa = {},
-                onPage = { target -> scope.launch { pager.animateScrollToPage(target.coerceIn(0, pageCount - 1)) } },
-                onResetZoom = {},
-                onMarks = { sheet = ReaderSheet.Marks },
                 bookmarked = marks.bookmarks.any { it.page == page },
                 onBookmark = { onToggleBookmark(BookPosition(page = page)) },
-                canAddToLibrary = canAddToLibrary,
-                adding = adding,
-                addNotice = addNotice,
-                onAddToLibrary = onAddToLibrary,
-                showAa = false,
-            )
+                menu = { dismiss ->
+                    if (canAddToLibrary) ReaderMenuItem(if (adding) "Adding…" else "Add to library", skin, dismiss, onAddToLibrary, !adding)
+                    ReaderMenuItem("Marks", skin, dismiss, action = { sheet = ReaderSheet.Marks })
+                },
+            ) {
+                ReaderJumpPanel(
+                    kind = ReaderJumpKind.Page,
+                    fraction = fraction,
+                    label = addNotice ?: ReaderJump.panelLabel(ReaderJumpKind.Page, null, currentPlace, pageCount),
+                    entryText = ReaderJump.entryText(ReaderJumpKind.Page, fraction, pageCount),
+                    singlePage = singlePage,
+                    doc = null,
+                    pageCount = pageCount,
+                    skin = skin,
+                    onSeek = { target -> movePage(ReaderJump.pageForFraction(target, pageCount)) },
+                    onStep = { steps -> movePage(page + steps) },
+                    onEntry = { returnSheet = null; sheet = ReaderSheet.Position },
+                    onContents = null,
+                    onBookmarks = { sheet = ReaderSheet.Bookmarks },
+                    onNotes = { sheet = ReaderSheet.Notes },
+                    onFind = null,
+                    previousPlace = if (previousPlace != null) ({ returnToPreviousPlace() }) else null,
+                    steps = if (singlePage) null else ReaderJumpSteps(
+                        previousLabel = "Previous page",
+                        nextLabel = "Next page",
+                        canPrevious = page > 0,
+                        canNext = page < pageCount - 1,
+                        onPrevious = { movePage(page - 1) },
+                        onNext = { movePage(page + 1) },
+                    ),
+                )
+            }
         }
-        if (marks.bookmarks.any { it.page == page }) {
+        if (!barsVisible && sheet == ReaderSheet.None && settings.showPageNumber) {
+            ReaderPageBadge(ReaderJump.pageBadgeLabel(page, pageCount), skin) {
+                returnSheet = null
+                sheet = ReaderSheet.Position
+            }
+        }
+        if (!barsVisible && marks.bookmarks.any { it.page == page }) {
             ReaderBookmarkRibbon(skin, Modifier.align(Alignment.TopEnd).statusBarsPadding()
                 .padding(top = Metrics.readerMarkRibbonInsetDp.dp, end = Metrics.readerMarkRibbonInsetDp.dp))
         }
         AnimatedVisibility(
-            visible = sheet == ReaderSheet.Marks,
+            visible = sheet != ReaderSheet.None,
             modifier = Modifier.matchParentSize(),
             enter = fadeIn(spring(Springs.sheet.damping, Springs.sheet.stiffness)),
             exit = fadeOut(spring(Springs.sheet.damping, Springs.sheet.stiffness)),
         ) {
-            ReaderMarksSheet(
-                book = book, doc = null, marks = marks, isPdf = true, pageCount = pageCount, skin = skin,
-                onDismiss = { sheet = ReaderSheet.None },
-                onJump = { target ->
-                    sheet = ReaderSheet.None
-                    barsVisible = false
-                    scope.launch { pager.scrollToPage(target.page.coerceIn(0, pageCount - 1)) }
-                },
-                onDeleteBookmark = onDeleteBookmark,
-                onDeleteHighlight = onDeleteHighlight,
-                onAddToLightly = onAddToLightly,
-            )
+            when (displayedSheet) {
+                ReaderSheet.Marks, ReaderSheet.Bookmarks, ReaderSheet.Notes -> {
+                    val section = when (displayedSheet) {
+                        ReaderSheet.Bookmarks -> MarkSection.Bookmarks
+                        ReaderSheet.Notes -> MarkSection.Notes
+                        else -> MarkSection.All
+                    }
+                    ReaderMarksSheet(
+                        book = book, doc = null, marks = marks, isPdf = true, pageCount = pageCount,
+                        section = section, listState = marksState, skin = skin,
+                        onDismiss = { sheet = ReaderSheet.None },
+                        onJump = { target -> jumpPage(target.page, displayedSheet) },
+                        onDeleteBookmark = onDeleteBookmark,
+                        onDeleteHighlight = onDeleteHighlight,
+                        onAddToLightly = onAddToLightly,
+                    )
+                }
+                ReaderSheet.Position -> ReaderPositionEntrySheet(
+                    kind = ReaderJumpKind.Page,
+                    fraction = ReaderJump.fractionForPage(pager.currentPage, pageCount),
+                    pageCount = pageCount,
+                    skin = skin,
+                    onDismiss = { sheet = ReaderSheet.None },
+                    onGo = { target ->
+                        returnSheet = null
+                        sheet = ReaderSheet.None
+                        movePage(ReaderJump.pageForFraction(target, pageCount))
+                    },
+                )
+                else -> Unit
+            }
         }
+        if (barsVisible || sheet != ReaderSheet.None) ReaderBackButton(skin)
     }
 }
 
@@ -321,7 +413,7 @@ private fun ComicPageView(
     val bitmap by produceState<Bitmap?>(null, comic, index, widthPx, heightPx) {
         value = comic.page(index, widthPx * 2, heightPx * 2)
     }
-    LaunchedEffect(bitmap) { if (bitmap != null) onFirstDraw() }
+    var drawn by remember(bitmap, isCurrent) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val zoom = remember { Animatable(1f) }
     val panX = remember { Animatable(0f) }
@@ -380,7 +472,13 @@ private fun ComicPageView(
                 bitmap = shown.asImageBitmap(),
                 contentDescription = "Page ${index + 1}",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().graphicsLayer {
+                modifier = Modifier.fillMaxSize().drawWithContent {
+                    drawContent()
+                    if (isCurrent && !drawn) {
+                        drawn = true
+                        onFirstDraw()
+                    }
+                }.graphicsLayer {
                     scaleX = zoom.value; scaleY = zoom.value
                     translationX = panX.value; translationY = panY.value
                 },

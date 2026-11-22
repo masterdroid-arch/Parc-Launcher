@@ -26,19 +26,7 @@ object ParcFonts {
         FontWeight(weight),
         variationSettings = FontVariation.Settings(FontVariation.weight(weight)),
     )
-
-    /**
-     * The one place that decides the text font (DESIGN 2.2). Figtree for a Figtree skin, monospace where the
-     * skin asks for it (family or fallback), and Figtree for an empty or unknown family. `"system"` is the
-     * only explicit opt-out; there is no accidental Roboto fallback for a hand-authored skin.
-     */
-    fun textFamily(typography: TypographyTokens): FontFamily? = when {
-        typography.family == "monospace" || typography.fallbackFamily == "monospace" -> FontFamily.Monospace
-        typography.family == "system" || typography.fallbackFamily == "system" -> null
-        typography.family == "Figtree" -> Figtree
-        else -> Figtree
-    }
 }
 
-/** Text font for this skin. See [ParcFonts.textFamily]. */
-val Skin.textFamily: FontFamily? get() = ParcFonts.textFamily(typography)
+/** Launcher text uses Figtree for every skin, including imported legacy skins. */
+val Skin.textFamily: FontFamily get() = ParcFonts.Figtree

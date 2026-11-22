@@ -2,7 +2,6 @@ package com.brightblu.parc
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Typeface
 import android.net.Uri
 import android.os.Environment
 import android.provider.Settings
@@ -45,6 +44,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -69,6 +69,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,7 +78,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -86,6 +86,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -93,19 +94,21 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.Image
 import com.brightblu.parc.core.data.library.Book
 import com.brightblu.parc.core.data.library.BookCoverStyle
 import com.brightblu.parc.core.data.library.BookFiles
 import com.brightblu.parc.core.data.library.BookFolder
+import com.brightblu.parc.core.data.library.BookFolderRules
 import com.brightblu.parc.core.data.library.BookFolderStore
 import com.brightblu.parc.core.data.library.BookFormat
 import com.brightblu.parc.core.data.library.BookIndex
@@ -127,6 +130,7 @@ import com.brightblu.parc.core.data.library.LibraryShelvesDocument
 import com.brightblu.parc.core.data.library.LibraryStore
 import com.brightblu.parc.core.data.library.stableBookId
 import com.brightblu.parc.reader.ReaderContract
+import com.brightblu.parc.reader.ReaderCoverHandoff
 import com.brightblu.parc.reader.ReaderMotion
 import com.brightblu.parc.feature.settings.ui.SettingKind
 import com.brightblu.parc.feature.settings.ui.SettingRow
@@ -184,6 +188,9 @@ internal data class LibraryShelfPlan(
 
 /** T227: the row-major place of the "+" tile in the shelf grid. */
 internal data class LibraryShelfSlot(val index: Int, val row: Int, val column: Int)
+
+/** T346: a quiet line at the foot of the Library, with Undo when a removal kept the book's marks. */
+internal data class LibraryNotice(val text: String, val undo: Book? = null)
 
 /** The pure side of the shelf: its size from the panel, its order, and where the "+" tile sits. */
 internal object LibraryLayout {
@@ -295,6 +302,15 @@ internal object LibraryFind {
 
     fun addLabel(addCount: Int): String = if (addCount > 0) "Add $addCount" else "Add"
 
+    /** T346: the button names the removal too, so Apply is never vague about what will go. */
+    fun applyLabel(addCount: Int, removeCount: Int): String = when {
+        addCount > 0 && removeCount > 0 -> "Update"
+        addCount > 0 -> addLabel(addCount)
+        removeCount == 1 -> "Remove 1"
+        removeCount > 1 -> "Remove $removeCount"
+        else -> addLabel(0)
+    }
+
     fun selectedLabel(count: Int): String = when (count) {
         0 -> "Nothing selected"
         1 -> "1 selected"
@@ -307,9 +323,19 @@ internal object LibraryFind {
         val parts = buildList {
             if (newCount > 0) add("$newCount new")
             if (already > 0) add("$already already in library")
-            if (removeCount > 0) add("$removeCount to remove")
+            if (removeCount > 0) add("Remove $removeCount ${if (removeCount == 1) "book" else "books"}")
         }
-        return if (parts.isEmpty()) selectedLabel(selected) else parts.joinToString(", ")
+        val base = if (parts.isEmpty()) selectedLabel(selected) else parts.joinToString(", ")
+        // T346: say before Apply that a removed Library row keeps its bookmarks and highlights.
+        return if (removeCount > 0) "$base · marks kept" else base
+    }
+
+    /** T346: the bar's own summary. A bare removal needs no "already in library" prefix, so the
+     *  words "marks kept" stay visible instead of being truncated behind the Remove button. */
+    fun barSummary(selected: Int, newCount: Int, removeCount: Int): String = when {
+        removeCount > 0 && newCount == 0 ->
+            "Remove $removeCount ${if (removeCount == 1) "book" else "books"} · marks kept"
+        else -> summaryLabel(selected, newCount, removeCount)
     }
 
     fun emptyMessage(foundCount: Int, shownCount: Int, types: Set<BookFormat>, query: String): String = when {
@@ -350,6 +376,35 @@ internal object LibraryFormat {
 
     fun progressLabel(book: Book): String = "${progressPercent(book)}% read"
 
+    /** T346: a book at its last page is not the same as the user's own Finished mark. */
+    fun reachedLastPage(book: Book): Boolean =
+        !book.finished && (book.reachedEnd || progressPercent(book) >= 100)
+
+    fun statusLabel(book: Book): String? = when {
+        book.finished -> "Finished"
+        reachedLastPage(book) -> "Reached last page"
+        else -> null
+    }
+
+    /**
+     * T346: Continue means a book with a place after the cover, in reading order. A book already at its
+     * last page, or marked finished, is not something to continue, so the card never offers it.
+     */
+    fun continueBook(books: List<Book>): Book? =
+        order(books).firstOrNull { it.lastOpenedAt != null && !it.finished && !reachedLastPage(it) }
+
+    /** T346: the one line under a shelf cover. A percentage is written out, not only drawn as a line. */
+    fun shelfSubline(book: Book, isContinue: Boolean, missing: Boolean): String = when {
+        missing -> "File not found"
+        isContinue -> "Continue · ${progressPercent(book)}%"
+        book.finished -> "Finished"
+        reachedLastPage(book) -> "Last page"
+        book.progress > 0.0 -> "${progressPercent(book)}% · " +
+            if (book.author.isNotBlank()) book.author else formatLabel(book.format)
+        book.author.isNotBlank() -> "by ${book.author}"
+        else -> "${formatLabel(book.format)} · ${size(book.sizeBytes)}"
+    }
+
     fun date(epochMillis: Long, zone: ZoneId = ZoneId.systemDefault()): String =
         Instant.ofEpochMilli(epochMillis).atZone(zone).toLocalDate()
             .format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH))
@@ -372,6 +427,7 @@ internal object LibraryFormat {
         if (book.author.isNotBlank()) append(", by ").append(book.author)
         append(". ").append(formatLabel(book.format)).append(", ").append(size(book.sizeBytes))
         append(". ").append(progressLabel(book))
+        statusLabel(book)?.let { append(". ").append(it) }
         if (isContinue) append(". Continue")
         if (missing) append(". File not found")
     }
@@ -383,12 +439,14 @@ internal object LibraryFormat {
     fun details(book: Book, missing: Boolean, zone: ZoneId = ZoneId.systemDefault()): List<Pair<String, String>> = buildList {
         add("Title" to book.title)
         if (book.author.isNotBlank()) add("Author" to book.author)
+        // T346/T347: the file's own name tells two copies of one title apart.
+        add("File" to LibraryShelfRules.fileName(book))
         add("Format" to formatLabel(book.format))
         add("Size" to size(book.sizeBytes))
         add("Added" to date(book.addedAt, zone))
         add("Last opened" to (book.lastOpenedAt?.let { date(it, zone) } ?: "Not opened yet"))
         add("Progress" to progressLabel(book))
-        if (missing) add("Status" to "File not found")
+        if (missing) add("Status" to "File not found") else statusLabel(book)?.let { add("Status" to it) }
     }
 }
 
@@ -456,9 +514,11 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
     LaunchedEffect(tabs) { if (tabs.none { it.id == selectedShelf }) selectedShelf = LibraryShelfIds.All }
     val shelfBooks = remember(books, selectedShelf) { LibraryShelfRules.booksFor(selectedShelf, books) }
     val ordered = remember(shelfBooks, sort) { LibraryShelfRules.sorted(shelfBooks, sort) }
-    val continueId = remember(books) {
-        LibraryFormat.order(books).firstOrNull { it.lastOpenedAt != null && !it.finished }?.id
-    }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    // T346: search narrows the shelf in place; switching shelf or sort keeps the words.
+    val visible = remember(ordered, query) { LibraryShelfRules.search(ordered, query) }
+    val continueId = remember(books) { LibraryFormat.continueBook(books)?.id }
     val scope = rememberCoroutineScope()
     val files = remember(context) { BookFiles(context) }
     var missing by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -468,7 +528,8 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
     var shelfPickerFor by remember { mutableStateOf<String?>(null) }
     var detailsFor by remember { mutableStateOf<String?>(null) }
     var finishPromptFor by remember { mutableStateOf<String?>(null) }
-    var notice by remember { mutableStateOf<String?>(null) }
+    var removeFor by remember { mutableStateOf<String?>(null) }
+    var notice by remember { mutableStateOf<LibraryNotice?>(null) }
     var settleKey by remember { mutableIntStateOf(0) }
     // T210: when the page appears (first look or back from the reader) the covers settle into
     // place with the existing open spring instead of snapping.
@@ -482,13 +543,27 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
     val gridState = rememberLazyGridState()
     RegisterHubScroll(gridState)
     val savedScroll = remember(scrollMemory) { scrollMemory?.get(LibraryPage.Id) }
-    var scrollRestored by remember(scrollMemory) { mutableStateOf(savedScroll == null) }
+    // T351: a grid created while the page lives (the book flow starts empty, then arrives) used to
+    // stay at the top after the reader closed, even though the shelf's place was remembered.
+    // Each grid instance restores the remembered cell once, only when it starts at the top.
+    var scrollRestored by remember(gridState, scrollMemory) { mutableStateOf(false) }
     var shelfAtRestore by remember { mutableStateOf(selectedShelf) }
     LaunchedEffect(ordered.isNotEmpty(), gridState, scrollMemory) {
-        if (!scrollRestored && ordered.isNotEmpty()) {
-            val target = LibraryScroll.restore(savedScroll, ordered.size + 1)
-            gridState.scrollToItem(target.index, target.offset)
-            scrollRestored = true
+        if (ordered.isNotEmpty()) {
+            if (!scrollRestored) {
+                // The memory is newer than the value captured when this page first appeared.
+                val target = LibraryScroll.restore(savedScroll, ordered.size + 1)
+                val remembered = scrollMemory?.get(LibraryPage.Id)
+                val place = if (remembered != null) {
+                    LibraryScroll.restore(remembered, ordered.size + 1)
+                } else target
+                val atTop = gridState.firstVisibleItemIndex == 0 &&
+                    gridState.firstVisibleItemScrollOffset == 0
+                if (atTop && (place.index > 0 || place.offset > 0)) {
+                    gridState.scrollToItem(place.index, place.offset)
+                }
+                scrollRestored = true
+            }
         }
         if (scrollRestored) {
             snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }
@@ -501,6 +576,38 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
                 scrollMemory?.put(LibraryPage.Id, gridState.firstVisibleItemIndex,
                     gridState.firstVisibleItemScrollOffset)
             }
+        }
+    }
+    // T351: while the reader covers the launcher the hub card can be measured at another height,
+    // which clamps a shelf scrolled to the end. Keep the exact cell at pause and put it back after
+    // the launcher is resumed and laid out again.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var resumePlace by remember { mutableStateOf<HubScrollPosition?>(null) }
+    var resumeTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> if (scrollRestored) {
+                    val place = HubScrollPosition(gridState.firstVisibleItemIndex,
+                        gridState.firstVisibleItemScrollOffset)
+                    resumePlace = place
+                    scrollMemory?.put(LibraryPage.Id, place.index, place.offset)
+                }
+                Lifecycle.Event.ON_RESUME -> resumeTick++
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(resumeTick) {
+        if (resumeTick == 0) return@LaunchedEffect
+        val place = resumePlace ?: return@LaunchedEffect
+        // The hub card grows back over a spring; hold the remembered cell through the first
+        // half-second so a shorter intermediate layout cannot clamp it away.
+        repeat(30) {
+            gridState.scrollToItem(place.index, place.offset)
+            withFrameNanos { }
         }
     }
     // A different shelf starts at its own top; coming back from the reader keeps the saved place.
@@ -526,8 +633,8 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
         if (!active || store == null) return@LaunchedEffect
         runCatching { store.ensureDefaultShelves() }
         val added = runCatching { autoAddNewBooks(context, store, coverStyle) }.getOrDefault(0)
-        if (added > 0) notice = if (added == 1) "1 new book added from your folders."
-            else "$added new books added from your folders."
+        if (added > 0) notice = LibraryNotice(if (added == 1) "1 new book added from your folders."
+            else "$added new books added from your folders.")
     }
     // T251: a book that reached its last page asks once. Recording the ask first means a process
     // death cannot make Parc ask the same book again.
@@ -541,10 +648,23 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
+            // Compact has room for the shelf controls even when the empty message fills the body.
+            val compact = LocalHubSize.current == HubSize.Compact
             LibraryShelfBar(tabs, selectedShelf, sort, skin,
                 onSelect = { selectedShelf = it },
                 onSort = { sortName = it.name },
+                searchOpen = searchOpen,
+                onSearch = {
+                    searchOpen = !searchOpen
+                    if (!searchOpen) query = ""
+                },
+                onAdd = if (compact) ({ findOpen = true }) else null,
                 onNewShelf = if (store != null) ({ newShelfOpen = true }) else null)
+            if (searchOpen) {
+                HubSearchField(query, "Search title, author or file", "Search the shelf", skin,
+                    Modifier.padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.lineGapDp.dp),
+                    onQuery = { query = it })
+            }
             if (books.isEmpty()) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
                     verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
@@ -556,41 +676,57 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
                 BasicText(LibraryShelfRules.emptyMessage(selectedShelf),
                     Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
                     style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            } else if (query.isNotBlank()) {
+                BasicText(
+                    if (visible.isEmpty()) "No books match “${query.trim()}”."
+                    else if (visible.size == 1) "1 book matches"
+                    else "${visible.size} books match",
+                    Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
+                    style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-                val plan = LibraryLayout.plan(LocalHubSize.current, maxHeight.value, maxWidth.value,
-                    LocalDensity.current.fontScale)
-                LibraryShelfGrid(ordered, plan, skin, continueId, missing, settleKey,
-                    gridState = gridState,
-                    onOpen = { book, cover -> ReaderContract.open(context, book, cover) },
-                    onLongPress = { actionsFor = it.id },
-                    onDetails = { detailsFor = it.id },
-                    onRemove = { book ->
-                        scope.launch {
-                            store?.remove(book.id)
-                            notice = "Removed from library. The file was not deleted."
-                        }
-                    },
-                    onAdd = { findOpen = true },
-                    cover = { book, modifier -> RealBookCover(book, loader, coverStyle, skin, modifier) })
+            if (books.isNotEmpty() && (query.isBlank() || visible.isNotEmpty())) {
+                BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                    val plan = LibraryLayout.plan(LocalHubSize.current, maxHeight.value, maxWidth.value,
+                        LocalDensity.current.fontScale)
+                    LibraryShelfGrid(visible, plan, skin, continueId, missing, settleKey,
+                        gridState = gridState,
+                        onOpen = { book, cover -> ReaderContract.open(context, book, cover) },
+                        onLongPress = { actionsFor = it.id },
+                        onDetails = { detailsFor = it.id },
+                        onRemove = { book -> removeFor = book.id },
+                        onAdd = if (compact) null else ({ findOpen = true }),
+                        cover = { book, modifier -> RealBookCover(book, loader, coverStyle, skin, modifier) })
+                }
             }
         }
         notice?.let { line ->
-            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp)) {
-                BasicText(line, style = hudLabelStyle(skin).copy(color = Color(skin.colors.accent.toInt())),
+            Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
+                BasicText(line.text, Modifier.weight(1f),
+                    style = hudLabelStyle(skin).copy(color = Color(skin.colors.accent.toInt())),
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
+                line.undo?.let { removed ->
+                    LibraryAction("Undo", skin) {
+                        notice = null
+                        scope.launch {
+                            store?.add(removed)
+                            notice = LibraryNotice("Restored “${removed.title}”.")
+                        }
+                    }
+                }
             }
         }
     }
 
     if (findOpen) FindBooksDialog(skin, onDismiss = { findOpen = false }) { changed ->
         findOpen = false
-        notice = when (changed) {
+        notice = LibraryNotice(when (changed) {
             0 -> "Library unchanged."
             1 -> "Library updated. 1 book changed."
             else -> "Library updated. $changed books changed."
-        }
+        })
     }
     if (newShelfOpen) ShelfNameDialog("New shelf", "", shelves, null, skin,
         onDismiss = { newShelfOpen = false },
@@ -600,8 +736,8 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
                 val added = store?.createShelf(name)
                 if (added != null) {
                     selectedShelf = added.id
-                    notice = "Shelf created."
-                } else notice = "Could not create the shelf."
+                    notice = LibraryNotice("Shelf created.")
+                } else notice = LibraryNotice("Could not create the shelf.")
             }
         })
     actionsFor?.let { id -> books.firstOrNull { it.id == id } }?.let { book ->
@@ -613,15 +749,32 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
                 actionsFor = null
                 scope.launch {
                     store?.setFinished(book.id, finished)
-                    notice = if (finished) "Marked finished." else "Marked unread. Your place is kept."
+                    notice = LibraryNotice(if (finished) "Marked finished." else "Marked unread. Your place is kept.")
                 }
             },
             onDetails = { actionsFor = null; detailsFor = book.id },
             onRemove = {
                 actionsFor = null
+                removeFor = book.id
+            })
+    }
+    removeFor?.let { id -> books.firstOrNull { it.id == id } }?.let { book ->
+        // T346: removal explains itself, asks separately about saved marks, and keeps Undo for the
+        // ordinary case where the marks stay.
+        RemoveBookDialog(book, skin,
+            onDismiss = { removeFor = null },
+            onRemove = { alsoDeleteMarks ->
+                removeFor = null
                 scope.launch {
                     store?.remove(book.id)
-                    notice = "Removed from library. The file was not deleted."
+                    if (alsoDeleteMarks) {
+                        val hadMarks = store?.deleteMarks(book.id) == true
+                        notice = LibraryNotice(if (hadMarks)
+                            "Removed “${book.title}”. The file stays on your phone; its saved marks were deleted."
+                        else "Removed “${book.title}”. The file stays on your phone.")
+                    } else {
+                        notice = LibraryNotice("Removed “${book.title}”. The file stays on your phone.", undo = book)
+                    }
                 }
             })
     }
@@ -631,7 +784,7 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
             onToggle = { shelf, on ->
                 scope.launch {
                     store?.setOnShelf(book.id, shelf.id, on)
-                    notice = if (on) "Added to ${shelf.name}." else "Removed from ${shelf.name}."
+                    notice = LibraryNotice(if (on) "Added to ${shelf.name}." else "Removed from ${shelf.name}.")
                 }
             })
     }
@@ -648,7 +801,7 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
                     finishPromptFor = null
                     scope.launch {
                         store?.setFinished(book.id, true)
-                        notice = "Marked finished."
+                        notice = LibraryNotice("Marked finished.")
                     }
                 }) { BasicText("Mark as finished", style = settingsText(skin, skin.colors.accent)) }
             },
@@ -674,8 +827,10 @@ internal fun DemoLibraryPage(skin: Skin) {
     val sort = LibraryShelfSort.entries.firstOrNull { it.name == sortName } ?: LibraryShelfSort.Recent
     val shelfBooks = remember(selectedShelf) { LibraryShelfRules.booksFor(selectedShelf, DemoLibraryBooks) }
     val ordered = remember(shelfBooks, sort) { LibraryShelfRules.sorted(shelfBooks, sort) }
-    val continueId = remember { LibraryFormat.order(DemoLibraryBooks)
-        .firstOrNull { it.lastOpenedAt != null && !it.finished }?.id }
+    val continueId = remember { LibraryFormat.continueBook(DemoLibraryBooks)?.id }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val visible = remember(ordered, query) { LibraryShelfRules.search(ordered, query) }
     var findOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp)
@@ -688,35 +843,54 @@ internal fun DemoLibraryPage(skin: Skin) {
         LibraryShelfBar(tabs, selectedShelf, sort, skin,
             onSelect = { selectedShelf = it },
             onSort = { sortName = it.name },
+            searchOpen = searchOpen,
+            onSearch = {
+                searchOpen = !searchOpen
+                if (!searchOpen) query = ""
+            },
             onNewShelf = null)
+        if (searchOpen) {
+            HubSearchField(query, "Search title, author or file", "Search the shelf", skin,
+                Modifier.padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.lineGapDp.dp),
+                onQuery = { query = it })
+        }
         if (ordered.isEmpty()) {
             BasicText(LibraryShelfRules.emptyMessage(selectedShelf),
                 Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
                 style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
+        } else if (query.isNotBlank()) {
+            BasicText(
+                if (visible.isEmpty()) "No books match “${query.trim()}”."
+                else if (visible.size == 1) "1 book matches"
+                else "${visible.size} books match",
+                Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
+                style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-            val plan = LibraryLayout.plan(LocalHubSize.current, maxHeight.value, maxWidth.value, LocalDensity.current.fontScale)
-            val demoMemory = LocalHubPageScrollMemory.current
-            val demoState = rememberLazyGridState()
-            RegisterHubScroll(demoState)
-            LaunchedEffect(demoState, demoMemory, selectedShelf) {
-                val saved = demoMemory?.get("demo:" + LibraryPage.Id)
-                if (saved != null && selectedShelf == LibraryShelfIds.All) {
-                    val target = LibraryScroll.restore(saved, ordered.size)
-                    demoState.scrollToItem(target.index, target.offset)
+        if (query.isBlank() || visible.isNotEmpty()) {
+            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                val plan = LibraryLayout.plan(LocalHubSize.current, maxHeight.value, maxWidth.value, LocalDensity.current.fontScale)
+                val demoMemory = LocalHubPageScrollMemory.current
+                val demoState = rememberLazyGridState()
+                RegisterHubScroll(demoState)
+                LaunchedEffect(demoState, demoMemory, selectedShelf) {
+                    val saved = demoMemory?.get("demo:" + LibraryPage.Id)
+                    if (saved != null && selectedShelf == LibraryShelfIds.All) {
+                        val target = LibraryScroll.restore(saved, ordered.size)
+                        demoState.scrollToItem(target.index, target.offset)
+                    }
+                    snapshotFlow { demoState.firstVisibleItemIndex to demoState.firstVisibleItemScrollOffset }
+                        .collect { (index, offset) -> demoMemory?.put("demo:" + LibraryPage.Id, index, offset) }
                 }
-                snapshotFlow { demoState.firstVisibleItemIndex to demoState.firstVisibleItemScrollOffset }
-                    .collect { (index, offset) -> demoMemory?.put("demo:" + LibraryPage.Id, index, offset) }
+                LibraryShelfGrid(visible, plan, skin, continueId, emptySet(), 0,
+                    gridState = demoState,
+                    // T268: a demo book opens the same reader, which shows the built-in public-domain
+                    // sample (and one demo highlight) for demo:// locations. The first cell is Continue.
+                    onOpen = { book, cover -> ReaderContract.open(context, book, cover) },
+                    onLongPress = null,
+                    onDetails = null,
+                    onRemove = null,
+                    cover = { book, modifier -> TypographicBookCover(book, skin, modifier) })
             }
-            LibraryShelfGrid(ordered, plan, skin, continueId, emptySet(), 0,
-                gridState = demoState,
-                // T268: a demo book opens the same reader, which shows the built-in public-domain
-                // sample (and one demo highlight) for demo:// locations. The first cell is Continue.
-                onOpen = { book, cover -> ReaderContract.open(context, book, cover) },
-                onLongPress = null,
-                onDetails = null,
-                onRemove = null,
-                cover = { book, modifier -> TypographicBookCover(book, skin, modifier) })
         }
     }
     if (findOpen) DemoFindBooksDialog(skin) { findOpen = false }
@@ -736,6 +910,9 @@ private fun LibraryShelfBar(
     onSelect: (String) -> Unit,
     onSort: (LibraryShelfSort) -> Unit,
     onNewShelf: (() -> Unit)?,
+    onAdd: (() -> Unit)? = null,
+    searchOpen: Boolean = false,
+    onSearch: (() -> Unit)? = null,
 ) {
     Row(Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp),
         verticalAlignment = Alignment.CenterVertically) {
@@ -751,7 +928,22 @@ private fun LibraryShelfBar(
                 LibraryShelfChip("+ Shelf", false, skin, description = "New shelf", onClick = onNewShelf)
             }
         }
+        if (onAdd != null) LibraryAction(AddBooksLabel, skin, onClick = onAdd)
+        if (onSearch != null) LibraryShelfSearchButton(searchOpen, skin, onSearch)
         LibraryShelfSortMenu(sort, skin, onSort)
+    }
+}
+
+/** T346: one magnifier beside the sort sign; it opens the shelf's own search row. */
+@Composable
+private fun LibraryShelfSearchButton(open: Boolean, skin: Skin, onToggle: () -> Unit) {
+    Box(Modifier.size(Metrics.minTouchDp.dp)
+        .clip(androidx.compose.foundation.shape.CircleShape)
+        .background(if (open) Color(HubTabs.selectedFill(skin.colors.surface, skin.colors.accent).toInt())
+            else Color.Transparent, androidx.compose.foundation.shape.CircleShape)
+        .semantics { contentDescription = if (open) "Close shelf search" else "Search the shelf" }
+        .clickable(role = Role.Button, onClick = onToggle), contentAlignment = Alignment.Center) {
+        SearchGlyph(skin)
     }
 }
 
@@ -770,7 +962,7 @@ private fun LibraryShelfChip(
         .semantics { contentDescription = description }
         .clickable(role = Role.Tab, onClick = onClick)
         .padding(horizontal = Metrics.rowGapDp.dp), contentAlignment = Alignment.Center) {
-        BasicText(label, style = hubBodyStyle(skin).copy(fontSize = 13.sp, color = if (selected) Color(skin.colors.readableAccent.toInt()) else hubMuted(skin)),
+        BasicText(label, style = hubBodyStyle(skin).copy(color = if (selected) Color(skin.colors.readableAccent.toInt()) else hubMuted(skin)),
             maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -808,6 +1000,8 @@ private fun LibraryShelfSortMenu(current: LibraryShelfSort, skin: Skin, onSort: 
     }
 }
 
+private const val AddBooksLabel = "+ Add books"
+
 @Composable
 private fun LibraryAction(label: String, skin: Skin, enabled: Boolean = true, onClick: () -> Unit) {
     Box(Modifier.heightIn(min = Metrics.menuRowHeightDp.dp).widthIn(min = Metrics.bookFindSearchHeightDp.dp)
@@ -836,9 +1030,14 @@ private fun LibraryShelfGrid(
     onAdd: (() -> Unit)? = null,
     cover: @Composable (Book, Modifier) -> Unit,
 ) {
-    val addIndex = LibraryLayout.addTileIndex(books.size)
-    val itemCount = if (onAdd != null) addIndex + 1 else addIndex
-    val add = onAdd
+    // A short panel can fit several narrow covers. Reserve enough adjacent cells for
+    // the action at the current skin's caption size, including the button's padding.
+    val addSpan = if (onAdd == null) 1 else {
+        val textWidth = rememberTextMeasurer().measure(AddBooksLabel, style = hudLabelStyle(skin)).size.width
+        val buttonWidth = with(LocalDensity.current) { textWidth.toDp().value } + 2 * Metrics.bookFindChipInsetDp
+        kotlin.math.ceil((buttonWidth + Metrics.bookShelfGapDp) / (plan.coverWidthDp + Metrics.bookShelfGapDp))
+            .toInt().coerceIn(1, plan.columns)
+    }
     LazyVerticalGrid(
         columns = GridCells.Fixed(plan.columns),
         state = gridState,
@@ -847,48 +1046,17 @@ private fun LibraryShelfGrid(
         horizontalArrangement = Arrangement.spacedBy(Metrics.bookShelfGapDp.dp),
         verticalArrangement = Arrangement.spacedBy(Metrics.bookShelfGapDp.dp),
     ) {
-        items(count = itemCount, key = { index ->
-            if (index == addIndex) LibraryLayout.AddTileKey else books[index].id
-        }) { index ->
-            if (add != null && index == addIndex) {
-                LibraryAddTile(plan, skin, add)
-            } else {
-                val book = books[index]
-                LibraryShelfCell(book, plan, skin, index, books.size, settleKey, book.id == continueId, book.id in missing,
-                    onOpen, onLongPress, onDetails, onRemove, cover)
-            }
+        items(count = books.size, key = { books[it].id }) { index ->
+            val book = books[index]
+            LibraryShelfCell(book, plan, skin, index, books.size, settleKey, book.id == continueId, book.id in missing,
+                onOpen, onLongPress, onDetails, onRemove, cover)
         }
-    }
-}
-
-/**
- * T227: the first free cell after the last book. It is a cover-sized, accent-outlined action, so the
- * empty Library and a full shelf both offer the same way into Find books.
- */
-@Composable
-private fun LibraryAddTile(plan: LibraryShelfPlan, skin: Skin, onAdd: () -> Unit) {
-    val shape = RoundedCornerShape(Metrics.bookShelfCornerDp.dp)
-    val accent = Color(skin.colors.accent.toInt())
-    val glyphSize = (minOf(plan.coverWidthDp, plan.coverHeightDp) * Metrics.bookShelfAddGlyphFraction).dp
-    Box(Modifier.width(plan.coverWidthDp.dp).height(plan.coverHeightDp.dp)
-        .clip(shape)
-        .border(BorderStroke(skin.shape.surfaceBorderDp.dp, accent), shape)
-        .clickable(role = Role.Button, onClick = onAdd)
-        .semantics(mergeDescendants = true) { contentDescription = "Add books" }
-        .padding(Metrics.bookShelfAddInsetDp.dp),
-        contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Metrics.bookShelfAddGapDp.dp)) {
-            Canvas(Modifier.size(glyphSize)) {
-                val stroke = Metrics.bookShelfAddStrokeDp.dp.toPx()
-                val arm = size.minDimension * Metrics.bookShelfAddArmFraction
-                drawLine(accent, Offset(center.x - arm, center.y), Offset(center.x + arm, center.y),
-                    strokeWidth = stroke, cap = StrokeCap.Round)
-                drawLine(accent, Offset(center.x, center.y - arm), Offset(center.x, center.y + arm),
-                    strokeWidth = stroke, cap = StrokeCap.Round)
+        if (onAdd != null) {
+            item(key = LibraryLayout.AddTileKey, span = { GridItemSpan(addSpan) }) {
+                Box {
+                    LibraryAction(AddBooksLabel, skin, onClick = onAdd)
+                }
             }
-            BasicText("Add books", style = hudLabelStyle(skin).copy(color = accent, textAlign = TextAlign.Center),
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -954,7 +1122,7 @@ private fun LibraryShelfCell(
         BasicText(book.title, Modifier.padding(top = Metrics.bookFindRowGapDp.dp),
             style = hudLabelStyle(skin).copy(color = Color(skin.colors.textPrimary.toInt())),
             maxLines = 1, overflow = TextOverflow.Ellipsis)
-        BasicText(LibraryFormat.secondaryLine(book, isContinue, missing),
+        BasicText(LibraryFormat.shelfSubline(book, isContinue, missing),
             style = hudLabelStyle(skin).copy(color = Color(
                 (if (isContinue) skin.colors.accent else skin.colors.textSecondary).toInt())),
             maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -981,7 +1149,14 @@ internal fun RealBookCover(book: Book, loader: BookMetadataLoader?, style: BookC
         val height = constraints.maxHeight.coerceAtLeast(1)
         var image by remember(book.id, width, height) { mutableStateOf<ImageBitmap?>(null) }
         LaunchedEffect(book.id, loader, width, height) {
-            image = loader?.displayCover(book, width, height)?.asImageBitmap()
+            val cover = loader?.displayCover(book, width, height)
+            if (cover != null) {
+                // T352: the reader opens from the cover the tile is already showing.
+                ReaderCoverHandoff.remember(book.id, cover)
+                image = cover.asImageBitmap()
+            } else {
+                image = null
+            }
         }
         val bitmap = image
         if (bitmap != null) {
@@ -996,14 +1171,17 @@ internal fun RealBookCover(book: Book, loader: BookMetadataLoader?, style: BookC
 @Composable
 internal fun TypographicBookCover(book: Book, skin: Skin, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(Metrics.bookShelfCornerDp.dp)
+    // T346: a blank or missing artwork gets the title and the file type, so the tile still says
+    // what the book is even when the author is unknown.
+    val detail = listOf(book.author, LibraryFormat.formatLabel(book.format))
+        .filter { it.isNotBlank() }.joinToString(" · ")
     Column(modifier.background(Color(skin.colors.surface.toInt()), shape)
         .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), shape)
         .padding(horizontal = Metrics.rowGapDp.dp, vertical = Metrics.cardInsetDp.dp),
         verticalArrangement = Arrangement.SpaceBetween) {
         BasicText(book.title, style = hudValueStyle(skin).copy(color = Color(skin.colors.textPrimary.toInt())),
             maxLines = 4, overflow = TextOverflow.Ellipsis)
-        BasicText(if (book.author.isNotBlank()) book.author else LibraryFormat.formatLabel(book.format),
-            style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
+        BasicText(detail, style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -1068,7 +1246,7 @@ private fun BookActionsDialog(
                         description = "Title, author, format, size, added and progress.",
                         descriptionMaxLines = Int.MAX_VALUE) { onDetails() }
                     SettingRow("Remove from library", skin, SettingKind.Action,
-                        description = "The file stays on the phone. Only its Library row is removed.",
+                        description = "The file stays on the phone. Only its Library row is removed; you can keep or delete its bookmarks and highlights next.",
                         descriptionMaxLines = Int.MAX_VALUE, icon = "−", divider = false) { onRemove() }
                 }
             }
@@ -1497,6 +1675,53 @@ private fun ShelfTextAction(
 }
 
 @Composable
+private fun RemoveBookDialog(
+    book: Book,
+    skin: Skin,
+    onDismiss: () -> Unit,
+    onRemove: (Boolean) -> Unit,
+) {
+    var deleteMarks by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(skin.colors.surface.toInt()),
+        title = { BasicText("Remove from Library?", style = settingsText(skin)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+                BasicText(
+                    "“${book.title}” leaves the Library. The file stays on your phone and is never deleted.",
+                    style = settingsText(skin, skin.colors.textSecondary, true),
+                )
+                BasicText(
+                    "Its reading place, bookmarks and highlights are kept unless you choose otherwise.",
+                    style = settingsText(skin, skin.colors.textSecondary, true),
+                )
+                Row(Modifier.fillMaxWidth().heightIn(min = Metrics.minTouchDp.dp)
+                    .toggleable(value = deleteMarks, role = Role.Checkbox) { deleteMarks = it }
+                    .padding(horizontal = Metrics.lineGapDp.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
+                    FindRowCheck(deleteMarks, skin)
+                    BasicText("Also delete its bookmarks and highlights",
+                        Modifier.weight(1f), style = settingsText(skin, skin.colors.textSecondary, true))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onRemove(deleteMarks) }) {
+                BasicText("Remove", style = settingsText(skin, skin.colors.accent))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                BasicText("Cancel", style = settingsText(skin, skin.colors.textSecondary))
+            }
+        },
+    )
+}
+
+@Composable
 private fun BookDetailsDialog(book: Book, missing: Boolean, skin: Skin, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1505,11 +1730,11 @@ private fun BookDetailsDialog(book: Book, missing: Boolean, skin: Skin, onDismis
         text = {
             Column(Modifier.wrapContentHeight().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(Metrics.bookFindRowGapDp.dp)) {
+                // T346: the title and file name wrap in full; nothing is cut to four lines.
                 LibraryFormat.details(book, missing).forEach { (label, value) ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
                         BasicText(label, Modifier.width(Metrics.settingsValueMaxWidthDp.dp), style = hudLabelStyle(skin))
-                        BasicText(value, Modifier.weight(1f), style = hudValueStyle(skin), maxLines = 4,
-                            overflow = TextOverflow.Ellipsis)
+                        BasicText(value, Modifier.weight(1f), style = hudValueStyle(skin))
                     }
                 }
             }
@@ -1584,16 +1809,37 @@ internal fun FindBooksDialog(skin: Skin, onDismiss: () -> Unit, onApplied: (Int)
 
     fun useFolders(chosen: List<BookFolder>) {
         showFolders = false
+        val previous = folders
         scope.launch {
             try {
                 folderStore.save(chosen)
                 folders = chosen
+                // T346: forgetting a picker folder releases its Android read grant, unless a book
+                // still in the Library lives under that folder and would lose its access.
+                val forgotten = previous.filterNot { old -> chosen.any { it.location == old.location } }
+                val released = BookFolderRules.releaseableGrants(forgotten, library.map { it.uri })
+                released.forEach { location ->
+                    runCatching {
+                        context.contentResolver.releasePersistableUriPermission(
+                            Uri.parse(location), Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                }
+                val forgottenMessage = when {
+                    released.size == 1 -> "Folder forgotten. Parc released its file access."
+                    released.size > 1 -> "${released.size} folders forgotten. Parc released their file access."
+                    forgotten.any { it.tree } ->
+                        "Folder forgotten. Access kept because a Library book still uses it."
+                    else -> null
+                }
                 val current = indexStore.snapshot()
                 val retained = BookIndexRules.retainFolders(current, chosen.mapTo(hashSetOf()) { it.location })
                 if (retained != current) indexStore.save(retained)
                 index = retained
                 if (chosen.isEmpty()) notice = "Choose at least one folder to scan."
-                else refresh(chosen, force = false)
+                else {
+                    refresh(chosen, force = false)
+                    if (forgottenMessage != null && notice == null) notice = forgottenMessage
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -1772,8 +2018,8 @@ private fun FindBooksBody(
     }
     val groups = remember(rows) { LibraryFind.groups(rows) }
     val canApply = !applying && !busy && plan.changeCount > 0
-    val addLabel = if (plan.add.isNotEmpty()) LibraryFind.addLabel(plan.add.size)
-        else if (plan.changeCount > 0) "Update" else LibraryFind.addLabel(0)
+    val addLabel = if (plan.changeCount > 0) LibraryFind.applyLabel(plan.add.size, plan.remove.size)
+        else LibraryFind.addLabel(0)
 
     ParcDialogArea(Modifier.background(Color(skin.colors.bg.toInt()))) {
         Column(Modifier.fillMaxSize().padding(horizontal = Metrics.cardInsetDp.dp),
@@ -1782,7 +2028,7 @@ private fun FindBooksBody(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
                 BasicText("Find books", Modifier.weight(1f),
-                    style = hudValueStyle(skin).copy(fontSize = skin.typography.search.sizeSp.sp),
+                    style = hudValueStyle(skin, role = HubType.heading(skin.typography)),
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 FindTextAction("Close", skin, onClick = onClose)
                 FindAddButton(if (applying) "Adding…" else addLabel, skin, canApply, onApply)
@@ -1832,7 +2078,12 @@ private fun FindBooksBody(
                         else -> LazyColumn(
                             Modifier.fillMaxWidth().weight(1f),
                             verticalArrangement = Arrangement.spacedBy(Metrics.bookFindRowGapDp.dp),
-                            contentPadding = PaddingValues(bottom = Metrics.bookFindStickyBarClearanceDp.dp),
+                            // T346: the last row can always scroll clear of the selection bar.
+                            contentPadding = PaddingValues(bottom = if (selected.isEmpty()) {
+                                Metrics.bookFindStickyBarClearanceDp.dp
+                            } else {
+                                (Metrics.bookFindStickyBarClearanceDp + Metrics.bookFindSelectionBarExtraDp).dp
+                            }),
                         ) {
                             groups.forEach { group ->
                                 val isCollapsed = group.folder in collapsed
@@ -1872,7 +2123,7 @@ private fun FindBooksBody(
                 animationSpec = spring(Springs.sheet.damping, Springs.sheet.stiffness),
             ) + fadeOut(spring(Springs.sheet.damping, Springs.sheet.stiffness)),
         ) {
-            FindSelectionBar(LibraryFind.summaryLabel(selected.size, plan.add.size, plan.remove.size), if (applying) "Adding…" else addLabel, skin, canApply, onApply)
+            FindSelectionBar(LibraryFind.barSummary(selected.size, plan.add.size, plan.remove.size), if (applying) "Adding…" else addLabel, skin, canApply, onApply)
         }
     }
 }
@@ -1903,10 +2154,8 @@ private fun FindAddButton(label: String, skin: Skin, enabled: Boolean, onClick: 
         .background(Color((if (enabled) skin.colors.accent else skin.colors.lineBase).toInt()), shape)
         .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
         .padding(horizontal = Metrics.cardInsetDp.dp), contentAlignment = Alignment.Center) {
-        BasicText(label, style = hudLabelStyle(skin).copy(
+        BasicText(label, style = hudValueStyle(skin, role = HubType.body(skin.typography)).copy(
             color = Color((if (enabled) skin.colors.bg else skin.colors.textSecondary).toInt()),
-            fontSize = skin.typography.menu.sizeSp.sp,
-            fontWeight = FontWeight(skin.typography.menu.weight),
         ), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -1943,7 +2192,7 @@ private fun FindSearchField(query: String, skin: Skin, onQuery: (String) -> Unit
         value = query,
         onValueChange = onQuery,
         singleLine = true,
-        textStyle = hudValueStyle(skin).copy(fontSize = skin.typography.menu.sizeSp.sp),
+        textStyle = hudValueStyle(skin, role = HubType.body(skin.typography)),
         cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
         modifier = modifier.heightIn(min = Metrics.bookFindSearchHeightDp.dp)
             .background(Color(skin.colors.surface.toInt()), shape)
@@ -2042,8 +2291,7 @@ private fun FindBookResultRow(
         horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
         FindFormatBadge(row.found.format, skin)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
-            BasicText(row.found.name, style = hudValueStyle(skin).copy(
-                fontSize = skin.typography.menu.sizeSp.sp,
+            BasicText(row.found.name, style = hudValueStyle(skin, role = HubType.body(skin.typography)).copy(
                 lineBreak = LineBreak.Paragraph,
             ), maxLines = 2, overflow = TextOverflow.Ellipsis)
             BasicText(LibraryFind.secondaryLine(row.found), style = hudLabelStyle(skin),
@@ -2089,8 +2337,8 @@ private fun FindSelectionBar(summary: String, addLabel: String, skin: Skin, enab
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
         BasicText(summary, Modifier.weight(1f),
-            style = hudValueStyle(skin).copy(fontSize = skin.typography.menu.sizeSp.sp),
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
+            style = hudValueStyle(skin, role = HubType.body(skin.typography)),
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
         FindAddButton(addLabel, skin, enabled, onApply)
     }
 }
@@ -2147,7 +2395,7 @@ private fun FindFoldersRow(folders: List<BookFolder>, skin: Skin, onChange: () -
         .clickable(role = Role.Button, onClick = onChange)
         .padding(horizontal = Metrics.cardInsetDp.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
-        BasicText("Folders", style = hudValueStyle(skin).copy(fontSize = skin.typography.menu.sizeSp.sp))
+        BasicText("Folders", style = hudValueStyle(skin, role = HubType.body(skin.typography)))
         BasicText(summary, Modifier.weight(1f), style = hudLabelStyle(skin),
             maxLines = 1, overflow = TextOverflow.Ellipsis)
         BasicText("›", style = hudLabelStyle(skin).copy(color = Color(skin.colors.accent.toInt())))
@@ -2260,6 +2508,13 @@ private fun FolderChooserDialog(
                     else "Add folders with the system picker. Parc keeps read access to the folders you choose.",
                     style = hudLabelStyle(skin),
                 )
+                if (!allFiles) {
+                    // T346: the consequence of unticking is explained before the grant is released.
+                    BasicText(
+                        "Unticking a folder releases Parc's access to it, unless a book in the Library still lives there.",
+                        style = hudLabelStyle(skin),
+                    )
+                }
                 if (allFiles) {
                     Row(Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -2377,7 +2632,7 @@ private fun FolderChoiceRow(
         }
         BasicText(name, Modifier.weight(1f)
             .then(if (onOpen != null) Modifier.clickable(role = Role.Button, onClick = onOpen) else Modifier),
-            style = hudValueStyle(skin).copy(fontSize = skin.typography.menu.sizeSp.sp),
+            style = hudValueStyle(skin, role = HubType.body(skin.typography)),
             maxLines = 1, overflow = TextOverflow.Ellipsis)
         countLabel?.let { BasicText(it, style = hudLabelStyle(skin), maxLines = 1) }
         if (onOpen != null) BasicText("›", style = hudLabelStyle(skin).copy(color = Color(skin.colors.accent.toInt())))
@@ -2385,12 +2640,7 @@ private fun FolderChoiceRow(
 }
 
 internal fun bookCoverStyle(context: Context, skin: Skin): BookCoverStyle {
-    val typeface = if (skin.typography.family == "monospace" || skin.typography.fallbackFamily == "monospace") {
-        Typeface.MONOSPACE
-    } else {
-        runCatching { context.resources.getFont(com.brightblu.parc.core.model.R.font.figtree_variable) }
-            .getOrDefault(Typeface.DEFAULT)
-    }
+    val typeface = context.resources.getFont(com.brightblu.parc.core.model.R.font.figtree_variable)
     return BookCoverStyle(skin.colors.surface.toInt(), skin.colors.textPrimary.toInt(),
         skin.colors.textSecondary.toInt(), typeface)
 }

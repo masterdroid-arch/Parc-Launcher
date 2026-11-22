@@ -22,7 +22,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
@@ -298,6 +300,9 @@ internal fun ReaderNoteDialog(
     )
 }
 
+/** T344: the panel opens bookmarks and notes/highlights separately, while the old Marks list stays. */
+internal enum class MarkSection { All, Bookmarks, Notes }
+
 private data class MarkRow(
     val key: String,
     val heading: Boolean = false,
@@ -325,18 +330,34 @@ internal fun ReaderMarksSheet(
     onDeleteBookmark: (String) -> Unit,
     onDeleteHighlight: (String) -> Unit,
     onAddToLightly: (String) -> Unit,
+    section: MarkSection = MarkSection.All,
+    listState: LazyListState = rememberLazyListState(),
+    bookmarkPages: Map<String, Int> = emptyMap(),
 ) {
-    val rows = remember(marks, doc, isPdf, pageCount) { markRows(book, doc, marks, isPdf, pageCount) }
-    ReaderSheetFrame("Marks", skin, onDismiss) {
+    val rows = remember(marks, doc, isPdf, pageCount, section, bookmarkPages) {
+        markRows(book, doc, marks, isPdf, pageCount, section, bookmarkPages)
+    }
+    val title = when (section) {
+        MarkSection.All -> "Marks"
+        MarkSection.Bookmarks -> "Bookmarks"
+        MarkSection.Notes -> "Notes and highlights"
+    }
+    ReaderSheetFrame(title, skin, onDismiss) {
         Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(Metrics.readerRowGapDp.dp)) {
-            if (isPdf) BasicText(ReaderMarksMath.PdfMarksExplanation, style = readerLabelStyle(skin))
+            if (isPdf && section != MarkSection.Notes) {
+                BasicText(ReaderMarksMath.PdfMarksExplanation, style = readerLabelStyle(skin))
+            }
             if (rows.isEmpty()) {
-                BasicText(if (isPdf) "No bookmarks yet. Bookmark a page from the reading bar."
-                    else "No bookmarks or highlights yet. Bookmark a page or select text.",
-                    style = readerLabelStyle(skin))
+                BasicText(when {
+                    isPdf && section == MarkSection.Notes -> "Notes need selectable text. A PDF page can still be bookmarked."
+                    section == MarkSection.Bookmarks -> "No bookmarks yet. Bookmark a page from the reading bar."
+                    section == MarkSection.Notes -> "No notes or highlights yet. Select text to highlight it."
+                    isPdf -> "No bookmarks yet. Bookmark a page from the reading bar."
+                    else -> "No bookmarks or highlights yet. Bookmark a page or select text."
+                }, style = readerLabelStyle(skin))
             } else {
                 BasicText("Tap to jump. Swipe left or hold a row to delete.", style = readerLabelStyle(skin))
-                LazyColumn(Modifier.fillMaxWidth().weight(1f),
+                LazyColumn(Modifier.fillMaxWidth().weight(1f), state = listState,
                     verticalArrangement = Arrangement.spacedBy(Metrics.readerRowGapDp.dp)) {
                     items(rows, key = { it.key }) { row ->
                         if (row.heading) {
@@ -352,9 +373,11 @@ internal fun ReaderMarksSheet(
     }
 }
 
-private fun markRows(book: Book, doc: ReaderBookDoc?, marks: ReaderBookMarks, isPdf: Boolean, pageCount: Int): List<MarkRow> {
+private fun markRows(book: Book, doc: ReaderBookDoc?, marks: ReaderBookMarks, isPdf: Boolean,
+    pageCount: Int, section: MarkSection = MarkSection.All,
+    bookmarkPages: Map<String, Int> = emptyMap()): List<MarkRow> {
     if (isPdf) {
-        if (marks.bookmarks.isEmpty()) return emptyList()
+        if (section == MarkSection.Notes || marks.bookmarks.isEmpty()) return emptyList()
         val rows = mutableListOf<MarkRow>()
         rows += MarkRow("heading-pages", heading = true, label = "Bookmarks")
         marks.bookmarks.sortedBy { it.page }.forEach { bookmark ->
@@ -366,16 +389,20 @@ private fun markRows(book: Book, doc: ReaderBookDoc?, marks: ReaderBookMarks, is
         return rows
     }
     val grouped = mutableListOf<MarkRow>()
-    val chapters = (marks.bookmarks.map { it.chapter } + marks.highlights.map { it.chapter }).distinct().sorted()
+    val bookmarks = if (section == MarkSection.Notes) emptyList() else marks.bookmarks
+    val highlights = if (section == MarkSection.Bookmarks) emptyList() else marks.highlights
+    val chapters = (bookmarks.map { it.chapter } + highlights.map { it.chapter }).distinct().sorted()
     chapters.forEach { chapter ->
         val title = doc?.chapters?.getOrNull(chapter)?.title?.takeIf { it.isNotBlank() } ?: "Chapter ${chapter + 1}"
         grouped += MarkRow("heading-$chapter", heading = true, label = title)
-        marks.bookmarks.filter { it.chapter == chapter }.sortedBy { it.characterOffset }.forEach { bookmark ->
-            grouped += MarkRow("bookmark-${bookmark.id}", label = "Bookmark", snippet = bookmark.snippet,
+        bookmarks.filter { it.chapter == chapter }.sortedBy { it.characterOffset }.forEach { bookmark ->
+            grouped += MarkRow("bookmark-${bookmark.id}",
+                label = ReaderJump.bookmarkLabel(bookmarkPages[bookmark.id]),
+                snippet = bookmark.snippet,
                 target = BookPosition(chapter = chapter, characterOffset = bookmark.characterOffset),
                 bookmarkId = bookmark.id, chapter = chapter, offset = bookmark.characterOffset)
         }
-        marks.highlights.filter { it.chapter == chapter }.sortedBy { it.start }.forEach { highlight ->
+        highlights.filter { it.chapter == chapter }.sortedBy { it.start }.forEach { highlight ->
             grouped += MarkRow("highlight-${highlight.id}", label = "Highlight · ${ReaderMarksMath.toneLabel(highlight.tone)}",
                 snippet = highlight.text.ifBlank { doc?.chapters?.getOrNull(chapter)?.text?.let {
                     ReaderMarksMath.snippet(it, highlight.start, highlight.end)

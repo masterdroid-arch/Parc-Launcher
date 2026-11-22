@@ -1,6 +1,5 @@
 package com.brightblu.parc.reader
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import com.brightblu.parc.core.data.library.Book
@@ -59,7 +58,9 @@ internal object ReaderContract {
                 putExtra(ExtraCoverRight, coverRect.right)
                 putExtra(ExtraCoverBottom, coverRect.bottom)
             }
-            if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // T345: the reader runs in its own task so its fullSensor/user rotation is not held
+            // to the launcher task's portrait orientation.
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
     fun open(context: Context, book: Book, coverRect: ReaderMotion.Rect? = null) {

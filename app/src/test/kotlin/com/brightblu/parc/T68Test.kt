@@ -84,8 +84,8 @@ class T68Test {
         assertFalse(canOfferUninstall(isSystem = true, updatedSystemApp = false))
     }
 
-    @Test fun aPinnedAppShowsUnpinAndAnAppWithoutAFreeSlotShowsNoPinRow() {
-        assertEquals("Unpin", rows(appMenuRootItems(rootMenu(pinned = true))).first())
+    @Test fun aPinnedAppShowsClearPinAndAnAppWithoutAFreeSlotShowsNoPinRow() {
+        assertEquals("Clear pin, keep on arc", rows(appMenuRootItems(rootMenu(pinned = true))).first())
         // An empty pin label means every pinned slot is taken, so the row is dropped.
         assertFalse(rows(appMenuRootItems(rootMenu(pinLabel = ""))).contains("Pin"))
         assertTrue(rows(appMenuRootItems(rootMenu(pinLabel = ""))).contains("Move to folder"))

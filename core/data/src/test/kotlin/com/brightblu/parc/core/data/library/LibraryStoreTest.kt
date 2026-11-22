@@ -66,6 +66,18 @@ class LibraryStoreTest {
         assertTrue(store.books.first().isEmpty())
     }
 
+    @Test fun locatingAnEpubChangesOnlyItsUri() = runTest {
+        val store = LibraryStore(Memory(), StandardTestDispatcher(testScheduler))
+        store.add(book)
+        val mark = ReaderBookmark("saved", chapter = book.position.chapter,
+            characterOffset = book.position.characterOffset, snippet = "Passage", createdAt = 1)
+        store.updateMarks(book.id) { it.copy(bookmarks = listOf(mark)) }
+        val uri = "content://documents/relocated"
+        store.relocate(book.id, uri)
+        assertEquals(listOf(book.copy(uri = uri)), store.books.first())
+        assertEquals(listOf(mark), store.marks(book.id).first().bookmarks)
+    }
+
     @Test fun missingFileIsKeptFlaggedAndCanBeRemoved() = runTest {
         val store = LibraryStore(Memory(), StandardTestDispatcher(testScheduler))
         store.add(book)

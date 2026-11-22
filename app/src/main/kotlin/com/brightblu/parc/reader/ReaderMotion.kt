@@ -63,6 +63,14 @@ internal object ReaderMotion {
     fun closeCoverAlpha(progress: Float): Float =
         ((progress - Metrics.readerCoverRevealStart) / (1f - Metrics.readerCoverRevealStart)).coerceIn(0f, 1f)
 
+    /**
+     * T341: the shelf cover may only fade once the reader has drawn the positioned first frame.
+     * Being entered or a fixed hold is not enough: an unpositioned page (usually page one) must
+     * never be revealed on resume.
+     */
+    fun coverMayFade(entered: Boolean, contentReady: Boolean, closing: Boolean): Boolean =
+        entered && contentReady && !closing
+
     /** Open-with has no shelf cover: the page rises from below the bottom edge. */
     fun riseOffsetPx(screenHeightPx: Float, fraction: Float): Float =
         screenHeightPx.coerceAtLeast(0f) * (1f - fraction.coerceIn(0f, 1f))

@@ -8,6 +8,18 @@ import org.junit.Test
 class LongPressMenuTest {
     private val geometry = RingLayout(384f, 853f)
 
+    @Test fun shortcutRowKeepsFullLabelAndUsesIdOnlyAsLaunchPayload() {
+        val app = AppId("calendar/Main@0")
+        val label = "Create an event and invite everyone from the calendar"
+        val shortcut = AppShortcut("launcher_shortcuts_shortcut_new_event", label, app)
+        val menu = MenuModel(app, SlotPosition("A1", 0), 0f, 0f, shortcuts = listOf(shortcut))
+        val row = (appMenuRootItems(menu).first() as MenuItem.Row).row
+        assertEquals(MenuAction.Shortcut, row.action)
+        assertEquals(label, row.label)
+        assertEquals(shortcut.id, row.detail)
+        assertFalse(row.showDetail)
+    }
+
     @Test fun menuPlacesToTheRightAndCentresVerticallyWhenSpaceAllows() {
         assertEquals(MenuPlacement(108f, 280f),
             placeMenu(100f, 400f, 220f, 240f, 384f, 853f))

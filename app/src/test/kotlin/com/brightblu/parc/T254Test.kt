@@ -26,6 +26,25 @@ class T254Test {
     }
 
     @Test
+    fun accentsMatchInBothDirectionsAndKeepTheSourceOffset() {
+        val text = "A manhã chegou. O coração bateu."
+        for (query in listOf("manha", "MANHÃ", "manhã")) {
+            val hit = ReaderSearch.inText(text, query, 0, 0).single()
+            assertEquals("manhã", hit.match)
+            assertEquals(text.indexOf("manhã"), hit.offset)
+        }
+        // A decomposed accent in the book is still one readable word to the reader.
+        val decomposed = "manha\u0303"
+        val hit = ReaderSearch.inText(decomposed, "manhã", 0, 0).single()
+        assertEquals(0, hit.offset)
+        assertEquals("manha\u0303", hit.match)
+        assertEquals(1, ReaderSearch.inText("Coração", "coracao", 0, 0).size)
+        // Offsets after an accented word still point at the exact character on screen.
+        val second = ReaderSearch.inText("ação e coração", "coracao", 0, 0).single()
+        assertEquals("ação e coração".indexOf("coração"), second.offset)
+    }
+
+    @Test
     fun shortQueriesAndMissesGiveNothingAndHitsAreCapped() {
         val d = doc("a b c")
         assertFalse(ReaderSearch.isSearchable(" a "))

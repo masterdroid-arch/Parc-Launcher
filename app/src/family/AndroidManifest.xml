@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      T239: the family build reuses the weather and translate code, so it needs INTERNET, and it
+      offers Find books, so MANAGE_EXTERNAL_STORAGE. It does NOT get the personal auto update, the
+      pack downloader or their REQUEST_INSTALL_PACKAGES permission (that is personal builds only).
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- T205: offered only by Find books. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+</manifest>

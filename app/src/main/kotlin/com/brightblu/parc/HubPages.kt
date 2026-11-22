@@ -48,7 +48,6 @@ import com.brightblu.parc.model.Springs
 import androidx.compose.ui.unit.sp
 import com.brightblu.parc.model.Metrics
 import com.brightblu.parc.model.ParcSpacing
-import com.brightblu.parc.model.HeaderStyle
 import com.brightblu.parc.model.Skin
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -66,6 +65,12 @@ internal fun HubPages(
     modifier: Modifier = Modifier,
     expanded: Boolean = true,
     onToggleExpanded: () -> Unit = {},
+    /** T330: the full-screen view is open. Same pages and tiles, drawn over the whole screen. */
+    fullScreen: Boolean = false,
+    /** T330: the "Full-screen hub" setting; when off, the pull and the Expand control do nothing. */
+    fullScreenEnabled: Boolean = true,
+    onExpandFullScreen: () -> Unit = {},
+    onCloseFullScreen: () -> Unit = {},
     /** T73: active focus mode name, or null. The switch is hidden until a mode exists. */
     focusLabel: String? = null,
     /** T73: true when at least one focus mode is configured. */
@@ -153,21 +158,28 @@ internal fun HubPages(
     val scrollGate = LocalHubScrollGate.current
     val arcadeHost = com.brightblu.parc.arcade.LocalArcadeHost.current
     val swipeExclusions = remember { HubSwipeExclusions() }
+    val latestClose by rememberUpdatedState(onCloseFullScreen)
     Column(modifier.fillMaxWidth().fillMaxHeight().clipToBounds()
         .onGloballyPositioned { swipeExclusions.origin = it.positionInWindow() }
+        .then(if (fullScreen) Modifier.semantics { contentDescription = HubFullScreen.ContainerDescription } else Modifier)
         // T167: direction lock. The first drag past the touch slop is either a page swipe (mostly
         // horizontal, taken here before any page sees it) or a scroll (anything else, left alone).
         // While the reply field owns the IME, horizontal drags belong to text selection.
-        .then(if (imeUp) Modifier else Modifier.pointerInput(pages, page) {
+        .then(if (imeUp) Modifier else Modifier.pointerInput(pages, page, fullScreen) {
             val slop = viewConfiguration.touchSlop
             val threshold = Metrics.hubPageSwipeDp.dp.toPx()
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 // T240: a touch that starts on the page-name strip belongs to the strip's own horizontal scroll.
                 // The strip's outer row is exactly one menu row high and is the first child of this column.
-                if (HubTabGesture.startsOnStrip(down.position.y, Metrics.menuRowHeightDp.dp.toPx())) return@awaitEachGesture
+                val onStrip = HubTabGesture.startsOnStrip(down.position.y, Metrics.menuRowHeightDp.dp.toPx())
+                if (onStrip && !fullScreen) return@awaitEachGesture
                 // 1.5.1: a sideways-scrolling row on the page (the Library shelves) keeps its own horizontal drags.
-                if (swipeExclusions.contains(down.position)) return@awaitEachGesture
+                val sideways = swipeExclusions.contains(down.position)
+                if (sideways && !fullScreen) return@awaitEachGesture
+                // T330: a downward swipe closes the full-screen view only from the top of a page.
+                val atTop = scrollGate?.atTop != false
+                var closing = false
                 var lock = HubDragLock.Undecided
                 var dx = 0f
                 var dy = 0f
@@ -181,14 +193,20 @@ internal fun HubPages(
                     val delta = change.positionChange()
                     dx += delta.x; dy += delta.y
                     if (lock == HubDragLock.Undecided) lock = HubPageScroll.lock(dx, dy, slop)
-                    if (lock == HubDragLock.Horizontal) {
+                    if (lock == HubDragLock.Horizontal && !onStrip && !sideways) {
                         change.consume()
                         if (!change.pressed && page != null && abs(dx) >= threshold) {
                             // OPUS1: pages loop (last -> first, first -> last).
                             hubPageAfterSwipe(pages, page, forward = dx < 0)?.let { if (it != page) select(it) }
                         }
+                    } else if (fullScreen && lock == HubDragLock.Vertical &&
+                        HubFullScreen.closesOnPageSwipe(atTop, dx, dy)) {
+                        // T330: the view follows no finger; it simply closes once the gesture has gone far enough.
+                        change.consume()
+                        closing = true
                     }
                 } while (event.changes.any { it.pressed })
+                if (closing) latestClose()
             }
         })) {
         // T158: the tabs lead the card; the focus pass row shows only while a Focus mode is running.
@@ -243,11 +261,14 @@ internal fun HubPages(
                 }
             }) {
                 val configuredTiles = config.tiles(page).filterNot { it in config.hiddenTiles[page].orEmpty() }
+                // T330: the full-screen view shows every tile of the page, like Tall does in the card.
+                val shownSize = HubFullScreen.sizeFor(fullScreen, config.sizeFor(page))
                 val tiles = if (page == "timers" || page == DevicePage.Id || page == ControlsPage.Id) configuredTiles
-                    else HubPanelLayout.visibleTiles(configuredTiles, config.sizeFor(page), maxHeight.value, density.fontScale)
+                    else HubPanelLayout.visibleTiles(configuredTiles, shownSize, maxHeight.value, density.fontScale)
                 val rows = tiles.size
-                val cellHeight = HubPanelLayout.tileHeightDp(maxHeight.value, rows)
-                CompositionLocalProvider(LocalHubSize provides config.sizeFor(page), LocalHubTileHeight provides cellHeight,
+                val cellHeight = HubPanelLayout.tileHeightDp(maxHeight.value, rows,
+                    if (fullScreen) Metrics.hubFullTileMaxHeightDp else Metrics.hubTileMaxHeightDp)
+                CompositionLocalProvider(LocalHubSize provides shownSize, LocalHubTileHeight provides cellHeight,
                     LocalHubOpenOptions provides { optionsPage = page },
                     LocalHubSwipeExclusions provides swipeExclusions,
                     LocalTodayVisiblePages provides pages.toSet(),
@@ -301,24 +322,41 @@ internal fun HubPages(
                 }
             }
             Box(Modifier.width(Metrics.hubGripTouchWidthDp.dp).fillMaxHeight()
-                .semantics { contentDescription = "Hub size: ${config.sizeFor(page)}. Tap to cycle; drag to resize" }
-                .clickable(enabled = !imeUp) { resize(page, config.sizeFor(page).next()) }
-                .pointerInput(config.sizeFor(page), imeUp) {
+                .semantics {
+                    contentDescription = if (fullScreen) HubFullScreen.GripDescription
+                    else "Hub size: ${config.sizeFor(page)}. Tap to cycle; drag to resize" +
+                        (if (fullScreenEnabled) "; pull up for full screen" else "")
+                }
+                .clickable(enabled = !imeUp) { if (fullScreen) onCloseFullScreen() else resize(page, config.sizeFor(page).next()) }
+                .pointerInput(fullScreen, fullScreenEnabled, config.sizeFor(page), imeUp) {
                     var travel = 0f
                     detectVerticalDragGestures(onDragStart = { travel = 0f },
                         onVerticalDrag = { change, amount -> if (!imeUp) { change.consume(); travel += amount } },
                         onDragEnd = {
-                            if (!imeUp && abs(travel) > Metrics.hubPageSwipeDp.dp.toPx() / 2f) {
-                                val steps = (travel / Metrics.hubPageSwipeDp.dp.toPx()).roundToInt()
-                                resize(page, HubSize.entries[(config.sizeFor(page).ordinal + steps).coerceIn(0, HubSize.entries.lastIndex)])
+                            if (imeUp) return@detectVerticalDragGestures
+                            val travelDp = travel / this.density
+                            when {
+                                // T330: pulling the grip up opens the full-screen view; inside it, a downward drag closes.
+                                fullScreen -> if (HubFullScreen.closesOnGripPull(travelDp)) onCloseFullScreen()
+                                HubFullScreen.opensOnGripPull(travelDp, fullScreenEnabled) -> onExpandFullScreen()
+                                // A shorter drag keeps the card resize it always had.
+                                abs(travel) > Metrics.hubPageSwipeDp.dp.toPx() / 2f -> {
+                                    val steps = (travel / Metrics.hubPageSwipeDp.dp.toPx()).roundToInt()
+                                    resize(page, HubSize.entries[(config.sizeFor(page).ordinal + steps).coerceIn(0, HubSize.entries.lastIndex)])
+                                }
                             }
                         })
                 }, contentAlignment = Alignment.Center) {
                 Box(Modifier.size(Metrics.hubGripWidthDp.dp, Metrics.hubGripLineDp.dp)
                     .background(Color(skin.colors.textSecondary.toInt()), CircleShape))
             }
-            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                if (page != null) HubButton("…", skin, "${hubPageName(page)} page options") { optionsPage = page }
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                if (page != null) {
+                    // T330: the explicit way in, and the way out once inside.
+                    if (fullScreen) HubButton(HubFullScreen.CloseLabel, skin, HubFullScreen.CloseDescription) { onCloseFullScreen() }
+                    else if (fullScreenEnabled) HubButton(HubFullScreen.ExpandLabel, skin, HubFullScreen.ExpandDescription) { onExpandFullScreen() }
+                    HubButton("…", skin, "${hubPageName(page)} page options") { optionsPage = page }
+                }
             }
         }
     }
@@ -326,8 +364,8 @@ internal fun HubPages(
 
 @Composable
 private fun HubText(text: String, skin: Skin, modifier: Modifier = Modifier) {
-    BasicText(text, modifier, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = TextStyle(color = Color(skin.colors.textPrimary.toInt()), fontSize = Metrics.hubNameSp.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-        fontFamily = if (skin.style.clockFamily == "monospace") androidx.compose.ui.text.font.FontFamily.Monospace else if (skin.style.header == HeaderStyle.ruled) androidx.compose.ui.text.font.FontFamily.Serif else skin.textFamily))
+    BasicText(text, modifier, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        style = hudValueStyle(skin, role = HubType.section(skin.typography)))
 }
 
 @Composable

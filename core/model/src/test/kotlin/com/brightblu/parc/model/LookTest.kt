@@ -20,7 +20,7 @@ class LookTest {
         assertFalse(look.showDate)
         assertFalse(look.showAlarm)
         assertEquals(WallpaperStyle.Black, look.wallpaper)
-        assertTrue(look.wallpaperDimPercent in 0..80)
+        assertTrue(look.wallpaperDimPercent in 0..LookRules.MaxDimPercent)
     }
 
     @Test fun settingsRoundTripAndUnknownFieldsAreRejected() {
@@ -103,8 +103,8 @@ class LookTest {
         assertEquals(sizes.lastIndex, LookRules.stepIndex(1f, sizes))
         assertEquals(sizes.indexOf(44), LookRules.stepIndex(0.5f, sizes))
         assertEquals(0, LookRules.stepIndex(Float.NaN, sizes))
-        assertEquals(4, LookRules.stepIndex(0.5f, LookRules.DimSteps))
-        assertEquals(80, LookRules.DimSteps[LookRules.stepIndex(1f, LookRules.DimSteps)])
+        assertEquals(5, LookRules.stepIndex(0.5f, LookRules.DimSteps))
+        assertEquals(100, LookRules.DimSteps[LookRules.stepIndex(1f, LookRules.DimSteps)])
     }
 
     @Test fun everyDigitHasTheRightSegments() {

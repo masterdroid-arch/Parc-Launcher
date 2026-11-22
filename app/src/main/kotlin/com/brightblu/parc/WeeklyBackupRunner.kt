@@ -198,9 +198,14 @@ internal class WeeklyBackupRunner(
             return fail(store, WeeklyBackupFailure.Unreadable)
         }
 
+        val protectedText = try {
+            val protection = BackupPassphraseStore(context)
+            protectWeeklyBackup(text, protection.enabled, protection::read)
+                ?: return fail(store, WeeklyBackupFailure.PassphraseMissing)
+        } catch (_: Exception) { return fail(store, WeeklyBackupFailure.PassphraseMissing) }
         val name = WeeklyBackupFiles.nameFor(now(), zone())
         try {
-            folder.write(name, text)
+            folder.write(name, protectedText)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -253,4 +258,12 @@ class WeeklyBackupWorker(appContext: Context, params: WorkerParameters) : Corout
         ParcLog.e("Backup", "weekly backup failed", e)
         Result.retry()
     }
+}
+
+/** Null means no write is permitted: encryption must never silently fall back to plain text. */
+internal fun protectWeeklyBackup(text: String, enabled: Boolean, secret: () -> CharArray?): String? {
+    if (!enabled) return text
+    val passphrase = secret() ?: return null
+    return try { com.brightblu.parc.core.data.backup.BackupEncryption.encrypt(text, passphrase) }
+        finally { passphrase.fill('\u0000') }
 }

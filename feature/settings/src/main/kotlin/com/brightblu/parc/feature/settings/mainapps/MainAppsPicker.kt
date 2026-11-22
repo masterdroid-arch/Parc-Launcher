@@ -1,6 +1,7 @@
 package com.brightblu.parc.feature.settings.mainapps
 
 import com.brightblu.parc.model.AppId
+import com.brightblu.parc.model.Slot
 import java.util.Locale
 
 /** One app the picker can place. Immutable; [label] is what the row shows. */
@@ -20,12 +21,13 @@ data class MainAppsState(
     val suggestions: List<AppId> = emptyList(),
     val query: String = "",
     val loaded: Boolean = false,
+    val liveSlots: List<Slot?>? = null,
 ) {
     /** The four slots, null where nothing is chosen. Always length four. */
     val slots: List<MainAppChoice?>
         get() = (0 until MainAppsPicker.MaxMainApps).map { index ->
-            val id = selected.getOrNull(index) ?: return@map null
-            options.firstOrNull { it.id == id }
+            val id = if (liveSlots == null) selected.getOrNull(index) else (liveSlots.getOrNull(index) as? Slot.App)?.id
+            id?.let { appId -> options.firstOrNull { it.id == appId } }
         }
 
     /** Installed apps matching the query, alphabetical by label then package. */
@@ -43,11 +45,21 @@ data class MainAppsState(
                 .toList()
         }
 
-    val canAdd: Boolean get() = selected.size < MainAppsPicker.MaxMainApps
+    val canAdd: Boolean get() = liveSlots?.contains(null) ?: (selected.size < MainAppsPicker.MaxMainApps)
 
-    val isFull: Boolean get() = selected.size >= MainAppsPicker.MaxMainApps
+    val isFull: Boolean get() = !canAdd
 
-    fun isSelected(id: AppId): Boolean = id in selected
+    fun isSelected(id: AppId): Boolean = liveSlots?.contains(Slot.App(id)) ?: (id in selected)
+
+    fun slotLabel(index: Int): String = slots[index]?.label ?: when {
+        liveSlots == null -> "empty"
+        index !in liveSlots.indices -> "Unavailable"
+        liveSlots[index] != null -> "Occupied"
+        else -> "empty"
+    }
+
+    fun canMoveTo(index: Int): Boolean = if (liveSlots == null) index in selected.indices
+        else index in liveSlots.indices && (liveSlots[index] == null || slots[index] != null)
 }
 
 /** Picker projection only: selected ids are preserved when their labels are hidden. */

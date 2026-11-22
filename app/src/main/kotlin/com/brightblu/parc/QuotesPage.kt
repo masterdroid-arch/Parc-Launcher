@@ -16,8 +16,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -73,16 +71,20 @@ internal fun QuotePageBody(quote: Quote?, skin: Skin, empty: String = "", next: 
                 onLongClickLabel = "Quote actions", onLongClick = menu)
             .nestedScroll(swipe).hubPageScroll(scroll)
             .padding(Metrics.quoteInsetDp.dp), verticalArrangement = Arrangement.spacedBy(Metrics.quoteCreditGapDp.dp)) {
-            BasicText(if (empty.startsWith("Could not")) empty else quote?.text ?: empty,
-                style = TextStyle(color = Color(skin.colors.ink.toInt()), fontFamily = FontFamily.Serif,
-                    fontSize = Metrics.quoteTextSp.sp, lineHeight = Metrics.quoteLineSp.sp))
-            if (quote != null && quote.credit.isNotBlank()) BasicText(quote.credit,
-                style = TextStyle(color = Color(skin.colors.ink.toInt()), fontFamily = FontFamily.Serif,
-                    fontSize = skin.typography.caption.sizeSp.sp, lineHeight = Metrics.quoteCreditLineSp.sp))
+            QuoteText(if (empty.startsWith("Could not")) empty else quote?.text ?: empty, quote?.credit, skin)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             NoteAction("+", skin, "Add quote", action = add)
         }
+    }
+}
+
+@Composable
+internal fun QuoteText(passage: String, credit: String?, skin: Skin) {
+    BasicText(passage, style = hubTitleStyle(skin, skin.colors.ink).copy(lineHeight = Metrics.quoteLineSp.sp))
+    if (!credit.isNullOrBlank()) {
+        BasicText(credit, style = hudLabelStyle(skin).copy(
+            color = Color(skin.colors.ink.toInt()), lineHeight = Metrics.quoteCreditLineSp.sp))
     }
 }
 

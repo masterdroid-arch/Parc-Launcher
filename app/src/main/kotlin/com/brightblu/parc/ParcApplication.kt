@@ -27,6 +27,8 @@ class ParcApplication : Application() {
         // T266: a weekly job the user turned on is re-armed at every start, so a reboot cannot leave
         // it unscheduled. Turning it off cancels the same unique job.
         try { WeeklyBackupScheduler.sync(this) } catch (e: Exception) { ParcLog.e("Backup", "weekly schedule sync failed", e) }
+        // T293: the optional daily update check (personal and weather builds only; a no-op elsewhere).
+        try { UpdateVariant.maybeAutoCheck(this) } catch (e: Exception) { ParcLog.e("Update", "auto check failed", e) }
         val guard = CrashGuard(this)
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->

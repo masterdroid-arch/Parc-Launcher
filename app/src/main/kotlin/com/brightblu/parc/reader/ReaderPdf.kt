@@ -20,18 +20,14 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -61,9 +57,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.brightblu.parc.core.data.library.Book
 import com.brightblu.parc.core.data.library.BookFiles
@@ -72,6 +68,7 @@ import com.brightblu.parc.core.data.library.PdfLayout
 import com.brightblu.parc.core.data.library.PdfRenderSize
 import com.brightblu.parc.core.data.library.ReaderBookException
 import com.brightblu.parc.core.data.library.ReaderBookMarks
+import com.brightblu.parc.core.data.library.ReaderImageTone
 import com.brightblu.parc.core.data.library.ReaderPdfMath
 import com.brightblu.parc.core.data.library.ReaderSettings
 import com.brightblu.parc.model.Metrics
@@ -287,9 +284,36 @@ internal object ReaderPdfLoader {
 }
 
 /**
+ * T343: the pure cache order. The page being read (usually the restored page) is rendered first,
+ * then its nearest neighbours. [fit] decides which already-known pages stay inside the byte
+ * budget; the current page and at least one neighbour are always kept.
+ */
+internal object PdfCachePolicy {
+    fun order(pages: List<Int>, priority: Int): List<Int> =
+        pages.distinct().sortedWith(compareBy({ abs(it - priority) }, { it }))
+
+    fun fit(pages: List<Int>, bytes: Map<Int, Int>, budgetBytes: Int, minPages: Int, priority: Int): List<Int> {
+        val ordered = order(pages, priority)
+        val minimum = minPages.coerceAtLeast(1)
+        val kept = ArrayList<Int>(ordered.size)
+        var total = 0L
+        for (page in ordered) {
+            val size = (bytes[page] ?: 0).toLong().coerceAtLeast(0L)
+            if (kept.size < minimum || total + size <= budgetBytes.coerceAtLeast(0).toLong()) {
+                kept += page
+                total += size
+            }
+        }
+        return kept
+    }
+}
+
+/**
  * A small state holder for rendered page bitmaps; evicted bitmaps are recycled after the next
  * frame. T235 re-renders the window at the settled zoom scale so a zoomed page is sharp, and
  * remembers a failed page so the reader can say so instead of showing "Page n" forever.
+ * T343 bounds the window by bytes, renders the reading page first and drops a stale target set
+ * after a long jump.
  */
 internal class PdfPageCache(private val book: PdfBook) {
     private val state: SnapshotStateMap<Int, ImageBitmap> = mutableStateMapOf()
@@ -298,14 +322,17 @@ internal class PdfPageCache(private val book: PdfBook) {
     private val mutex = Mutex()
     private var closed = false
     private var scale = 1f
+    @Volatile private var wanted: Set<Int> = emptySet()
 
     val images: Map<Int, ImageBitmap> get() = state
     val failed: Map<Int, Boolean> get() = failures
 
     suspend fun ensure(pages: List<Int>, viewportWidth: Int, maxHeight: Int, maxPages: Int,
-        renderScale: Float = 1f) {
+        renderScale: Float = 1f, priority: Int = pages.firstOrNull() ?: 0) {
         val safeScale = ReaderPdfMath.renderScaleForZoom(renderScale)
-        val keep = pages.distinct().take(maxPages.coerceAtLeast(1))
+        val ordered = PdfCachePolicy.order(pages, priority)
+        val keep = ordered.take(maxPages.coerceAtLeast(1))
+        wanted = keep.toSet()
         if (abs(scale - safeScale) > 0.01f) {
             scale = safeScale
             // Existing bitmaps are at the old scale. Let the draw path keep them for this frame,
@@ -318,21 +345,44 @@ internal class PdfPageCache(private val book: PdfBook) {
         for (page in keep) {
             if (state.containsKey(page) || failures.containsKey(page)) continue
             mutex.withLock {
-                if (closed || state.containsKey(page) || failures.containsKey(page)) return@withLock
-                val bitmap = withContext(Dispatchers.IO) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                if (closed || page !in wanted || state.containsKey(page) || failures.containsKey(page)) return@withLock
+                // T343: make room before allocating the next page so the peak bitmap total
+                // stays near the budget, not one page above it.
+                val raw = book.pageSizes.getOrNull(page)
+                val extra = if (raw == null) 0 else ReaderPdfMath.bytes(
+                    ReaderPdfMath.renderSize(raw.width, raw.height, viewportWidth, maxHeight, safeScale))
+                trimToBudget(priority, extra)
+                // NonCancellable keeps a finished bitmap returnable: a stale result is then
+                // recycled below instead of being lost with the cancelled continuation.
+                val bitmap = withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
                     book.render(page, viewportWidth, maxHeight, safeScale)
                 }
                 if (bitmap == null) {
                     failures[page] = true
                     return@withLock
                 }
-                if (closed) {
-                    bitmap.recycle()
+                if (closed || page !in wanted) {
+                    if (!closed) recycleSoon(bitmap) else bitmap.recycle()
                     return@withLock
                 }
                 bitmaps[page] = bitmap
                 state[page] = bitmap.asImageBitmap()
+                trimToBudget(priority)
             }
+        }
+    }
+
+    private fun trimToBudget(priority: Int, reserveBytes: Int = 0) {
+        if (bitmaps.isEmpty()) return
+        val sizes = bitmaps.mapValues { it.value.byteCount }
+        val budget = (Metrics.pdfCacheMaxBytes - reserveBytes.coerceAtLeast(0)).coerceAtLeast(0)
+        val keep = PdfCachePolicy.fit(bitmaps.keys.toList(), sizes, budget,
+            Metrics.pdfCacheMinPages, priority).toSet()
+        for (page in bitmaps.keys.filter { it !in keep }) {
+            val dropped = bitmaps.remove(page) ?: continue
+            state.remove(page)
+            recycleSoon(dropped)
         }
     }
 
@@ -346,6 +396,7 @@ internal class PdfPageCache(private val book: PdfBook) {
 
     fun close() {
         closed = true
+        wanted = emptySet()
         state.clear()
         bitmaps.values.forEach(::recycleSoon)
         bitmaps.clear()
@@ -359,19 +410,38 @@ internal class PdfPageCache(private val book: PdfBook) {
 
 /**
  * T210: draws a cached page with a reused Paint and destination rectangle, so the page-follow draw
- * path allocates nothing per frame. Inversion is one ColorMatrix filter built with the settings.
+ * path allocates nothing per frame. T345: the colour filter is one matrix built when the settings
+ * change: luminance for greyscale, then inversion for white-on-black.
  */
-internal class PdfPagePainter(invert: Boolean) {
+internal fun pdfColorMatrix(grey: Boolean, invert: Boolean): FloatArray? {
+    if (!grey && !invert) return null
+    val scale = if (invert) -1f else 1f
+    val offset = if (invert) 255f else 0f
+    return if (grey) {
+        val lr = 0.2126f
+        val lg = 0.7152f
+        val lb = 0.0722f
+        floatArrayOf(
+            scale * lr, scale * lg, scale * lb, 0f, offset,
+            scale * lr, scale * lg, scale * lb, 0f, offset,
+            scale * lr, scale * lg, scale * lb, 0f, offset,
+            0f, 0f, 0f, 1f, 0f,
+        )
+    } else {
+        floatArrayOf(
+            -1f, 0f, 0f, 0f, 255f,
+            0f, -1f, 0f, 0f, 255f,
+            0f, 0f, -1f, 0f, 255f,
+            0f, 0f, 0f, 1f, 0f,
+        )
+    }
+}
+
+internal class PdfPagePainter(grey: Boolean, invert: Boolean) {
     private val destination = android.graphics.RectF()
     private val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG).apply {
-        colorFilter = if (invert) {
-            android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix(floatArrayOf(
-                -1f, 0f, 0f, 0f, 255f,
-                0f, -1f, 0f, 0f, 255f,
-                0f, 0f, -1f, 0f, 255f,
-                0f, 0f, 0f, 1f, 0f,
-            )))
-        } else null
+        val matrix = pdfColorMatrix(grey, invert)
+        colorFilter = matrix?.let { android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix(it)) }
     }
 
     fun draw(scope: DrawScope, image: ImageBitmap, left: Float, top: Float, width: Float, height: Float) {
@@ -409,10 +479,18 @@ internal fun PdfReaderPage(
 ) {
     val context = LocalContext.current
     val colors = remember(settings.pageColor, settings.night, skin) { readerColors(settings, skin) }
-    val painter = remember(settings.pdfInvert) { PdfPagePainter(settings.pdfInvert) }
-    var barsVisible by remember { mutableStateOf(false) }
+    val painter = remember(settings.imageTone, settings.pdfInvert) {
+        PdfPagePainter(settings.imageTone == ReaderImageTone.Greyscale, settings.pdfInvert)
+    }
+    var chrome by remember { mutableStateOf(ReaderChrome.Hidden) }
+    val barsVisible = chrome != ReaderChrome.Hidden
     var sheet by remember { mutableStateOf(ReaderSheet.None) }
     var lastSheet by remember { mutableStateOf(ReaderSheet.None) }
+    var returnSheet by remember { mutableStateOf<ReaderSheet?>(null) }
+    var previousPlace by remember(book.id) { mutableStateOf<BookPosition?>(null) }
+    val marksState = rememberLazyListState()
+    val searchState = rememberLazyListState()
+    val searchSession = remember(book.id) { ReaderSearchSession() }
     LaunchedEffect(sheet) { if (sheet != ReaderSheet.None) lastSheet = sheet }
     val displayedSheet = if (sheet != ReaderSheet.None) sheet else lastSheet
     val scope = rememberCoroutineScope()
@@ -429,9 +507,21 @@ internal fun PdfReaderPage(
     var panY by remember(book.id) { mutableFloatStateOf(0f) }
     var navigationJob by remember(book.id) { mutableStateOf<Job?>(null) }
 
-    BackHandler(enabled = sheet != ReaderSheet.None) { sheet = ReaderSheet.None }
-    LaunchedEffect(barsVisible, sheet, colors.light) {
-        (context as? ReaderActivity)?.setReaderChrome(visible = barsVisible || sheet != ReaderSheet.None, light = colors.light)
+    val keyboard = LocalSoftwareKeyboardController.current
+    val keyboardUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val backAction = ReaderJump.backAction(keyboardUp, sheet != ReaderSheet.None,
+        returnSheet != null, chrome == ReaderChrome.Panel)
+    BackHandler(enabled = backAction != ReaderBack.ExitReader) {
+        when (backAction) {
+            ReaderBack.HideKeyboard -> keyboard?.hide()
+            ReaderBack.CloseSheet -> sheet = ReaderSheet.None
+            ReaderBack.ReopenList -> { sheet = returnSheet ?: ReaderSheet.None; returnSheet = null }
+            ReaderBack.HidePanel -> chrome = ReaderChrome.Toolbar
+            ReaderBack.ExitReader -> Unit
+        }
+    }
+    LaunchedEffect(barsVisible, sheet, skin.colors.surface) {
+        (context as? ReaderActivity)?.setReaderChrome(visible = barsVisible || sheet != ReaderSheet.None, light = readerChromeIsLight(skin))
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(colors.paper.toInt()))) {
@@ -471,14 +561,22 @@ internal fun PdfReaderPage(
         val scrollPosition by remember(baseTops, baseHeights) {
             derivedStateOf { ReaderPdfMath.positionAt(baseTops, baseHeights, scroll) }
         }
-        val displayedPage = if (settings.pdfLayout == PdfLayout.Page) currentPage else scrollPosition.page
-        val visiblePages by remember(baseTops, baseHeights, settings.pdfLayout) {
+        var restored by remember(book.id) { mutableStateOf(false) }
+        val restoredPage = initialPosition.page.coerceIn(0, pageCount - 1)
+        val displayedPage = when {
+            settings.pdfLayout == PdfLayout.Page -> currentPage
+            !restored -> restoredPage
+            else -> scrollPosition.page
+        }
+        val visiblePages by remember(baseTops, baseHeights, settings.pdfLayout, restored) {
             derivedStateOf {
-                if (settings.pdfLayout != PdfLayout.Continuous) emptyList()
+                if (settings.pdfLayout != PdfLayout.Continuous || !restored) emptyList()
                 else ReaderPdfMath.visiblePages(baseTops, baseHeights, scroll, viewportHeight / zoom,
                     overscan = 1)
             }
         }
+        // T343: before the saved position is restored, ask the cache for the saved page, not page
+        // one. A long jump cancels the old set because `wanted` changes on the next ensure call.
         val targets = if (settings.pdfLayout == PdfLayout.Page) {
             remember(currentPage, pageCount, maxCachePages) {
                 ReaderPdfMath.pageTargets(currentPage, pageCount, maxCachePages)
@@ -486,6 +584,7 @@ internal fun PdfReaderPage(
         } else {
             visiblePages.take(maxCachePages)
         }
+        val targetPriority = if (settings.pdfLayout == PdfLayout.Page) currentPage else displayedPage
 
         fun maxScrollAt(atZoom: Float): Float =
             (totalHeight - viewportHeight / atZoom.coerceAtLeast(0.01f)).coerceAtLeast(0f)
@@ -494,24 +593,18 @@ internal fun PdfReaderPage(
             if (settings.pdfLayout == PdfLayout.Page) currentPage
             else ReaderPdfMath.positionAt(baseTops, baseHeights, scroll).page
 
-        LaunchedEffect(targets, cache, viewportWidth, viewportHeight, renderScale, maxCachePages) {
+        LaunchedEffect(targets, targetPriority, cache, viewportWidth, viewportHeight, renderScale, maxCachePages) {
             if (targets.isNotEmpty()) {
-                cache.ensure(targets, viewportWidth, maxRenderHeight, maxCachePages, renderScale)
+                cache.ensure(targets, viewportWidth, maxRenderHeight, maxCachePages, renderScale,
+                    priority = targetPriority)
             }
         }
 
-        // T210: do not lift the cover until the first PDF page has been drawn at least once.
-        val firstPageReady = if (settings.pdfLayout == PdfLayout.Page) {
-            cache.images[displayedPage] != null
-        } else {
-            visiblePages.any { cache.images[it] != null }
-        }
-        LaunchedEffect(firstPageReady) { if (firstPageReady) onReady() }
-        LaunchedEffect(firstPageReady, pageCount, displayedPage) {
-            if (firstPageReady && displayedPage >= pageCount - 1) onLastPage()
+        var firstPageDrawn by remember(book.id) { mutableStateOf(false) }
+        LaunchedEffect(firstPageDrawn, displayedPage) {
+            if (firstPageDrawn && displayedPage >= pageCount - 1) onLastPage()
         }
 
-        var restored by remember(book.id) { mutableStateOf(false) }
         LaunchedEffect(baseTops, viewportWidth, viewportHeight, settings.pdfLayout) {
             if (baseTops.isEmpty()) return@LaunchedEffect
             val page = if (restored) currentPage else initialPosition.page.coerceIn(0, pageCount - 1)
@@ -550,6 +643,34 @@ internal fun PdfReaderPage(
                     panY = value
                 }
             }
+        }
+
+        /** The place the reader is at now, used by "Previous place". */
+        fun here(): BookPosition =
+            if (settings.pdfLayout == PdfLayout.Page) BookPosition(page = currentPage, pageOffset = settledOffset)
+            else ReaderPdfMath.positionAt(baseTops, baseHeights, scroll)
+
+        /** T344: the slider and its steps keep the panel open, so the new page can be read. */
+        fun movePage(target: Int, offset: Double = 0.0) {
+            previousPlace = here()
+            goToPage(target, offset)
+        }
+
+        /** A list jump closes the list and the panel to show the page. */
+        fun jumpPage(target: Int, offset: Double = 0.0, from: ReaderSheet) {
+            previousPlace = here()
+            returnSheet = from
+            sheet = ReaderSheet.None
+            chrome = ReaderChrome.Hidden
+            goToPage(target, offset)
+        }
+
+        fun returnToPreviousPlace() {
+            val place = previousPlace ?: return
+            previousPlace = null
+            returnSheet = null
+            sheet = ReaderSheet.None
+            goToPage(place.page, place.pageOffset)
         }
 
         /** T210: a PDF page turn follows the finger, then settles onto the target page with a spring. */
@@ -794,7 +915,7 @@ internal fun PdfReaderPage(
                                     // Centre taps wait for a possible second tap; edge taps turn at once.
                                     pendingTap = scope.launch {
                                         delay(tapTimeout.toLong())
-                                        barsVisible = !barsVisible
+                                        chrome = chrome.toggled()
                                     }
                                 } else {
                                     if (settings.pdfLayout == PdfLayout.Page) {
@@ -825,6 +946,10 @@ internal fun PdfReaderPage(
                         val left = (size.width - drawWidth) / 2f + panX + drag
                         val top = (size.height - drawHeight) / 2f + panY
                         painter.draw(this, image, left, top, drawWidth, drawHeight)
+                        if (restored && !firstPageDrawn) {
+                            firstPageDrawn = true
+                            onReady()
+                        }
                         if (drag != 0f) {
                             val neighbour = if (drag < 0f) displayedPage + 1 else displayedPage - 1
                             if (neighbour in 0 until pageCount) {
@@ -853,6 +978,10 @@ internal fun PdfReaderPage(
                     val drawHeight = (height * zoom).coerceAtLeast(1f)
                     val y = (top - scroll) * zoom + panY
                     painter.draw(this, image, panX, y, drawWidth, drawHeight)
+                    if (restored && !firstPageDrawn && page == currentPage) {
+                        firstPageDrawn = true
+                        onReady()
+                    }
                 }
             }
         }
@@ -867,33 +996,63 @@ internal fun PdfReaderPage(
             }
         }
 
-        AnimatedVisibility(
-            visible = barsVisible,
-            modifier = Modifier.align(Alignment.TopCenter),
-            enter = fadeIn(spring(Springs.sheet.damping, Springs.sheet.stiffness)),
-            exit = fadeOut(spring(Springs.sheet.damping, Springs.sheet.stiffness)),
-        ) {
-            ReaderPdfBar(
+        if (sheet == ReaderSheet.None) ReaderControlsToggle(barsVisible) { chrome = chrome.toggled() }
+        if (barsVisible) {
+            val singlePage = ReaderJump.isSinglePage(ReaderJumpKind.Page, pageCount)
+            val fraction = ReaderJump.fractionForPage(displayedPage, pageCount)
+            val currentPlace = BookPosition(page = displayedPage, pageOffset = settledOffset)
+            ReaderControls(
+                showPanel = chrome == ReaderChrome.Panel,
                 title = book.title,
-                page = displayedPage,
-                pageCount = pageCount,
-                zoom = zoom,
                 skin = skin,
-                onAa = { sheet = ReaderSheet.Aa },
-                onPage = { page -> goToPage(page) },
-                onResetZoom = { animateZoom(1f) },
-                onMarks = { sheet = ReaderSheet.Marks },
                 bookmarked = marks.bookmarks.any { it.page == displayedPage },
                 onBookmark = { onToggleBookmark(BookPosition(page = displayedPage, pageOffset = settledOffset)) },
-                canAddToLibrary = canAddToLibrary,
-                adding = adding,
-                addNotice = addNotice,
-                onAddToLibrary = onAddToLibrary,
-                onSearch = { sheet = ReaderSheet.Search },
-            )
+                menu = { dismiss ->
+                    if (canAddToLibrary) ReaderMenuItem(if (adding) "Adding…" else "Add to library", skin, dismiss, onAddToLibrary, !adding)
+                    if (zoom > Metrics.pdfZoomLabelThreshold) ReaderMenuItem("Reset zoom (${(zoom * 100).roundToInt()}%)", skin, dismiss, action = { animateZoom(1f) })
+                    ReaderMenuItem("Contents", skin, dismiss, action = { sheet = ReaderSheet.Position })
+                    if (textSearchAvailable) ReaderMenuItem("Find", skin, dismiss, action = { sheet = ReaderSheet.Search })
+                    ReaderMenuItem("Marks", skin, dismiss, action = { sheet = ReaderSheet.Marks })
+                    ReaderMenuItem("Aa · Reading settings", skin, dismiss, action = { sheet = ReaderSheet.Aa })
+                },
+            ) {
+                ReaderJumpPanel(
+                    kind = ReaderJumpKind.Page,
+                    fraction = fraction,
+                    label = addNotice ?: ReaderJump.panelLabel(ReaderJumpKind.Page, null, currentPlace, pageCount),
+                    entryText = ReaderJump.entryText(ReaderJumpKind.Page, fraction, pageCount),
+                    singlePage = singlePage,
+                    doc = null,
+                    pageCount = pageCount,
+                    skin = skin,
+                    onSeek = { target -> movePage(ReaderJump.pageForFraction(target, pageCount)) },
+                    onStep = { steps -> movePage((displayedPage + steps).coerceIn(0, pageCount - 1)) },
+                    onEntry = { returnSheet = null; sheet = ReaderSheet.Position },
+                    onContents = if (singlePage) null else ({ sheet = ReaderSheet.Position }),
+                    onBookmarks = { sheet = ReaderSheet.Bookmarks },
+                    onNotes = { sheet = ReaderSheet.Notes },
+                    onFind = if (textSearchAvailable) ({ sheet = ReaderSheet.Search }) else null,
+                    previousPlace = if (previousPlace != null) ({ returnToPreviousPlace() }) else null,
+                    steps = if (singlePage) null else ReaderJumpSteps(
+                        previousLabel = "Previous page",
+                        nextLabel = "Next page",
+                        canPrevious = displayedPage > 0,
+                        canNext = displayedPage < pageCount - 1,
+                        onPrevious = { movePage(displayedPage - 1) },
+                        onNext = { movePage(displayedPage + 1) },
+                    ),
+                )
+            }
         }
 
-        if (marks.bookmarks.any { it.page == displayedPage }) {
+        if (!barsVisible && sheet == ReaderSheet.None && firstPageDrawn && settings.showPageNumber) {
+            ReaderPageBadge(ReaderJump.pageBadgeLabel(displayedPage, pageCount), skin) {
+                returnSheet = null
+                sheet = ReaderSheet.Position
+            }
+        }
+
+        if (!barsVisible && marks.bookmarks.any { it.page == displayedPage }) {
             ReaderBookmarkRibbon(skin, Modifier.align(Alignment.TopEnd)
                 .statusBarsPadding()
                 .padding(top = Metrics.readerMarkRibbonInsetDp.dp, end = Metrics.readerMarkRibbonInsetDp.dp))
@@ -906,22 +1065,41 @@ internal fun PdfReaderPage(
             exit = fadeOut(spring(Springs.sheet.damping, Springs.sheet.stiffness)),
         ) {
             when (displayedSheet) {
-                ReaderSheet.Marks -> ReaderMarksSheet(
-                    book = book,
-                    doc = null,
-                    marks = marks,
-                    isPdf = true,
+                ReaderSheet.Marks, ReaderSheet.Bookmarks, ReaderSheet.Notes -> {
+                    val section = when (displayedSheet) {
+                        ReaderSheet.Bookmarks -> MarkSection.Bookmarks
+                        ReaderSheet.Notes -> MarkSection.Notes
+                        else -> MarkSection.All
+                    }
+                    ReaderMarksSheet(
+                        book = book,
+                        doc = null,
+                        marks = marks,
+                        isPdf = true,
+                        pageCount = pageCount,
+                        skin = skin,
+                        section = section,
+                        listState = marksState,
+                        onDismiss = { sheet = ReaderSheet.None },
+                        onJump = { target ->
+                            jumpPage(target.page, target.pageOffset, displayedSheet)
+                        },
+                        onDeleteBookmark = onDeleteBookmark,
+                        onDeleteHighlight = onDeleteHighlight,
+                        onAddToLightly = onAddToLightly,
+                    )
+                }
+                ReaderSheet.Position -> ReaderPositionEntrySheet(
+                    kind = ReaderJumpKind.Page,
+                    fraction = ReaderJump.fractionForPage(displayedPage, pageCount),
                     pageCount = pageCount,
                     skin = skin,
                     onDismiss = { sheet = ReaderSheet.None },
-                    onJump = { target ->
+                    onGo = { target ->
+                        returnSheet = null
                         sheet = ReaderSheet.None
-                        barsVisible = false
-                        goToPage(target.page, target.pageOffset)
+                        movePage(ReaderJump.pageForFraction(target, pageCount))
                     },
-                    onDeleteBookmark = onDeleteBookmark,
-                    onDeleteHighlight = onDeleteHighlight,
-                    onAddToLightly = onAddToLightly,
                 )
                 ReaderSheet.Aa -> ReaderAaSheet(
                     settings = settings,
@@ -933,116 +1111,20 @@ internal fun PdfReaderPage(
                 ReaderSheet.Search -> ReaderSearchSheet(
                     skin = skin,
                     doc = null,
+                    session = searchSession,
+                    listState = searchState,
                     unavailable = if (textSearchAvailable) null else ReaderSearchMessages.PdfNeedsNewerPhone,
                     emptyHint = ReaderSearchMessages.PdfNoText,
                     search = { query -> searchPdf(pdf, query) },
                     onDismiss = { sheet = ReaderSheet.None },
-                    onJump = { hit ->
-                        sheet = ReaderSheet.None
-                        barsVisible = false
-                        goToPage(hit.page)
-                    },
+                    onJump = { hit -> jumpPage(hit.page, from = ReaderSheet.Search) },
                 )
                 ReaderSheet.Contents -> Unit
                 // T257: read aloud is offered by the text reader, where there is a text offset to follow.
                 ReaderSheet.Listen, ReaderSheet.None -> Unit
             }
         }
-    }
-}
-
-@Composable
-internal fun ReaderPdfBar(
-    title: String,
-    page: Int,
-    pageCount: Int,
-    zoom: Float,
-    skin: Skin,
-    onAa: () -> Unit,
-    onPage: (Int) -> Unit,
-    onResetZoom: () -> Unit,
-    onMarks: () -> Unit,
-    bookmarked: Boolean,
-    onBookmark: () -> Unit,
-    canAddToLibrary: Boolean,
-    adding: Boolean,
-    addNotice: String?,
-    onAddToLibrary: () -> Unit,
-    showAa: Boolean = true,
-    onSearch: (() -> Unit)? = null,
-) {
-    val percent = (ReaderPdfMath.progress(BookPosition(page = page), pageCount) * 100).roundToInt()
-    // T271: the status-bar strip is solid, so page text never shows behind the clock and icons.
-    Column(Modifier.fillMaxWidth().background(Color(skin.colors.surface.toInt()).copy(alpha = Metrics.readerBarScrimAlpha))) {
-    Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars)
-        .background(Color(skin.colors.surface.toInt())))
-    Column(Modifier.fillMaxWidth()
-        .padding(horizontal = Metrics.readerBarSideInsetDp.dp, vertical = Metrics.readerBarTopInsetDp.dp)
-        .semantics { contentDescription = "Reading bar" }) {
-        Row(Modifier.fillMaxWidth().heightIn(min = Metrics.readerBarMinHeightDp.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                BasicText(title, style = readerTitleStyle(skin), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                BasicText(addNotice ?: "Page ${page + 1} of $pageCount · $percent% read",
-                    style = readerLabelStyle(skin).copy(
-                        color = Color((if (addNotice != null) skin.colors.accent else skin.colors.textSecondary).toInt())),
-                    maxLines = 1)
-            }
-            if (canAddToLibrary) {
-                ReaderBarAction(if (adding) "Adding…" else "Add to library", skin, onAddToLibrary, enabled = !adding)
-            }
-            if (zoom > Metrics.pdfZoomLabelThreshold) {
-                ReaderBarAction("Zoom ${(zoom * 100).roundToInt()}%", skin, onResetZoom)
-            }
-            if (onSearch != null) ReaderBarAction("Find", skin, onSearch)
-            ReaderBarAction(if (bookmarked) "Bookmarked" else "Bookmark", skin, onBookmark)
-            ReaderBarAction("Marks", skin, onMarks)
-            if (showAa) ReaderBarAction("Aa", skin, onAa)
-        }
-        Spacer(Modifier.height(Metrics.readerProgressGapDp.dp))
-        PdfScrubber(page = page, pageCount = pageCount, skin = skin, onPage = onPage)
-    }
-    }
-}
-
-@Composable
-internal fun PdfScrubber(page: Int, pageCount: Int, skin: Skin, onPage: (Int) -> Unit) {
-    val fraction = if (pageCount <= 1) 0f else page.toFloat() / (pageCount - 1).toFloat()
-    Canvas(Modifier.fillMaxWidth().height(Metrics.pdfScrubberHitDp.dp)
-        .semantics { contentDescription = "Page ${page + 1} of $pageCount. Drag to change page." }
-        .pointerInput(pageCount) {
-            awaitEachGesture {
-                val down = awaitFirstDown(requireUnconsumed = false)
-                fun update(position: Offset) {
-                    if (size.width > 0) onPage(ReaderPdfMath.pageForFraction(position.x / size.width.toFloat(), pageCount))
-                }
-                update(down.position)
-                down.consume()
-                while (true) {
-                    val event = awaitPointerEvent()
-                    val change = event.changes.firstOrNull() ?: break
-                    if (!change.pressed) {
-                        change.consume()
-                        break
-                    }
-                    update(change.position)
-                    change.consume()
-                }
-            }
-        }) {
-        val centerY = size.height / 2f
-        drawLine(
-            color = Color(skin.colors.lineBase.toInt()),
-            start = Offset(0f, centerY),
-            end = Offset(size.width, centerY),
-            strokeWidth = Metrics.pdfScrubberTrackDp.dp.toPx(),
-        )
-        val radius = Metrics.pdfScrubberThumbDp.dp.toPx()
-        drawCircle(
-            color = Color(skin.colors.accent.toInt()),
-            radius = radius,
-            center = Offset(radius + (size.width - radius * 2f) * fraction, centerY),
-        )
+        if (barsVisible || sheet != ReaderSheet.None) ReaderBackButton(skin)
     }
 }
 

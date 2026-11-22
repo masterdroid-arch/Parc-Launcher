@@ -51,7 +51,7 @@ object SkinExchange {
         for ((section, tokens) in mapOf(
             "colors" to setOf("moduleSurface", "moduleGuide", "moduleInk"),
             "shape" to setOf("moduleStyle", "tileCornerDp", "moduleCornerDp"),
-            "typography" to setOf("numeralFamily", "clockDot", "countDot", "bigDot"),
+            "typography" to setOf("numeralFamily", "clockDot", "stat", "bigDot", "section", "body"),
         )) {
             (merged[section] as? JsonObject)?.let { merged[section] = JsonObject(it - tokens) }
         }

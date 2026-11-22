@@ -126,6 +126,8 @@ internal data class HubConfig(
     val arcadeOpen: Boolean = false,
     /** T258: pages that keep their own size. A page not listed here uses [size], the default for every page. */
     val pageSizes: Map<String, HubSize> = emptyMap(),
+    /** T330: the full-screen view is offered (pull the grip up or tap Expand). On by default. */
+    val fullScreenEnabled: Boolean = true,
 ) {
     /** The size this page is drawn at: its own when set, else the default. A null page (none shown) uses the default. */
     fun sizeFor(page: String?): HubSize {
@@ -192,11 +194,14 @@ internal data class HubConfig(
     }.let { rows ->
         // T258: own sizes ride in one extra row. Older readers skip it (it does not have four parts).
         val sizes = allPages.filter { it in pageSizes }.joinToString(",") { "$it=${pageSizes.getValue(it).id}" }
-        if (sizes.isEmpty()) rows else rows + "~sizes:$sizes"
+        // T330: only the opt-out is written, so an old document and a new default document encode the same.
+        rows + (if (sizes.isEmpty()) emptyList() else listOf(SizesRow + sizes)) +
+            (if (fullScreenEnabled) emptyList() else listOf(FullRow + "off"))
     }.joinToString(";")
 
     companion object {
         internal const val SizesRow = "~sizes:"
+        internal const val FullRow = "~full:"
 
         /** Unknown pages, unknown sizes and malformed pairs are dropped; the rest is kept. */
         internal fun decodeSizes(raw: String): Map<String, HubSize> {
@@ -210,6 +215,10 @@ internal data class HubConfig(
             }
             return result
         }
+
+        /** T330: the full-screen view is on unless the document says "~full:off"; anything unreadable keeps the default. */
+        internal fun decodeFullScreen(raw: String): Boolean =
+            !raw.split(';').any { it == FullRow + "off" }
 
         /**
          * Pages the saved document does not know (added by a later version) join at their catalog
@@ -225,7 +234,10 @@ internal data class HubConfig(
             return result
         }
 
-        fun decode(raw: String): HubConfig = decodeRows(raw).copy(pageSizes = decodeSizes(raw))
+        fun decode(raw: String): HubConfig = decodeRows(raw).copy(
+            pageSizes = decodeSizes(raw),
+            fullScreenEnabled = decodeFullScreen(raw),
+        )
 
         private data class SavedRow(val rawPage: String, val page: String, val shown: Boolean,
             val shownTiles: List<String>, val hiddenTiles: List<String>)

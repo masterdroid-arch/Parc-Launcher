@@ -97,6 +97,13 @@ object ParcSpacing {
         panelVerticalInsetDp(true).let { v -> HubInsets(h, v, h, v) }
     }
 
+    /**
+     * T330: the full-screen hub fills the screen, so its content keeps the page gutter at the sides and a
+     * card inset above and below. The status and navigation insets are added by the host.
+     */
+    fun hubFullScreen(): HubInsets =
+        HubInsets(Metrics.screenGutterDp, Metrics.cardInsetDp, Metrics.screenGutterDp, Metrics.cardInsetDp)
+
     /** Space between the rows of a hub page. */
     fun hubRowGapDp(): Float = Metrics.hudCellGapDp
 

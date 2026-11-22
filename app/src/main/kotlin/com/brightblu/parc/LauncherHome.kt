@@ -1,6 +1,7 @@
 package com.brightblu.parc
 
 import com.brightblu.parc.model.textFamily
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -88,12 +90,20 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     }
     // T30: the gear opens this overlay; the first-run hint shows once until dismissed.
     var showSettings by remember { mutableStateOf(false) }
+    // T324: the Home menu's wallpaper picker sheet, drawn over Home instead of a Settings page.
+    var showWallpaperSheet by remember { mutableStateOf(false) }
+    // T330: the stats hub grown to the whole screen. Saved across a density change or an activity recreation.
+    var hubFullScreen by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = hubFullScreen) { hubFullScreen = false }
     var settingsInitialPage by remember { mutableStateOf(SettingsPage.Root) }
-    // OPUS8 (T133): a group of the Settings root to open at once (Home menu "Wallpaper and look").
+    // OPUS8 (T133): a row of a Settings page to scroll to when it opens (Settings search results).
     var settingsInitialRow by remember { mutableStateOf<String?>(null) }
     var showFolderCreate by remember { mutableStateOf(false) }
     var folderCreateBefore by remember { mutableStateOf<ParcLayout?>(null) }
     var showAddApp by remember { mutableStateOf(false) }
+    // T312/T313: the shared arc chooser's target (new-app prompt, All-apps ring, Edit home Add app).
+    // Declared before the session so its "Add/Move to arc" callback can open the chooser.
+    var spotPickerApp by remember { mutableStateOf<AppEntry?>(null) }
     var hintSeen by remember { mutableStateOf(uiPrefs.hintSeen()) }
     var swapPulse by remember { mutableStateOf(emptySet<SlotPosition>()) }
     LaunchedEffect(services.usageLayer) {
@@ -218,6 +228,13 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             openSettingsAt = { target ->
                 settingsInitialPage = target.page; settingsInitialRow = target.row; showSettings = true
             },
+            onWallpaperSheet = { showWallpaperSheet = true },
+            onAddToArc = { id ->
+                // T313: the All-apps ring's "Add/Move to arc" opens the shared chooser. Lock is
+                // checked before the chooser opens, and again at save inside addToArc.
+                if (layoutLocked) edit.refuseLocked()
+                else spotPickerApp = appEntryFor(id, services.appIndex.apps.value)
+            },
             hubPages = { hubConfig.pages },
             hubPage = { page ->
                 scope.launch {
@@ -292,7 +309,6 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     // T246: one quiet prompt for an app installed after this version first looked, marked shown at
     // once and kept for a few seconds. The spot picker is the prompt's only action.
     var newAppPrompt by remember { mutableStateOf<AppEntry?>(null) }
-    var spotPickerApp by remember { mutableStateOf<AppEntry?>(null) }
     // T247: the app actions from a search long press, and the visual arc picker they open.
     var searchAppMenu by remember { mutableStateOf<SearchAppTarget?>(null) }
     var searchArcTarget by remember { mutableStateOf<SearchAppTarget?>(null) }
@@ -311,14 +327,20 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     LaunchedEffect(homePresses) {
         if (homePresses == 0) return@LaunchedEffect
         showSettings = false; settingsInitialPage = SettingsPage.Root; settingsInitialRow = null
+        showWallpaperSheet = false
         showFolderCreate = false; showAddApp = false; edit.emptyPosition = null
         newAppPrompt = null; spotPickerApp = null
         searchAppMenu = null; searchArcTarget = null
         pendingFocusLaunch = null; approvedFocusLaunch = null; pendingFocusExit = null
         // The hub goes back to its first page, also when Home was already clean.
+        hubFullScreen = false
         HomeKey.firstHubPage(DemoMode.enabled, hubConfig.pages) { focus.active?.hubPages?.let(HubCatalog::canonicalPages)?.contains(it) != false }
             ?.let { hubStore.rememberPage(it) }
     }
+    // T330: the full-screen hub exists only over a clean Home with the stats card shown, and only while its setting is on.
+    val hubFullScreenEligible = settings.statsVisible && shell.layer == Layer.Home && !ui.isOpen &&
+        !showSettings && !showWallpaperSheet && !edit.enabled && hubConfig.fullScreenEnabled
+    LaunchedEffect(hubFullScreenEligible) { if (!hubFullScreenEligible) hubFullScreen = false }
     val resumed by resumedFlow.collectAsState()
     // T246: an install that arrives while Parc is open, or while it was closed, waits in New. The
     // prompt is offered only once the screen is clean, and only for an app still waiting in New,
@@ -326,9 +348,9 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     // upgrade never asks about the existing New folder.
     LaunchedEffect(apps, layout, liveReady, resumed, shell.layer, ui.isOpen, menu, folderMenu,
         shortcutMenu, homeMenu, edit.enabled, edit.emptyPosition, edit.undoAvailable, showSettings,
-        showFolderCreate, spotPickerApp, newAppPrompt, layoutLocked, searchAppMenu, searchArcTarget) {
+        showWallpaperSheet, showFolderCreate, spotPickerApp, newAppPrompt, layoutLocked, searchAppMenu, searchArcTarget) {
         if (!liveReady || !resumed || DemoMode.enabled || layoutLocked || edit.undoAvailable) return@LaunchedEffect
-        if (shell.layer != Layer.Home || ui.isOpen || edit.enabled || showSettings || showFolderCreate ||
+        if (shell.layer != Layer.Home || ui.isOpen || edit.enabled || showSettings || showWallpaperSheet || showFolderCreate ||
             edit.emptyPosition != null || spotPickerApp != null || newAppPrompt != null ||
             searchAppMenu != null || searchArcTarget != null) return@LaunchedEffect
         if (menu != null || folderMenu != null || shortcutMenu != null || homeMenu != null) return@LaunchedEffect
@@ -413,6 +435,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     var leftHand by remember { mutableStateOf(uiPrefs.leftHand()) }
     LaunchedEffect(uiPrefs) { uiPrefs.leftHandFlow.collect { leftHand = it } }
     val counts by remember(uiPrefs) { uiPrefs.countsFlow }.collectAsState(initial = uiPrefs.layoutCounts())
+    val arcMaximums by remember(uiPrefs) { uiPrefs.arcMaximumsFlow }.collectAsState(initial = uiPrefs.arcMaximums())
     LaunchedEffect(counts.arcs, liveReady, layout) {
         if (liveReady && counts.arcs == 3 && layout.arcs.any { it.arc.id == "A4" && it.slots.isNotEmpty() }) {
             services.layout.updateLayout { LayoutCounts.migrate(it, counts.arcs) }
@@ -423,13 +446,15 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             geometry.options.copy(alignAcrossArcs = aligned, arcsShown = counts.arcs, iconsPerArc = counts.icons,
                 mirrored = leftHand))
     }
-    // T246: free spots are limited to the arcs the current hub size actually shows.
-    val promptSpots = remember(layout, sceneGeometry) {
-        ArcSpotChoices.free(
-            layout,
-            visibleArcIds = sceneGeometry.arcs.mapTo(mutableSetOf()) { it.id },
-            visibleCapacities = sceneGeometry.arcs.associate { it.id to it.slotCapacity },
-        )
+    // T246: free spots are limited to the arcs the current hub size actually shows. T312 replaces the
+    // per-spot lists with one shared arc chooser: each shown arc gets a "how full" row, and the New
+    // folder's borrowed spot counts as occupied exactly as Home draws it.
+    val newFolderSpot = remember(layout, sceneGeometry, hiddenFolders) {
+        ArcChooser.newFolderSpot(layout, sceneGeometry.arcs.lastOrNull()?.id ?: "",
+            FolderId(NewFolderKey) in hiddenFolders)
+    }
+    val arcChoices = remember(layout, sceneGeometry, arcMaximums, newFolderSpot) {
+        ArcChooser.choices(layout, sceneGeometry.arcs, arcMaximums, newFolderSpot)
     }
     val shortcutVisuals by produceState<Map<Slot.Shortcut, PinnedShortcutVisual>>(emptyMap(), layout, resumed, revision) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -456,7 +481,8 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     }
     val previews by produceState<Map<FolderId, android.graphics.Bitmap>>(emptyMap(), layout, visibleApps, revision, skin, iconTreatment, lockedFolders, hiddenFolders) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            FolderPreviews.prepare(layout, visibleApps, services.usage, skin, lockedFolders, visibility.hidden) {
+            FolderPreviews.prepare(layout, visibleApps, services.usage, skin, lockedFolders, visibility.hidden,
+                context.resources.getFont(com.brightblu.parc.core.model.R.font.figtree_variable)) {
                 sceneIcon(it)
             }
         }
@@ -497,12 +523,12 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     var badgesInAllApps by remember { mutableStateOf(uiPrefs.badgesInAllApps()) }
     val unread by NotificationUnreadStore.shared.unread.collectAsState()
     // Settings is opaque; input is gated through searchOpen (the renderer ignores touches meanwhile).
-    val inputBlocked = shortcutMenu != null || showSettings || showFolderCreate || edit.emptyPosition != null ||
+    val inputBlocked = shortcutMenu != null || showSettings || showWallpaperSheet || showFolderCreate || edit.emptyPosition != null ||
         spotPickerApp != null || folderMenu?.page == FolderPage.Rename || menu?.page == MenuPage.NewFolder ||
         searchAppMenu != null || searchArcTarget != null
     // T246: the prompt is never drawn over Settings, search, edit mode or another menu. It is still
     // marked seen once it is on screen, so closing that layer cannot make it appear a second time.
-    val newAppPromptVisible = newAppPrompt != null && !showSettings && !showFolderCreate &&
+    val newAppPromptVisible = newAppPrompt != null && !showSettings && !showFolderCreate && !showWallpaperSheet &&
         edit.emptyPosition == null && !edit.enabled && !ui.isOpen && shell.layer == Layer.Home &&
         menu == null && folderMenu == null && shortcutMenu == null && homeMenu == null && !edit.undoAvailable &&
         searchAppMenu == null && searchArcTarget == null
@@ -520,7 +546,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             searchHint = searchHint,
             swapPulse = swapPulse,
             accessibilityHidden = shortcutMenu != null || menu != null || folderMenu != null || homeMenu != null || edit.enabled ||
-                showSettings || !liveReady,
+                showSettings || showWallpaperSheet || !liveReady,
             highlight = search.highlight(),
             hostDimsModule = ui.isOpen,
             pulse = emptySet(),
@@ -582,8 +608,42 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
         }
     }
     val latestEditHomeScene by rememberUpdatedState(editHomeScene)
+    // T312: the shared add-to-arc write and the turn that reveals the new icon. Re-reads the live
+    // layout and lock at save time, so a layout that changed while the chooser was open is caught.
+    val reveal = remember { com.brightblu.parc.ring.RingReveal() }
+    val addToArc: (AppId, ArcChoice, Boolean) -> Unit = { appId, choice, fromSearch ->
+        scope.launch {
+            if (layoutLocked) { edit.refuseLocked(); return@launch }
+            val current = services.layout.layout.value
+            if (!services.appIndex.apps.value.any { it.id == appId }) {
+                edit.notify("Layout changed. Try again"); return@launch
+            }
+            // Re-resolve the New folder's borrowed spot from the live layout, so a layout that changed
+            // while the chooser was open cannot place over it.
+            val liveNewSpot = ArcChooser.newFolderSpot(current, sceneGeometry.arcs.lastOrNull()?.id ?: "",
+                FolderId(NewFolderKey) in hiddenFolders)
+            val result = ArcChooser.placement(current, appId, choice.arcId,
+                arcMaximums[choice.arcId] ?: ArcMaximums.Auto, liveNewSpot)
+            if (result == null) { edit.notify("Layout changed. Try again"); return@launch }
+            if (result.layout != current) {
+                edit.change(ArcChooser.addedMessage(choice.name)) {
+                    services.layout.importLayout(LayoutJson.encode(result.layout))
+                }
+            }
+            val occupied = result.layout.arcs.firstOrNull { it.arc.id == choice.arcId }?.slots?.keys.orEmpty()
+            val visibleCapacity = sceneGeometry.arcs.firstOrNull { it.id == choice.arcId }?.slotCapacity ?: 0
+            ArcChooser.revealOffset(result.index, occupied, visibleCapacity, liveRotations[choice.arcId] ?: 0f)
+                ?.let { offset ->
+                    uiPrefs.setRotation(choice.arcId, offset)
+                    liveRotations = liveRotations + (choice.arcId to offset)
+                    reveal.turnTo(choice.arcId, offset)
+                }
+            if (fromSearch) session.dismissSearch()
+        }
+    }
     val renderer = remember(edit) {
         CanvasRingRenderer(module = hubModule, stick = arcadeHost, hubPulse = { arcadePulse }, detectSearchSwipe = false, editing = edit, steer = steer,
+            reveal = reveal,
             editHome = { latestEditHomeScene },
             ignoreDown = { x, y -> latestLetterArcRef.value?.let { LetterArc.inZone(it, x, y) } == true },
             hapticsEnabled = { haptics }, feel = feel, arcFeel = { arcFeel }, joystickEnabled = { joystick },
@@ -646,7 +706,8 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     val arcSkin = hubCards.arc
     val statsSkin = hubCards.stats
     val swipeBlocked by rememberUpdatedState(inputBlocked || edit.enabled ||
-        menu != null || folderMenu != null || homeMenu != null || shell.layer == Layer.Folder || !liveReady || !resumed)
+        menu != null || folderMenu != null || homeMenu != null || shell.layer == Layer.Folder || !liveReady || !resumed ||
+        hubFullScreen)
     val latestSearch by rememberUpdatedState(ui.isOpen)
     val latestAbc by rememberUpdatedState(ui.abcListOpen)
     val latestSettings by rememberUpdatedState(showSettings)
@@ -676,6 +737,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 Metrics.searchButtonLeftDp + Metrics.searchButtonTouchDp / 2f, searchTop + Metrics.searchButtonTouchDp / 2f)
         } else null
     val latestLetterArc by rememberUpdatedState(letterArc)
+    val latestFullScreen by rememberUpdatedState(hubFullScreen)
     SideEffect { latestLetterArcRef.value = letterArc }
     // The Canvas applies search alpha tokens. Avoid multiplying them by the sheet scrim again.
     // T262: the search sheet follows the same glass rule as the hub cards, not the base skin's
@@ -720,7 +782,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 var opened = false
                 var thresholdTicked = false
                 try { do {
-                    val event = awaitPointerEvent(if (searchAtStart || fromHub) PointerEventPass.Final else PointerEventPass.Initial)
+                    val event = awaitPointerEvent(if (searchAtStart || fromHub || latestFullScreen) PointerEventPass.Final else PointerEventPass.Initial)
                     if (event.changes.count { it.pressed } > 1) { pull.cancel(); swipeUp.cancel() }
                     // M13 review: a held tab drag (page reorder) owns the finger: no search pull, no swipe up from it.
                     val reorderOwns = HubDragPriority.owns(liftsAtDown)
@@ -851,10 +913,14 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 dayLedger = services.dayLedger, newApps = services.newApps,
                 appStorage = services.appStorage, volume = services.volume, comms = services.comms,
                 entries = services.unlockedApps.collectAsState().value,
-                onLaunch = session::launch,
+                onLaunch = { id -> hubFullScreen = false; session.launch(id) },
                 skin = statsSkin,
                 eligible = statsEligibleNow && !edit.enabled && !showSettings,
                 resumed = resumed,
+                fullScreen = hubFullScreen,
+                fullScreenEnabled = hubConfig.fullScreenEnabled,
+                onExpandFullScreen = { if (hubConfig.fullScreenEnabled) hubFullScreen = true },
+                onCloseFullScreen = { hubFullScreen = false },
                 expanded = settings.statsExpanded,
                 onToggleExpanded = {
                     scope.launch { hubStore.update { it.copy(size = it.size.next()) } }
@@ -911,13 +977,10 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     },
                     onAddApp = { showAddApp = true },
                     onPickApp = { id ->
-                        scope.launch {
-                            val current = services.layout.layout.value
-                            if (current.arcs.firstOrNull { it.arc.id == position.arcId }?.slots?.containsKey(position.index) == false) {
-                                edit.change("App added") { services.layout.pin(id, position) }
-                            } else edit.notify("Layout changed. Try again")
-                            edit.emptyPosition = null; showAddApp = false
-                        }
+                        // T313: "Add app" routes through the shared chooser and its automatic
+                        // placement, so an app already on Home moves instead of being duplicated.
+                        edit.emptyPosition = null; showAddApp = false
+                        spotPickerApp = appEntryFor(id, services.appIndex.apps.value)
                     }, onClose = { edit.emptyPosition = null; showAddApp = false })
             }
             if (showFolderCreate) FolderEditorHost(services, skin, create = true) {
@@ -950,10 +1013,24 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     onChangeLook = { change -> scope.launch { lookStore.update(change) } },
                     onClose = { showSettings = false; settingsInitialPage = SettingsPage.Root; settingsInitialRow = null })
             }
+            // T324: the wallpaper picker as a sheet over Home, with the same choices as the Settings page.
+            if (showWallpaperSheet) {
+                WallpaperSheet(skin, look,
+                    onChange = { change -> scope.launch { lookStore.update(change) } },
+                    onClose = { showWallpaperSheet = false })
+            }
             if (sheetShown) {
                 if (ui.isOpen && ui.abcListOpen) {
                     val index = remember(visibleApps, layout.hidden) { AbcIndex.of(visibleApps, layout.hidden) }
-                    AbcListScreen(index, skin, session::launch)
+                    AbcListScreen(index, skin, session::launch, onAppLongPress = { entry ->
+                        // T313: the alphabetical list now shares the search app actions, so its
+                        // "Add/Move to arc" is the same chooser as everywhere else.
+                        hideKeyboard()
+                        session.keyboard(false)
+                        searchAppMenu = SearchAppTarget(entry.id, entry.label, appActions.canUninstall(entry),
+                            alias = searchPrefsSnapshot.aliases[entry.id.value].orEmpty(),
+                            placed = FolderDrop.homePosition(layout, entry.id) != null)
+                    })
                     AllAppsJoystick(sceneGeometry, skin, session::dismissSearch)
                 } else if (!ui.abcListOpen) SearchSheet(search, sheetSkin, progress = { sheet.progress }, closing = !ui.isOpen, onLaunch = { id ->
                     // A successful search clears the T35 discoverability hint.
@@ -981,21 +1058,22 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                             hideKeyboard()
                             session.keyboard(false)
                             searchAppMenu = SearchAppTarget(entry.id, entry.label, appActions.canUninstall(entry),
-                                alias = searchPrefsSnapshot.aliases[entry.id.value].orEmpty())
+                                alias = searchPrefsSnapshot.aliases[entry.id.value].orEmpty(),
+                                placed = FolderDrop.homePosition(layout, entry.id) != null)
                         }
                     })
             }
             Box(Modifier.fillMaxWidth().leanAway(lean)) {
-            PullSearchBar(skin, progress = { if (ui.abcListOpen) 0f else pullProgress.floatValue },
-                committed = ui.isOpen && !ui.abcListOpen,
-                query = ui.query, onQueryChange = search::onQueryChange)
+            // T314: the pull bar is a preview only. It shows during the pull and its cancelled
+            // return, and disappears once search opens so the sheet's field is the only editable one.
+            PullSearchBar(skin, progress = { pullPreviewProgress(ui.isOpen, pullProgress.floatValue) })
             }
             // T246: the quiet new-app line sits below the menus; the spot picker sits above them.
             if (newAppPromptVisible) newAppPrompt?.let { app ->
                 NewAppPromptBar(app.label, skin, onAdd = {
                     newAppPrompt = null
+                    // The chooser itself says when every arc is full; only the lock stops it here.
                     if (layoutLocked) edit.refuseLocked()
-                    else if (promptSpots.isEmpty()) edit.notify(ArcsFull)
                     else spotPickerApp = app
                 }, modifier = Modifier.align(Alignment.BottomCenter))
             }
@@ -1028,19 +1106,16 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 HomeMenu(it, skin, onDismiss = session::dismissHomeMenu, onRow = session::homeMenuAction)
             }
             spotPickerApp?.let { app ->
-                SpotPickerSheet(app.label, promptSpots, skin, onPick = { spot ->
+                ArcChooserSheet(app.label, arcChoices, skin, onPick = { choice ->
                     spotPickerApp = null
-                    scope.launch {
-                        val current = services.layout.layout.value
-                        if (ArcSpotChoices.isFree(current, spot.position) &&
-                            services.appIndex.apps.value.any { it.id == app.id }) {
-                            edit.change("App added") { services.layout.pin(app.id, spot.position) }
-                        } else edit.notify("Layout changed. Try again")
-                    }
+                    addToArc(app.id, choice, false)
+                }, onOpenSettings = {
+                    spotPickerApp = null
+                    settingsInitialPage = SettingsPage.HomeArcs; settingsInitialRow = null; showSettings = true
                 }, onClose = { spotPickerApp = null })
             }
             // T247: a long press on a search app opens these actions; Add to arc replaces the sheet
-            // with the live arcs and a plus on every free spot.
+            // with the shared T312 chooser (a list of arcs with their free counts).
             searchAppMenu?.let { target ->
                 SearchAppMenuSheet(
                     target = target,
@@ -1051,7 +1126,8 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     skin = skin,
                     onAddToArc = {
                         searchAppMenu = null
-                        searchArcTarget = target
+                        // Respect Lock layout before the chooser opens, and again at save.
+                        if (layoutLocked) edit.refuseLocked() else searchArcTarget = target
                     },
                     onAddToFolder = { folder ->
                         searchAppMenu = null
@@ -1101,34 +1177,14 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     onCancel = { aliasTarget = null })
             }
             searchArcTarget?.let { target ->
-                SearchArcPicker(
-                    target = target,
-                    layout = layout,
-                    geometry = sceneGeometry,
-                    rotations = liveRotations,
-                    skin = skin,
-                    onPick = { position ->
-                        searchArcTarget = null
-                        session.dismissSearch()
-                        scope.launch {
-                            val current = services.layout.layout.value
-                            if (ArcSpotChoices.isFree(current, position) &&
-                                services.appIndex.apps.value.any { it.id == target.appId }) {
-                                val existing = FolderDrop.homePosition(current, target.appId)
-                                if (existing == null) {
-                                    edit.change("App added") { services.layout.pin(target.appId, position) }
-                                } else {
-                                    // Already on an arc: it moves to the chosen spot, it is never placed twice.
-                                    edit.change("App moved") {
-                                        SlotOrder.move(current, existing, position)
-                                            ?.let { services.layout.importLayout(LayoutJson.encode(it)) }
-                                    }
-                                }
-                            } else edit.notify("Layout changed. Try again")
-                        }
-                    },
-                    onClose = { searchArcTarget = null },
-                )
+                ArcChooserSheet(target.label, arcChoices, skin, onPick = { choice ->
+                    searchArcTarget = null
+                    addToArc(target.appId, choice, true)
+                }, onOpenSettings = {
+                    searchArcTarget = null
+                    session.dismissSearch()
+                    settingsInitialPage = SettingsPage.HomeArcs; settingsInitialRow = null; showSettings = true
+                }, onClose = { searchArcTarget = null })
             }
             shortcutMenu?.let { shortcut ->
                 androidx.compose.material3.AlertDialog(onDismissRequest = session::dismissShortcutMenu,

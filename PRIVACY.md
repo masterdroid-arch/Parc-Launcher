@@ -12,9 +12,11 @@ promises the code does not keep.
   Play Billing. Donations are the only money; see "Free and donations" below.
 - The public GitHub release is the **family internet build**. It uses the
   internet only for Weather and Translate (your own DeepL key), and never for
-  accounts, ads, analytics or tracking. The `personal` and `play` builds leave
-  Weather and Translate out and do not declare the `INTERNET` permission.
-  Replies and web searches can hand data to another app when you ask.
+  accounts, ads, analytics or tracking. The `personal` and `personalWeather`
+  builds also declare the `INTERNET` permission, for the private auto update
+  and the language data packs described below. The `play` build leaves Weather,
+  Translate, updates and packs out and does not declare the `INTERNET`
+  permission. Replies and web searches can hand data to another app when you ask.
 - There are **no accounts, no advertising, no analytics, no tracking and no
   crash upload**.
 - Everything Parc reads (apps, notifications, contacts, calendar, media names,
@@ -138,9 +140,11 @@ label the tiles; nothing is stored.
 
 This section applies to the `personalWeather` and `family` builds. The public
 GitHub release is the `family` build; it has the same internet features. The
-`personal` and `play` builds have no Weather page and do not declare the
-`INTERNET` permission. Weather and Translate are the only online features: there
-are no accounts, ads, analytics or tracking.
+`play` build has no Weather page and does not declare the `INTERNET` permission.
+The `personal` build has no Weather page but does declare `INTERNET`, for the
+auto update and the language packs. Weather and Translate are the online
+features of the `personalWeather` and `family` builds; there are no accounts,
+ads, analytics or tracking.
 
 - **Who receives data:** Open-Meteo (open-meteo.com), over https, at
   `geocoding-api.open-meteo.com` and `api.open-meteo.com` for Weather.
@@ -170,10 +174,42 @@ are no accounts, ads, analytics or tracking.
   Translate in the reader; never for less than two characters, and nothing typed
   or selected in any other mode. No device identifier or other data is sent.
   DeepL's free plan may store the texts it receives; DeepL's own terms and
-  privacy policy apply. The key is pasted by you, stored only on the phone
-  encrypted with an Android Keystore key, is not part of backups and is never
-  logged. The last 20 translations are kept on the phone only, outside backups;
-  you can clear them on the key screen.
+  privacy policy apply. Parc encrypts your pasted key on the phone with Android
+  Keystore. Manual and weekly backups include it, readable unless you set a
+  backup passphrase. Restore encrypts it again with the destination phone’s
+  Keystore. Logs and diagnostics exclude it. Your last 20 translations stay
+  on the phone. You can clear them on the key screen.
+
+## Updates and language packs (personal builds)
+
+The `personal` and `personalWeather` builds can check a private GitHub repo
+(`masterdroid-arch/parc-builds`) for a newer personal build, and can download
+two language data packs (a Portuguese voice pack and an English–Portuguese
+dictionary) for the Palavra learning feature.
+
+- **Who receives data:** GitHub, over https (`api.github.com` and GitHub's
+  download hosts). GitHub's own terms and privacy policy apply to what its
+  servers receive, including your IP address, as with any web request. The repo
+  is private and read-only; Parc only reads release metadata and downloads the
+  APK and pack files.
+- **The token:** checking for updates and downloading packs needs a read-only
+  GitHub token you paste once in Settings. The token is stored only on this
+  phone, encrypted with an Android Keystore key, and is never part of a backup,
+  a log or a diagnostic file. It gives access to private builds and is easy to recreate
+  after a reinstall. Removing it in Settings deletes it.
+- **When:** the update check runs only when you tap **Check for updates**, or,
+  if you turn on **Check automatically**, at most once a day when Parc starts.
+  It never sends anything else about the phone, your apps or your use.
+- **Installing an update:** when a newer version exists, tapping the update
+  downloads the APK to Parc's own cache, checks its SHA-256 and that its signing
+  certificate matches the installed app, then hands the file to Android's
+  installer. You still tap **Install**; Parc cannot install silently.
+- **Data packs:** the voice pack and dictionary are stored in Parc's own files
+  (`packs/`), outside backups, and are re-downloaded when a new version appears.
+  Their download has a **Wi-Fi only** switch (on by default). Removing a pack
+  deletes its files.
+- **No pack, no problem:** without a pack, Palavra falls back to the phone's own
+  text-to-speech voice and offers a hand-off for dictionary lookups.
 
 ## Messages page
 
@@ -227,6 +263,9 @@ saved as local settings. Those settings contain no message content.
 - An optional wallpaper image you picked, if the wallpaper skin is used.
 - The weekly backup switch, the folder you picked for it and the folder's Android grant, the
   last backup time and the last failure line. This belongs to one phone and is not in backups.
+- In the personal and weather builds: the read-only update token (encrypted,
+  not in backups) and the downloaded language packs (outside backups and
+  re-downloadable).
 
 This data stays in Parc's private app storage. Android backup is disabled with
 `allowBackup="false"`, so it is not uploaded to Google's backup service.
@@ -238,21 +277,27 @@ picker. The file is written where you choose. Once it exists, that file is
 yours to keep or delete; Parc does not upload it and cannot reach it again unless
 you import it.
 
-A Parc backup is a readable file, not encrypted. It contains layout, settings,
+Backups are readable files by default. If you turn on **Encrypt backups**, manual
+and weekly backups are protected with your passphrase. Nobody can recover it:
+forget it and the backup cannot be opened. A backup contains layout, settings,
 notes, quotes, daily records, the chosen book list and its reading positions,
 bookmarks and highlights, shelves and their rules, finished marks, reader
 choices, saved Weather places in the weather build, the search aliases you set,
 and an optional wallpaper image. It contains neither book files nor cached
 covers or forecasts.
-The DeepL key and translation history stay out too. The Messages history stays
-in its own `comms-history.db` and is never copied into a backup or a diagnostics
+Anyone with an unencrypted backup can read the saved DeepL key. Translation history stays
+on the phone. The Messages history stays in its own `comms-history.db` and is never copied into a backup or a diagnostics
 file. Restoring a backup does not restore message history.
 
 If you turn on **Back up every week** and pick a folder, Parc writes the same
 backup file there once a week while the phone is charging and idle. It keeps the
 newest four dated files and needs no internet and no account. The switch, folder,
 last time and last failure stay on the phone and are not themselves copied into a
-backup.
+backup. With encryption on, the passphrase is stored on this phone encrypted with
+an Android Keystore key, separately from backups. It is never logged, included in
+diagnostics or copied into a backup. After uninstalling Parc, you must remember
+the passphrase. If the stored passphrase is missing or cannot be opened, the weekly
+job writes nothing and asks you to enter it again. Old readable backups still restore.
 
 Diagnostics contain Parc's own log and facts about the phone. Parc's log helper
 redacts URLs, addresses, quoted text, package names and long numbers before a
@@ -270,7 +315,9 @@ Only because you asked:
 - Saving or sharing a backup or diagnostics file.
 - Searching for a Weather place or viewing its forecast, or typing in Translate
   in the internet build, as described above.
-- Opening the donation page from Support Parc in About, when a link is set.
+- Checking for updates or downloading a language pack in the personal or
+  weather build, as described above.
+- Opening the donation page from Support Parc in About: the row opens ko-fi.com in the browser only when you tap it.
 
 In those cases the other app or service handles the data under its own policy.
 For example, a web search opens your browser with the text you typed.

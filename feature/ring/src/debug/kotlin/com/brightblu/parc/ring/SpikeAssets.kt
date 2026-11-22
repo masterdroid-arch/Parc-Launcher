@@ -8,7 +8,7 @@ import kotlinx.coroutines.withContext
 /** Debug-only bitmaps; constructed once off main and retained for the screen lifetime. */
 class SpikeAssets(val home: Array<Bitmap>, val folder: Array<Bitmap>, val glow: Bitmap) {
     companion object {
-        suspend fun create(skin: Skin, count: Int): SpikeAssets = withContext(Dispatchers.Default) {
+        suspend fun create(skin: Skin, count: Int, wordFace: Typeface): SpikeAssets = withContext(Dispatchers.Default) {
             check(android.os.Looper.myLooper() != android.os.Looper.getMainLooper())
             val palette = intArrayOf(skin.colors.accent.toInt(), skin.colors.pulse.toInt(),
                 skin.colors.textSecondary.toInt(), skin.colors.lineActive.toInt())
@@ -21,7 +21,7 @@ class SpikeAssets(val home: Array<Bitmap>, val folder: Array<Bitmap>, val glow: 
                 paint.color = palette[(index + if (folder) 2 else 0) % palette.size]
                 canvas.drawCircle(half, half, half, paint)
                 paint.color = skin.colors.bg.toInt()
-                paint.typeface = Typeface.create(skin.typography.fallbackFamily, Typeface.NORMAL)
+                paint.typeface = wordFace
                 paint.textAlign = Paint.Align.CENTER
                 paint.textSize = SpikeConfig.bitmapPx * SpikeConfig.glyphFraction
                 val letter = (if (folder) 'a' else 'A') + index

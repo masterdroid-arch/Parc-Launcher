@@ -75,6 +75,19 @@ object BookFolderRules {
     /** Keep only the rows and records that belong to the folders the user chose now. Picked files stay. */
     fun retainFolders(index: BookIndex, locations: Set<String>): BookIndex =
         BookIndexRules.retainFolders(index, locations)
+
+    /**
+     * T346: forgotten picker folders whose Android read grant nothing still needs. A grant is kept when
+     * a retained Library book lives under that tree, because its marks and place would otherwise be
+     * stranded. Plain-directory folders hold no grant and are never returned.
+     */
+    fun releaseableGrants(removed: List<BookFolder>, retainedUris: List<String>): List<String> =
+        removed.filter { it.tree }
+            .map { it.location.trimEnd('/') }
+            .filter { location ->
+                retainedUris.none { uri -> uri == location || uri.startsWith("$location/") }
+            }
+            .distinct()
 }
 
 object BookFolderJson {

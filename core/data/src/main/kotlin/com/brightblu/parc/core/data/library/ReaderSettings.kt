@@ -19,7 +19,15 @@ import kotlinx.serialization.json.Json
 enum class ReaderFamily { Serif, Sans, Figtree }
 
 @Serializable
-enum class ReaderPageColor { Light, Sepia, Dark, Black }
+enum class ReaderPageColor { Light, Sepia, Dark, Black, BlackOnWhite, WhiteOnBlack }
+
+/** T345: colour is the default; greyscale leaves shades but removes hue from page images. */
+@Serializable
+enum class ReaderImageTone { Colour, Greyscale }
+
+/** True for the paired untinted modes: black ink on white paper, or the reverse. */
+val ReaderPageColor.isPurePaper: Boolean
+    get() = this == ReaderPageColor.BlackOnWhite || this == ReaderPageColor.WhiteOnBlack
 
 /** One set of reading choices for every book (T207). All values are clamped on read and write. */
 @Serializable
@@ -42,6 +50,15 @@ data class ReaderSettings(
     // documents read as the calm defaults and backups keep working without a new key.
     val ttsSpeed: Float = ReaderTtsRules.DefaultSpeed,
     val ttsStopAtChapterEnd: Boolean = false,
+    // T345: black-and-white reading and the remaining comfort choices. Old documents read as the
+    // same calm defaults because every new field has a value that preserves the T208 behaviour.
+    val imageTone: ReaderImageTone = ReaderImageTone.Colour,
+    val heavyText: Boolean = false,
+    val keepAwake: Boolean = false,
+    val continuous: Boolean = false,
+    // T350: the quiet page label in the corner while the bars are hidden. Default on, because the
+    // card's complaint was not knowing the page at all.
+    val showPageNumber: Boolean = true,
 ) {
     init {
         require(brightness.isFinite() && brightness == 0f || brightness in MinBrightness..1f)
@@ -70,6 +87,13 @@ data class ReaderSettings(
         else -> value.coerceAtMost(1f)
     })
 
+    /**
+     * T345: selecting a pure-paper mode clears the warm Night override, which otherwise wins over
+     * the page colour. Light, Sepia, Dark and Black keep the existing Night behaviour.
+     */
+    fun withPageColor(page: ReaderPageColor): ReaderSettings =
+        copy(pageColor = page, night = if (page.isPurePaper) false else night)
+
     companion object {
         const val MinBrightness = 0.05f
     }
@@ -96,10 +120,23 @@ object ReaderSettingsJson {
         val volumeKeys: Boolean = false,
         val ttsSpeed: Float = ReaderTtsRules.DefaultSpeed,
         val ttsStopAtChapterEnd: Boolean = false,
+        val imageTone: ReaderImageTone = ReaderImageTone.Colour,
+        val heavyText: Boolean = false,
+        val keepAwake: Boolean = false,
+        val continuous: Boolean = false,
+        val showPageNumber: Boolean = true,
     )
 
     fun encode(settings: ReaderSettings): String = json.encodeToString(Dto.serializer(), settings.let {
-        Dto(it.fontSp, it.lineSpacing, it.marginFraction, it.family, it.pageColor, it.pdfLayout, it.pdfInvert, it.brightness, it.night, it.volumeKeys, it.ttsSpeed, it.ttsStopAtChapterEnd)
+        Dto(
+            fontSp = it.fontSp, lineSpacing = it.lineSpacing, marginFraction = it.marginFraction,
+            family = it.family, pageColor = it.pageColor, pdfLayout = it.pdfLayout,
+            pdfInvert = it.pdfInvert, brightness = it.brightness, night = it.night,
+            volumeKeys = it.volumeKeys, ttsSpeed = it.ttsSpeed,
+            ttsStopAtChapterEnd = it.ttsStopAtChapterEnd, imageTone = it.imageTone,
+            heavyText = it.heavyText, keepAwake = it.keepAwake, continuous = it.continuous,
+            showPageNumber = it.showPageNumber,
+        )
     })
 
     /** Empty, old or garbled documents read as the calm defaults. Values outside the range are clamped. */
@@ -123,6 +160,11 @@ object ReaderSettingsJson {
             volumeKeys = raw.volumeKeys,
             ttsSpeed = ReaderTtsRules.nearestSpeed(raw.ttsSpeed),
             ttsStopAtChapterEnd = raw.ttsStopAtChapterEnd,
+            imageTone = raw.imageTone,
+            heavyText = raw.heavyText,
+            keepAwake = raw.keepAwake,
+            continuous = raw.continuous,
+            showPageNumber = raw.showPageNumber,
         )
     }
 }

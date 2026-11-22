@@ -1,5 +1,8 @@
 package com.brightblu.parc.model
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -15,6 +18,31 @@ class SkinV2Test {
             typography = defaults.copy(numeralFamily = "Doto", countDot = TypeToken(30f, 700, 1f)),
         )
         assertEquals(skin, SkinJson.decode(SkinJson.encode(skin)))
+    }
+
+    @Test fun typographyRolesLoadFromCurrentAndLegacySkins() {
+        val oldSkin = Json.parseToJsonElement(SkinJson.encode(Skin.Midnight)).jsonObject
+        fun load(roles: String): TypographyTokens {
+            val skin = JsonObject(oldSkin + ("typography" to Json.parseToJsonElement(roles)))
+            return SkinJson.decode(skin.toString()).typography
+        }
+
+        val legacy = load("""{
+            "countDot":{"sizeSp":32,"weight":600,"trackingSp":1},
+            "menu":{"sizeSp":15,"weight":450,"trackingSp":0}
+        }""")
+        assertEquals(TypeToken(32f, 600, 1f), legacy.stat)
+        assertEquals(TypeToken(17f, 500, 0f), legacy.section)
+        assertEquals(TypeToken(15f, 400, 0f), legacy.body)
+        assertEquals(400, legacy.menu.weight)
+        val current = load("""{
+            "section":{"sizeSp":18,"weight":600,"trackingSp":1},
+            "body":{"sizeSp":16,"weight":500,"trackingSp":0.2},
+            "stat":{"sizeSp":30,"weight":500,"trackingSp":0}
+        }""")
+        assertEquals(TypeToken(18f, 600, 1f), current.section)
+        assertEquals(TypeToken(16f, 500, 0.2f), current.body)
+        assertEquals(TypeToken(30f, 500, 0f), current.countDot)
     }
 
     @Test fun invalidNewTokensRejectWholeSkin() {

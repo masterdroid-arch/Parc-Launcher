@@ -349,5 +349,159 @@
         "text": "Labels are brighter on the glass, and More below no longer covers your text."
       }
     ]
+  },
+  {
+    "versionName": "1.5.2",
+    "versionCode": 10502,
+    "date": "2026-11-18",
+    "items": [
+      {
+        "headline": "Quizzes for your words",
+        "text": "A 10-question quiz after each set, review of what you learnt, and an endless practice mode."
+      },
+      {
+        "headline": "Lessons",
+        "text": "Short grammar lessons with practice that join your reviews. Easier to read."
+      },
+      {
+        "headline": "Year page",
+        "text": "Add a date works again."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.3",
+    "versionCode": 10503,
+    "date": "2026-11-18",
+    "items": [
+      {
+        "headline": "Updates and downloads",
+        "text": "Check for updates and fetch extra data from a private place. Easier to read."
+      },
+      {
+        "headline": "Quizzes for your words",
+        "text": "A 10-question quiz after each set, review of what you learnt, and an endless practice mode."
+      },
+      {
+        "headline": "Lessons",
+        "text": "Short grammar lessons with practice that join your reviews."
+      },
+      {
+        "headline": "Year page",
+        "text": "Add a date works again."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.4",
+    "versionCode": 10504,
+    "date": "2026-11-18",
+    "items": [
+      {
+        "headline": "Better quiz answers",
+        "text": "Wrong choices now fit the word you are asked about."
+      },
+      {
+        "headline": "Dictionary",
+        "text": "Look a word up offline, in English or Portuguese, from the reader."
+      },
+      {
+        "headline": "Clearer lessons",
+        "text": "Lessons show what you have done, with a calmer, tidier layout."
+      },
+      {
+        "headline": "Hear the words",
+        "text": "Tap a speaker to hear words and example sentences."
+      },
+      {
+        "headline": "Deeper lessons: basics",
+        "text": "Numbers, time, dates and phrases in full, with new practice every time."
+      },
+      {
+        "headline": "Deeper lessons: building",
+        "text": "Articles, nouns and plurals in full, with new practice every time."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.5",
+    "versionCode": 10505,
+    "date": "2026-11-18",
+    "items": [
+      {
+        "headline": "Fixes",
+        "text": "Small fixes and improvements. Easier to read."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.6",
+    "versionCode": 10506,
+    "date": "2026-11-18",
+    "items": [
+      {
+        "headline": "Your translation key",
+        "text": "Your DeepL key now comes back with a restored backup."
+      },
+      {
+        "headline": "Protected backups",
+        "text": "Choose a passphrase to encrypt your backups. Easier to read."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.7",
+    "versionCode": 10507,
+    "date": "2026-11-18",
+    "items": [
+      {
+        "headline": "Fixes",
+        "text": "Small fixes and improvements. Easier to read."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.8",
+    "versionCode": 10508,
+    "date": "2026-11-21",
+    "items": [
+      {
+        "headline": "Fixes",
+        "text": "Small fixes and improvements. Easier to read."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.9",
+    "versionCode": 10509,
+    "date": "2026-11-21",
+    "items": [
+      {
+        "headline": "Fixes",
+        "text": "Small fixes and improvements. Easier to read."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.10",
+    "versionCode": 10510,
+    "date": "2026-11-22",
+    "items": [
+      {
+        "headline": "Fixes",
+        "text": "Small fixes and improvements. Easier to read."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.11",
+    "versionCode": 10511,
+    "date": "2026-11-22",
+    "items": [
+      {
+        "headline": "Fixes",
+        "text": "Small fixes and improvements. Easier to read."
+      }
+    ]
   }
 ]

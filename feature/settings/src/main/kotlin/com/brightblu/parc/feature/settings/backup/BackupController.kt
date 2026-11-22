@@ -1,5 +1,8 @@
 package com.brightblu.parc.feature.settings.backup
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,12 +19,98 @@ import kotlinx.coroutines.launch
 class BackupController(
     private val service: LayoutBackupService,
     private val scope: CoroutineScope,
+    private val protection: BackupProtection? = null,
 ) {
-    private val stateFlow = MutableStateFlow(BackupUiState(service.suggestedFileName()))
+    private val stateFlow = MutableStateFlow(BackupUiState(service.suggestedFileName(), encrypted = protection?.enabled == true))
     val state: StateFlow<BackupUiState> = stateFlow.asStateFlow()
 
-    /** Writes the current layout to the document the user chose. No-op while a request is running. */
-    fun exportTo(uri: String) = launch { service.exportTo(uri) }
+    private var pendingUri: String? = null
+
+    /** Writes the current layout to the document the user chose. */
+    fun exportTo(uri: String) {
+        if (stateFlow.value.busy || stateFlow.value.passphrasePurpose != null) return
+        if (protection?.enabled == true) {
+            pendingUri = uri
+            stateFlow.value = stateFlow.value.copy(passphrasePurpose = PassphrasePurpose.Export, message = null)
+        } else launch { service.exportTo(uri) }
+    }
+
+    fun toggleEncryption() {
+        if (stateFlow.value.busy) return
+        if (protection?.enabled == true) launch {
+            try {
+                withContext(Dispatchers.IO) { protection.disable() }
+                stateFlow.value = stateFlow.value.copy(encrypted = false)
+                BackupOutcome.ProtectionChanged
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                BackupOutcome.Failed(BackupFailure.WriteFailed)
+            }
+        } else stateFlow.value = stateFlow.value.copy(passphrasePurpose = PassphrasePurpose.Enable, message = null)
+    }
+
+    fun enterPassphraseAgain() {
+        if (!stateFlow.value.busy) stateFlow.value = stateFlow.value.copy(passphrasePurpose = PassphrasePurpose.Enable, message = null)
+    }
+
+    fun cancelPassphrase() {
+        pendingUri = null
+        stateFlow.value = stateFlow.value.copy(passphrasePurpose = null, message = null)
+    }
+
+    fun submitPassphrase(value: String, repeat: String) {
+        val purpose = stateFlow.value.passphrasePurpose ?: return
+        if (stateFlow.value.busy) return
+        if (purpose != PassphrasePurpose.Restore && value.length < 8) {
+            stateFlow.value = stateFlow.value.copy(message = "Use at least 8 characters")
+            return
+        }
+        if (purpose == PassphrasePurpose.Enable && value != repeat) {
+            stateFlow.value = stateFlow.value.copy(message = "The passphrases do not match")
+            return
+        }
+        val secret = value.toCharArray()
+        val uri = pendingUri
+        pendingUri = null
+        stateFlow.value = stateFlow.value.copy(passphrasePurpose = null, busy = true, message = null)
+        scope.launch {
+            try {
+                when (purpose) {
+                    PassphrasePurpose.Enable -> {
+                        withContext(Dispatchers.IO) { protection?.enable(secret) }
+                        stateFlow.value = stateFlow.value.copy(busy = false, encrypted = protection?.enabled == true)
+                    }
+                    PassphrasePurpose.Export -> {
+                        val outcome = service.exportTo(requireNotNull(uri), secret)
+                        stateFlow.value = stateFlow.value.copy(busy = false, message = backupMessage(outcome))
+                    }
+                    PassphrasePurpose.Restore -> {
+                        val document = requireNotNull(uri)
+                        acceptRestore(service.prepareRestore(document, secret), document)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                stateFlow.value = stateFlow.value.copy(busy = false, message = "Could not save the passphrase")
+            } finally {
+                secret.fill('\u0000')
+            }
+        }
+    }
+
+    private fun acceptRestore(outcome: BackupOutcome, uri: String) {
+        pending = outcome as? BackupOutcome.Ready
+        when (outcome) {
+            is BackupOutcome.Ready -> stateFlow.value = stateFlow.value.copy(busy = false, pendingRestore = outcome.summary)
+            BackupOutcome.NeedsPassphrase -> {
+                pendingUri = uri
+                stateFlow.value = stateFlow.value.copy(busy = false, passphrasePurpose = PassphrasePurpose.Restore)
+            }
+            else -> stateFlow.value = stateFlow.value.copy(busy = false, message = backupMessage(outcome))
+        }
+    }
 
     private var pending: BackupOutcome.Ready? = null
 
@@ -30,19 +119,11 @@ class BackupController(
      * changed yet; [BackupUiState.pendingRestore] carries the summary for the confirm step.
      */
     fun restoreFrom(uri: String) {
-        if (stateFlow.value.busy) return
+        if (stateFlow.value.busy || stateFlow.value.passphrasePurpose != null) return
+        pending = null
         stateFlow.value = stateFlow.value.copy(busy = true, message = null, pendingRestore = null)
         scope.launch {
-            when (val outcome = service.prepareRestore(uri)) {
-                is BackupOutcome.Ready -> {
-                    pending = outcome
-                    stateFlow.value = stateFlow.value.copy(busy = false, pendingRestore = outcome.summary)
-                }
-                else -> {
-                    pending = null
-                    stateFlow.value = stateFlow.value.copy(busy = false, message = backupMessage(outcome))
-                }
-            }
+            acceptRestore(service.prepareRestore(uri), uri)
         }
     }
 
@@ -76,10 +157,13 @@ class BackupController(
 
 /** Plain-language result line for the screen. No em dash, per the workspace writing rules. */
 fun backupMessage(outcome: BackupOutcome): String = when (outcome) {
+    BackupOutcome.ProtectionChanged -> "Backup encryption turned off"
+    BackupOutcome.NeedsPassphrase -> "Enter your passphrase"
     is BackupOutcome.Exported -> "Backup saved"
     is BackupOutcome.Restored -> "Restored " + outcome.summary.describe()
     is BackupOutcome.Ready -> "Ready to restore"
     is BackupOutcome.Failed -> when (outcome.failure) {
+        BackupFailure.UnlockFailed -> "Wrong passphrase or damaged file"
         BackupFailure.ReadFailed -> "Could not read that file"
         BackupFailure.WriteFailed -> "Could not save the backup"
         BackupFailure.InvalidDocument -> "That file is not a Parc backup"

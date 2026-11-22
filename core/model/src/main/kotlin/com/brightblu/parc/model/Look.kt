@@ -59,7 +59,7 @@ data class LookSettings(
         require(panelOpacityPercent in 40..100 && panelOpacityPercent % 5 == 0)
         require(iconSizeDp in LookRules.MinIconSizeDp..LookRules.MaxIconSizeDp)
         require(iconSizeDp % LookRules.IconSizeStepDp == 0) { "Icon size must use 2 dp steps" }
-        require(wallpaperDimPercent in 0..80)
+        require(wallpaperDimPercent in 0..LookRules.MaxDimPercent)
         require(wallpaperDimPercent % LookRules.DimStepPercent == 0) { "Wallpaper dim must use 10% steps" }
     }
 }
@@ -73,13 +73,18 @@ object LookRules {
     const val MaxIconSizeDp = 52
     const val IconSizeStepDp = 2
     const val DimStepPercent = 10
+    /**
+     * T324: Dim runs from no darkening to fully dark, so the grid can read 0 to 100 percent.
+     * Every value stored before T324 (0 to 80) is inside this range and still loads.
+     */
+    const val MaxDimPercent = 100
     const val MinSlotPitchDp = Metrics.minSlotPitchDp
     /** Corner radius divided by the icon's full size; the renderer uses the same value. */
     const val RoundedSquareCornerFraction = 0.22f
     const val SquircleExponent = 4f
 
     val IconSizeSteps: List<Int> = (MinIconSizeDp..MaxIconSizeDp step IconSizeStepDp).toList()
-    val DimSteps: List<Int> = (0..80 step DimStepPercent).toList()
+    val DimSteps: List<Int> = (0..MaxDimPercent step DimStepPercent).toList()
 
     /** Nearest legal icon size, clamped to the slider range and rounded to a 2 dp step. */
     fun normalizeIconSize(requested: Int): Int {
@@ -152,7 +157,7 @@ object LookRules {
     fun clockStyleLabel(style: ClockStyle): String = when (style) {
         ClockStyle.Thin -> "Thin"
         ClockStyle.Bold -> "Bold"
-        ClockStyle.Mono -> "Mono"
+        ClockStyle.Mono -> "Regular"
         ClockStyle.Digital -> "Digital"
         ClockStyle.Hidden -> "Hidden"
     }

@@ -10,6 +10,8 @@ import com.brightblu.parc.core.data.backup.RestoreSummary
 data class BackupUiState(
     val suggestedFileName: String,
     val busy: Boolean = false,
+    val encrypted: Boolean = false,
+    val passphrasePurpose: PassphrasePurpose? = null,
     val message: String? = null,
     /** Set after a file was read and checked; the screen asks before replacing anything (T87). */
     val pendingRestore: RestoreSummary? = null,

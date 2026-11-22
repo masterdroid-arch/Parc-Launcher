@@ -3,6 +3,13 @@ package com.brightblu.parc
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import com.brightblu.parc.core.data.backup.BackupKey
+import com.brightblu.parc.core.data.backup.BackupStore
+import com.brightblu.parc.core.data.backup.BackupStoreSpec
+import com.brightblu.parc.core.data.backup.BackupValueType
+import com.brightblu.parc.core.data.backup.StoreAccess
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.security.KeyStore
 import java.util.Base64
 import javax.crypto.Cipher
@@ -59,14 +66,11 @@ internal interface KeyBlobStorage {
 internal class PrefsKeyBlobStorage(context: Context) : KeyBlobStorage {
     private val prefs = context.applicationContext.getSharedPreferences("parc_translate_key", Context.MODE_PRIVATE)
     override fun read(): String? = prefs.getString("blob", null)
-    override fun write(value: String) { prefs.edit().putString("blob", value).commit() }
+    override fun write(value: String) { check(prefs.edit().putString("blob", value).commit()) }
     override fun clear() { prefs.edit().remove("blob").commit() }
 }
 
-/**
- * T196: the DeepL key, stored only on the phone, encrypted. Never logged, never in a backup, never
- * shown again after saving.
- */
+/** Search, the reader and backup restore share this Keystore-backed credential. */
 internal class DeepLKeyStore(private val cipher: KeyCipher, private val storage: KeyBlobStorage) {
     /** Saves a pasted key. False when it does not look like a DeepL key (nothing is stored then). */
     fun save(pasted: String): Boolean {
@@ -84,7 +88,18 @@ internal class DeepLKeyStore(private val cipher: KeyCipher, private val storage:
     fun has(): Boolean = load() != null
     fun clear() = storage.clear()
 
+    fun backupStore() = BackupStore(BackupSpec, object : StoreAccess {
+        override suspend fun read(spec: BackupStoreSpec): Map<String, Any> =
+            withContext(Dispatchers.IO) { load()?.let { mapOf(KeyField to it) }.orEmpty() }
+
+        override suspend fun write(spec: BackupStoreSpec, values: Map<String, Any>) = withContext(Dispatchers.IO) {
+            require(save(values[KeyField] as String)) { "Invalid translation key" }
+        }
+    })
+
     companion object {
+        private const val KeyField = "key"
+        val BackupSpec = BackupStoreSpec("deepl", listOf(BackupKey(KeyField, BackupValueType.Text, 100)))
         fun of(context: Context) = DeepLKeyStore(AndroidKeystoreCipher(), PrefsKeyBlobStorage(context))
     }
 }

@@ -8,11 +8,14 @@ import com.brightblu.parc.core.data.backup.FullBackup
 import com.brightblu.parc.core.data.backup.ParsedBackup
 import com.brightblu.parc.core.data.backup.RestoreSummary
 import com.brightblu.parc.model.LayoutRepository
+import com.brightblu.parc.core.data.backup.BackupEncryption
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
 
 /** Why a backup action could not finish. Never leaked to the layout: a failed restore changes nothing. */
-enum class BackupFailure { ReadFailed, WriteFailed, InvalidDocument }
+enum class BackupFailure { ReadFailed, WriteFailed, InvalidDocument, UnlockFailed }
 
 /** Result of one export or restore. Immutable, non-null. */
 sealed interface BackupOutcome {
@@ -32,6 +35,9 @@ sealed interface BackupOutcome {
 
     /** A file was read and checked; nothing is changed until the user confirms (T87). */
     data class Ready(val summary: RestoreSummary, internal val parsed: ParsedBackup) : BackupOutcome
+
+    data object ProtectionChanged : BackupOutcome
+    data object NeedsPassphrase : BackupOutcome
 
     /** Nothing changed on disk or in memory. */
     data class Failed(val failure: BackupFailure) : BackupOutcome
@@ -59,9 +65,10 @@ class LayoutBackupService(
     fun suggestedFileName(): String = BackupFileName.of(clock(), zone)
 
     /** Writes the current layout to [uri]. */
-    suspend fun exportTo(uri: String): BackupOutcome {
-        val text = full().export()
+    suspend fun exportTo(uri: String, passphrase: CharArray? = null): BackupOutcome {
         return try {
+            val plain = full().export()
+            val text = if (passphrase == null) plain else withContext(Dispatchers.IO) { BackupEncryption.encrypt(plain, passphrase) }
             files.write(uri, text)
             BackupOutcome.Exported(text.toByteArray(Charsets.UTF_8).size)
         } catch (e: CancellationException) {
@@ -75,7 +82,7 @@ class LayoutBackupService(
      * Reads and validates the document at [uri] without changing anything (T87). A [BackupOutcome.Ready]
      * carries the summary to show in the confirm step; pass it to [confirm] to apply it.
      */
-    suspend fun prepareRestore(uri: String): BackupOutcome {
+    suspend fun prepareRestore(uri: String, passphrase: CharArray? = null): BackupOutcome {
         val text = try {
             files.read(uri)
         } catch (e: CancellationException) {
@@ -83,8 +90,14 @@ class LayoutBackupService(
         } catch (e: Exception) {
             return BackupOutcome.Failed(BackupFailure.ReadFailed)
         }
+        val plain = if (passphrase != null || BackupEncryption.isEncrypted(text)) {
+            if (passphrase == null) return BackupOutcome.NeedsPassphrase
+            try { withContext(Dispatchers.IO) { BackupEncryption.decrypt(text, passphrase) } }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { return BackupOutcome.Failed(BackupFailure.UnlockFailed) }
+        } else text
         return try {
-            val parsed = full().parse(text)
+            val parsed = full().parse(plain)
             BackupOutcome.Ready(parsed.summary, parsed)
         } catch (e: CancellationException) {
             throw e

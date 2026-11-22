@@ -46,7 +46,6 @@ import com.brightblu.parc.model.Skin
 import com.brightblu.parc.model.Springs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -87,16 +86,24 @@ internal fun ReaderMotionShell(
         var entered by remember { mutableStateOf(false) }
         val coverShape = remember { RoundedCornerShape(Metrics.bookShelfCornerDp.dp) }
         val coverRadiusPx = remember(density) { with(density) { Metrics.bookShelfCornerDp.dp.toPx() } }
-        val titleArt = remember(request.book.id, skin, colors, screen) {
-            if (hasCover) ReaderCoverArt.title(context, request.book, skin, colors,
-                screen.width.toInt(), screen.height.toInt()) else null
+        val coverPlate = remember(colors) { ReaderCoverPlate(colors.paper.toInt()) }
+        // T352: the opening starts from the cover the shelf tile already holds in memory, so the
+        // first frame is the real art instead of a title card. The display-sized copy replaces it
+        // when it decodes. Only a file with no cover image ever falls back to the title card.
+        val handed = remember(request.book.id, hasCover, colors) {
+            if (!hasCover) null else ReaderCoverHandoff.get(request.book.id)
+                ?.let { ReaderCoverArt(it, colors.paper.toInt()) }
         }
-        var coverArt by remember(request.book.id, screen, colors) { mutableStateOf(titleArt) }
-        LaunchedEffect(request.book.id, screen, colors) {
-            if (hasCover) {
-                val bitmap = BookMetadataLoader(context).displayCover(request.book,
+        var coverArt by remember(request.book.id, screen, colors) { mutableStateOf(handed) }
+        LaunchedEffect(request.book.id, screen, colors, hasCover) {
+            if (!hasCover) return@LaunchedEffect
+            val bitmap = BookMetadataLoader(context).displayCover(request.book,
+                screen.width.toInt(), screen.height.toInt())
+            if (bitmap != null) {
+                coverArt = ReaderCoverArt(bitmap, colors.paper.toInt())
+            } else if (coverArt == null) {
+                coverArt = ReaderCoverArt.title(context, request.book, skin, colors,
                     screen.width.toInt(), screen.height.toInt())
-                if (bitmap != null) coverArt = ReaderCoverArt(bitmap, colors.paper.toInt())
             }
         }
 
@@ -156,16 +163,13 @@ internal fun ReaderMotionShell(
             entered = true
         }
 
-        // The cover stays full-screen until the page has actually drawn its first frame (the JS
-        // page reports ready, or the first PDF page is in the cache). This is what keeps a cached
-        // book from showing a blank page between the cover landing and the text. A safety hold
-        // releases the cover if a reader never reports ready.
+        // T341/T352: the cover stays full-screen until the reading surface has drawn its positioned
+        // first frame. A timer or the enter spring alone would reveal page one on resume, so the
+        // only release is the reader's own confirmed draw. The cover is the real shelf art; the
+        // quiet title card is only for a book whose file has no cover image.
         LaunchedEffect(entered, contentReady, closing, hasCover) {
-            if (!hasCover || !entered || closing) return@LaunchedEffect
-            if (!contentReady) delay(Metrics.readerCoverHoldMaxMs)
-            if (!closing) {
-                coverAlpha.animateTo(0f, spring(Springs.sheet.damping, Springs.sheet.stiffness))
-            }
+            if (!hasCover || !ReaderMotion.coverMayFade(entered, contentReady, closing)) return@LaunchedEffect
+            coverAlpha.animateTo(0f, spring(Springs.sheet.damping, Springs.sheet.stiffness))
         }
 
         BackHandler(enabled = !finished) { closeWithSpring() }
@@ -246,8 +250,30 @@ internal fun ReaderMotionShell(
                 } else {
                     ReaderMotion.coverToPage(cover, screen, enter.value)
                 }
-                coverArt?.draw(this, rect, alpha, coverRadiusPx)
+                val art = coverArt
+                if (art != null) art.draw(this, rect, alpha, coverRadiusPx)
+                else coverPlate.draw(this, rect, alpha, coverRadiusPx)
             }
+        }
+    }
+}
+
+/**
+ * T352: a plain paper plate at the cover's place for the moment before the tile's bitmap is read
+ * or the display-sized art arrives. It is not a title card: a book with a cover never shows its
+ * title over the cover. Draw objects are reused, so a moving plate allocates nothing.
+ */
+internal class ReaderCoverPlate(private val paper: Int) {
+    private val bounds = RectF()
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    fun draw(scope: DrawScope, rect: ReaderMotion.Rect, alpha: Float, cornerPx: Float) {
+        if (rect.width < 1f || rect.height < 1f || alpha <= 0f) return
+        bounds.set(rect.left, rect.top, rect.right, rect.bottom)
+        paint.color = paper
+        paint.alpha = (alpha.coerceIn(0f, 1f) * 255f).roundToInt()
+        scope.drawIntoCanvas { canvas ->
+            canvas.nativeCanvas.drawRoundRect(bounds, cornerPx, cornerPx, paint)
         }
     }
 }

@@ -66,6 +66,8 @@ internal data class HomeDraw(
     val iconsPerArc: Int,
     val aligned: Boolean,
     val hubSize: String?,
+    /** T330: the full-screen hub is offered (null while the stats hub is off). */
+    val hubFullScreen: Boolean?,
     val badges: Boolean,
     val markWorkApps: Boolean,
     val wallpaperSkin: String?,
@@ -97,6 +99,7 @@ internal data class HomeDraw(
                 iconsPerArc = s.counts.icons,
                 aligned = s.aligned,
                 hubSize = if (s.statsVisible) s.hubSize.name else null,
+                hubFullScreen = if (s.statsVisible) s.hubFullScreen else null,
                 badges = s.badges,
                 markWorkApps = s.markWorkApps,
                 wallpaperSkin = if (s.skinId == "wallpaper") "${s.wallpaperMode}/${s.wallpaperLook}" else null,

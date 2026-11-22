@@ -156,9 +156,8 @@ internal class AndroidLauncherSource(
             // No host permission, a paused profile or a dead profile binder: no shortcuts.
             return emptyList()
         }
-        return shortcuts.orEmpty().mapNotNull { info ->
-            val label = (info.shortLabel ?: info.longLabel)?.toString() ?: return@mapNotNull null
-            SourceShortcut(info.id, label)
+        return shortcuts.orEmpty().map { info ->
+            SourceShortcut(info.id, shortcutLabel(info.id, info.shortLabel, info.longLabel))
         }
     }
 

@@ -198,23 +198,12 @@ class LayoutRepositoryImpl internal constructor(
         val chosen = ids.filter { it in installedIds }.distinct().take(MainAppsSlotCount)
         val current = _layout.value
         val a1 = current.arcs.firstOrNull { it.arc.id == MainAppsArcId } ?: return
-        val oldIds = a1.slots.values.filterIsInstance<Slot.App>().mapTo(mutableSetOf()) { it.id }
-        val nextArcs = current.arcs.map { assignment ->
-            if (assignment.arc.id == MainAppsArcId) {
-                assignment.copy(slots = chosen.mapIndexed { index, id -> index to Slot.App(id) }.toMap())
-            } else {
-                assignment
-            }
-        }
-        val elsewhere = nextArcs.asSequence()
-            .filter { it.arc.id != MainAppsArcId }
-            .flatMap { it.slots.values.asSequence() }
-            .filterIsInstance<Slot.App>()
-            .mapTo(mutableSetOf()) { it.id }
-        val next = current.copy(
-            arcs = nextArcs,
-            pins = (current.pins - (oldIds - chosen.toSet() - elsewhere)) + chosen,
-        )
+        val visible = 0 until MainAppsSlotCount
+        val oldIds = a1.slots.filterKeys { it in visible }.values.filterIsInstance<Slot.App>().map { it.id }
+        val slots = a1.slots.filterKeys { it !in visible } + chosen.mapIndexed { index, id -> index to Slot.App(id) }
+        val nextArcs = current.arcs.map { if (it === a1) it.copy(slots = slots) else it }
+        val remaining = nextArcs.flatMap { it.slots.values }.filterIsInstance<Slot.App>().map { it.id }.toSet()
+        val next = current.copy(arcs = nextArcs, pins = (current.pins - (oldIds - remaining).toSet()) + chosen)
         if (next != current) persistLocked(next)
     }
 

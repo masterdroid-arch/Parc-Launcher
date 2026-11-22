@@ -1,6 +1,7 @@
 package com.brightblu.parc
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -10,7 +11,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -79,15 +85,33 @@ internal fun YearHubPage(ledger: DayLedgerRepository?, skin: Skin, active: Boole
     val metric = store.yearMetric.collectAsState(initial = YearMetric.None).value
     val colour = store.yearColour.collectAsState(initial = YearColour.Accent).value
     val today = ledger?.today() ?: LocalDate.now()
+    // T280: Add a date opens the picker here on the page as well as in the options.
+    var draft by remember { mutableStateOf<YearDateDraft?>(null) }
     YearContent(stored, countdowns, metric, colour, today, skin,
         onCycle = { scope.launch { store.setYearMetric(metric.next()) } },
-        onClearPassed = { scope.launch { store.setYearCountdowns { Countdowns.withoutPassed(it, today) } } })
+        onClearPassed = { scope.launch { store.setYearCountdowns { Countdowns.withoutPassed(it, today) } } },
+        // No dead tap at the 50-date limit: the action is absent rather than silently doing nothing.
+        onAddDate = if (YearDateEditor.canAdd(countdowns)) ({ draft = YearDateEditor.add(today) }) else null)
+    draft?.let { open ->
+        YearDateDialog(open, countdowns, today, skin,
+            onDraft = { draft = it },
+            onSave = {
+                val saved = YearDateEditor.save(open, countdowns)
+                if (saved == null) draft = open.refused()
+                else {
+                    scope.launch { store.setYearCountdowns { saved.list } }
+                    draft = null
+                }
+            },
+            onDelete = open.index?.let { index -> { scope.launch { store.setYearCountdowns { YearDateEditor.delete(index, it) } }; draft = null } },
+            onDismiss = { draft = null })
+    }
 }
 
 /** The drawing: progress line, colour label, the grid, the picked day, and the countdown list. */
 @Composable
 internal fun YearContent(ledger: DayLedger, countdowns: List<Countdown>, metric: YearMetric, colour: YearColour, today: LocalDate, skin: Skin,
-    onCycle: () -> Unit, onClearPassed: () -> Unit) {
+    onCycle: () -> Unit, onClearPassed: () -> Unit, onAddDate: (() -> Unit)? = null) {
     val gap = Metrics.hudCellGapDp.dp
     var picked by remember(today) { mutableStateOf<LocalDate?>(null) }
     val shown = picked ?: today
@@ -116,7 +140,7 @@ internal fun YearContent(ledger: DayLedger, countdowns: List<Countdown>, metric:
                 BasicText(YearMath.dayLine(shown, ledger.day(shown)), style = hudLabelStyle(skin))
             }
         }
-        CountdownList(countdowns, today, skin, onClearPassed)
+        CountdownList(countdowns, today, skin, onClearPassed, onAddDate)
     }
 }
 
@@ -138,7 +162,8 @@ private fun YearGridView(today: LocalDate, levels: Map<LocalDate, Int>, marks: S
         Column(Modifier.width(Metrics.yearMonthLabelWidthDp.dp).clearAndSetSemantics {}) {
             "JFMAMJJASOND".forEach {
                 Box(Modifier.height(rowDp).fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                    BasicText(it.toString(), style = hudLabelStyle(skin).copy(fontSize = Metrics.yearMonthLabelSp.sp, lineHeight = Metrics.yearMonthLabelSp.sp), maxLines = 1)
+                    BasicText(it.toString(), style = hubPairLabelStyle(skin, HubType.monthInitial(skin.typography))
+                        .copy(lineHeight = HubType.monthInitial(skin.typography).sizeSp.sp), maxLines = 1)
                 }
             }
         }
@@ -207,14 +232,23 @@ private fun YearLegend(skin: Skin, colour: YearColour) {
 }
 
 @Composable
-private fun CountdownList(countdowns: List<Countdown>, today: LocalDate, skin: Skin, onClearPassed: () -> Unit) {
+private fun CountdownList(countdowns: List<Countdown>, today: LocalDate, skin: Skin, onClearPassed: () -> Unit,
+    onAddDate: (() -> Unit)? = null,
+) {
     val rows = remember(countdowns, today) { Countdowns.upcoming(countdowns, today) }
     val passed = remember(countdowns, today) { Countdowns.passed(countdowns, today) }
     HudCell(skin, Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
             CellLabel("Countdowns", skin)
-            if (rows.isEmpty()) BasicText("No dates yet. Add one in the options.", style = hudValueStyle(skin))
+            if (rows.isEmpty()) BasicText("No dates yet. Add one to count down to it.", style = hudValueStyle(skin))
             rows.forEach { BasicText(Countdowns.rowText(it, today), style = hudValueStyle(skin)) }
+            // T280: a real action on the page, not a sentence pointing at the options.
+            if (onAddDate != null) Box(
+                Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp)
+                    .semantics { contentDescription = "Add a date"; role = Role.Button }
+                    .clickable(onClick = onAddDate),
+                contentAlignment = Alignment.CenterStart,
+            ) { BasicText("Add a date", style = hudLabelStyle(skin).copy(color = Color(skin.colors.accent.toInt())), maxLines = 1) }
             if (passed.isNotEmpty()) {
                 CellLabel("Passed", skin)
                 passed.forEach { BasicText(Countdowns.passedText(it), style = hudLabelStyle(skin)) }
@@ -255,7 +289,7 @@ internal fun DemoYearPage(skin: Skin) {
         onCycle = { metric = metric.next() }, onClearPassed = { cleared = true })
 }
 
-/** Page options: add, edit and delete the dates to count down to. */
+/** Page options: add, change and delete the dates to count down to. */
 @Composable
 internal fun YearOptionChoices(skin: Skin) {
     val context = LocalContext.current
@@ -263,70 +297,93 @@ internal fun YearOptionChoices(skin: Skin) {
     val scope = rememberCoroutineScope()
     val list = store.yearCountdowns.collectAsState(initial = emptyList()).value
     val colour = store.yearColour.collectAsState(initial = YearColour.Accent).value
-    var editing by remember { mutableStateOf<Int?>(null) }
-    var name by remember { mutableStateOf("") }
-    // M13 review: the date is chosen with the same steppers the note reminder picker uses, never typed.
     val now = remember { LocalDate.now() }
-    var pickYear by remember { mutableStateOf(now.year) }
-    var pickMonth by remember { mutableStateOf(now.monthValue) }
-    var pickDay by remember { mutableStateOf(now.dayOfMonth) }
-    var yearly by remember { mutableStateOf(false) }
-    val index = editing?.takeIf { it in list.indices }
-    val picked = Countdowns.pickedDate(pickYear, pickMonth, pickDay)
-    val firstYear = Countdowns.pickerFirstYear(now, index?.let { list[it].date })
-    val clean = Countdowns.cleanName(name)
-    val canSave = clean.isNotEmpty() && (index != null || list.size < Countdowns.MaxCount)
-    fun reset() { editing = null; name = ""; yearly = false; pickYear = now.year; pickMonth = now.monthValue; pickDay = now.dayOfMonth }
-    @Composable fun Field(value: String, label: String, max: Int, type: KeyboardType, change: (String) -> Unit) {
-        BasicTextField(
-            value = value,
-            onValueChange = { change(it.take(max)) },
-            singleLine = true,
-            textStyle = settingsText(skin),
-            cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
-            keyboardOptions = KeyboardOptions(keyboardType = type),
-            modifier = Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp).parcRowPadding().clearAndSetSemantics { contentDescription = label },
-        )
-    }
+    var draft by remember { mutableStateOf<YearDateDraft?>(null) }
     // T238: the colour of the filled dots, with its four steps shown beside each name.
     SettingsCard(skin) {
         BasicText("Colour of the filled dots. Empty days are always an outline.", Modifier.parcRowPadding(), style = settingsText(skin, skin.colors.textSecondary, true))
         com.brightblu.parc.feature.settings.ui.SettingsChoice("Colour", colour.label, YearColour.entries.map { it.label }, skin,
             description = "Accent follows the skin.") { scope.launch { store.setYearColour(YearColour.entries[it]) } }
     }
+    // T280: this row used to be disabled until an unlabelled name field had text, so a tap did nothing.
+    // It is now the way in to the picker, and it says why it cannot open only when the list is full.
     SettingsCard(skin) {
-        BasicText(if (index != null) "Change this date." else "Add a date to count down to. Give it a name, then pick the day.",
-            Modifier.parcRowPadding(), style = settingsText(skin))
-        Field(name, "Name", Countdowns.MaxNameLength, KeyboardType.Text) { name = it }
-        Stepper("Day", pickDay - 1, 30, skin, text = pickDay.toString()) { pickDay = it + 1 }
-        Stepper("Month", pickMonth - 1, 11, skin, text = java.time.Month.of(pickMonth).getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)) { pickMonth = it + 1 }
-        Stepper("Year", pickYear - firstYear, Countdowns.PickerYears + (now.year - firstYear), skin, text = pickYear.toString()) { pickYear = firstYear + it }
-        BasicText(picked.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH) + " " + YearMath.dateText(picked, withYear = true),
-            Modifier.parcRowPadding(), style = settingsText(skin, skin.colors.textSecondary, true))
-        SettingRow("Every year", skin, SettingKind.Toggle, "Repeat on the same day each year.", checked = yearly) { yearly = !yearly }
-        SettingRow(if (index != null) "Save changes" else "Add date", skin, SettingKind.Action, enabled = canSave,
-            description = when {
-                index == null && list.size >= Countdowns.MaxCount -> "That is the most dates you can keep."
-                else -> ""
-            }, icon = "+", divider = index != null) {
-            val made = Countdown(clean, picked, yearly)
-            scope.launch { store.setYearCountdowns { l -> if (index != null && index in l.indices) l.toMutableList().also { it[index] = made } else l + made } }
-            reset()
-        }
-        if (index != null) {
-            SettingRow("Cancel", skin, SettingKind.Action, icon = "−") { reset() }
-            SettingRow("Delete this date", skin, SettingKind.Action, destructive = true, icon = "−", divider = false) {
-                scope.launch { store.setYearCountdowns { l -> if (index in l.indices) l.filterIndexed { i, _ -> i != index } else l } }
-                reset()
-            }
+        BasicText("Dates you count down to. They also show on the page.", Modifier.parcRowPadding(), style = settingsText(skin))
+        val blocked = YearDateEditor.addBlocked(list)
+        SettingRow("Add a date", skin, SettingKind.Action, enabled = blocked == null,
+            description = blocked ?: "Give it a name, then pick the day.", icon = "+", divider = list.isNotEmpty()) {
+            draft = YearDateEditor.add(now)
         }
     }
     if (list.isNotEmpty()) SettingsCard(skin) {
         list.forEachIndexed { i, c ->
             SettingRow(c.name, skin, SettingKind.Page, YearMath.dateText(c.date, withYear = true) + if (c.yearly) " · every year" else "",
-                divider = i != list.lastIndex) {
-                editing = i; name = c.name; yearly = c.yearly; pickYear = c.date.year; pickMonth = c.date.monthValue; pickDay = c.date.dayOfMonth
-            }
+                divider = i != list.lastIndex) { draft = YearDateEditor.edit(i, c) }
         }
     }
+    draft?.let { open ->
+        YearDateDialog(open, list, now, skin,
+            onDraft = { draft = it },
+            onSave = {
+                val saved = YearDateEditor.save(open, list)
+                if (saved == null) draft = open.refused()
+                else {
+                    scope.launch { store.setYearCountdowns { saved.list } }
+                    draft = null
+                }
+            },
+            onDelete = open.index?.let { index -> { scope.launch { store.setYearCountdowns { YearDateEditor.delete(index, it) } }; draft = null } },
+            onDismiss = { draft = null })
+    }
+}
+
+/**
+ * T280: the name and day picker, used by the page and by its options so there is one add flow. The name field
+ * is labelled and underlined, so an empty field is a visible place to type rather than blank space. Save stays
+ * tappable and says why it did nothing, because a silent no-op was the bug.
+ */
+@Composable
+private fun YearDateDialog(draft: YearDateDraft, existing: List<Countdown>, today: LocalDate, skin: Skin,
+    onDraft: (YearDateDraft) -> Unit, onSave: () -> Unit, onDelete: (() -> Unit)?, onDismiss: () -> Unit) {
+    val firstYear = Countdowns.pickerFirstYear(today, if (draft.isEditing) draft.date else null)
+    val lastYear = firstYear + Countdowns.PickerYears + (today.year - firstYear)
+    val problem = if (draft.triedSave) YearDateEditor.problem(draft, existing) else null
+    val monthName = java.time.Month.of(draft.month).getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(skin.colors.surface.toInt()),
+        title = { BasicText(draft.title, style = settingsText(skin)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                BasicText("Name", style = settingsText(skin, skin.colors.textSecondary, true))
+                BasicTextField(
+                    value = draft.name,
+                    onValueChange = { onDraft(draft.named(it)) },
+                    singleLine = true,
+                    textStyle = settingsText(skin),
+                    cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp)
+                        .semantics { contentDescription = "Name" }.padding(vertical = Metrics.lineGapDp.dp),
+                )
+                // A hairline, so the empty field reads as a field.
+                Box(Modifier.fillMaxWidth().height(skin.shape.surfaceBorderDp.dp).background(Color(skin.colors.lineActive.toInt())))
+                BasicText("For example, Exam or a birthday.", Modifier.padding(top = Metrics.lineGapDp.dp),
+                    style = settingsText(skin, skin.colors.textSecondary, true))
+                Stepper("Day", draft.day - 1, 30, skin, text = draft.day.toString()) { onDraft(draft.onDay(it + 1)) }
+                Stepper("Month", draft.month - 1, 11, skin, text = monthName) { onDraft(draft.onMonth(it + 1)) }
+                Stepper("Year", draft.year - firstYear, lastYear - firstYear, skin, text = draft.year.toString()) { onDraft(draft.onYear(firstYear + it)) }
+                BasicText(draft.date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH) + " " +
+                    YearMath.dateText(draft.date, withYear = true), Modifier.padding(top = Metrics.lineGapDp.dp),
+                    style = settingsText(skin, skin.colors.textSecondary, true))
+                SettingRow("Every year", skin, SettingKind.Toggle, "Repeat on the same day each year.", checked = draft.yearly) {
+                    onDraft(draft.withYearly(!draft.yearly))
+                }
+                if (problem != null) BasicText(problem, Modifier.padding(top = Metrics.lineGapDp.dp), style = settingsText(skin, skin.colors.warn))
+                if (onDelete != null) SettingRow("Delete this date", skin, SettingKind.Action, destructive = true, icon = "−", divider = false) { onDelete() }
+            }
+        },
+        confirmButton = { TextButton(onClick = onSave) { BasicText(draft.saveLabel, style = settingsText(skin, skin.colors.accent)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { BasicText("Cancel", style = settingsText(skin, skin.colors.textSecondary)) } },
+    )
 }

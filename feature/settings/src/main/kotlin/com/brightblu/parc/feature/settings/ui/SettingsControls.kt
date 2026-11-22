@@ -110,6 +110,8 @@ fun SettingRow(
     title: String, skin: Skin, kind: SettingKind, description: String = "", value: String = "",
     checked: Boolean = false, enabled: Boolean = true, destructive: Boolean = false,
     icon: String = "+", descriptionMaxLines: Int = 3, leading: (@Composable () -> Unit)? = null,
+    /** T325: rows that must stay aligned with each other may keep a longer value beside the title. */
+    allowLongValueBeside: Boolean = false,
     divider: Boolean = true, onClick: () -> Unit,
 ) {
     var confirm by remember { mutableStateOf(false) }
@@ -120,7 +122,7 @@ fun SettingRow(
     val showValue = value.isNotBlank() && kind != SettingKind.Toggle && kind != SettingKind.Action
     // Short values sit on the right like a phone's settings; long ones go under the title so
     // neither the title nor the value is squeezed at large text sizes.
-    val valueBeside = showValue && SettingsLayoutRules.valueBeside(value)
+    val valueBeside = showValue && SettingsLayoutRules.valueBeside(value, allowLongValueBeside)
     // T166: one row block for every Settings row: 56 dp tall at least, 20 dp left and right, 12 dp above and
     // below, and the trailing switch, value or arrow 20 dp from the edge of the card.
     ParcSettingsRow(
@@ -358,7 +360,14 @@ object SettingsLayoutRules {
     /** A value up to this many characters sits beside the title; a longer one goes under it. */
     const val MaxBesideValueChars = 12
 
-    fun valueBeside(value: String): Boolean = value.isNotBlank() && value.length <= MaxBesideValueChars
+    /** T325: a row that asks for it keeps a full build stamp beside the title, even at 16 characters. */
+    const val MaxLongBesideValueChars = 20
+
+    fun valueBeside(value: String, allowLong: Boolean = false): Boolean {
+        if (value.isBlank()) return false
+        val max = if (allowLong) MaxLongBesideValueChars else MaxBesideValueChars
+        return value.length <= max
+    }
 }
 
 /** Material text roles that carry the skin's font, so dialog and button text follows the theme too. */

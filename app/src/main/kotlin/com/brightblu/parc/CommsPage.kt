@@ -1,6 +1,5 @@
 package com.brightblu.parc
 
-import com.brightblu.parc.model.textFamily
 import com.brightblu.parc.model.readableAccent
 import com.brightblu.parc.feature.settings.ui.*
 
@@ -46,13 +45,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -74,17 +69,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 @Composable
-private fun consoleStyle(skin: Skin) = TextStyle(
-    color = Color(skin.colors.textPrimary.toInt()), fontSize = Metrics.commsMessageSp.sp,
-    fontFamily = if (skin.style.terminalStats) FontFamily.Monospace else skin.textFamily ?: FontFamily.SansSerif,
-)
-
-@Composable
 internal fun ConsoleAction(text: String, skin: Skin, modifier: Modifier = Modifier,
     enabled: Boolean = true, action: () -> Unit) {
     Box(modifier.heightIn(min = Metrics.commsActionDp.dp).widthIn(min = Metrics.commsActionDp.dp)
         .clickable(enabled = enabled, onClick = action).padding(Metrics.lineGapDp.dp), contentAlignment = Alignment.CenterStart) {
-        BasicText(text, style = consoleStyle(skin).copy(
+        BasicText(text, style = commsStyle(skin).copy(
             color = Color((if (enabled) skin.colors.readableAccent else skin.colors.lineActive).toInt())))
     }
 }
@@ -356,7 +345,7 @@ internal fun CommsPage(repository: CommsExtrasRepository, skin: Skin, modifier: 
                 }
                 CommsMode.NoHistory -> item(key = "no-history") {
                     Box(Modifier.fillParentMaxHeight().fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        BasicText("No stored messages yet", style = consoleStyle(skin).copy(
+                        BasicText("No stored messages yet", style = commsStyle(skin).copy(
                             color = Color(skin.colors.textSecondary.toInt())))
                     }
                 }
@@ -365,10 +354,7 @@ internal fun CommsPage(repository: CommsExtrasRepository, skin: Skin, modifier: 
                 BasicText(
                     CommsPresentation.footer(listener.connectedAtMs, accessOn, ordered.size, stored.size),
                     Modifier.fillMaxWidth().padding(top = Metrics.lineGapDp.dp),
-                    style = consoleStyle(skin).copy(
-                        fontSize = Metrics.commsHeaderSp.sp,
-                        color = Color(skin.colors.textSecondary.toInt()),
-                    ),
+                    style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -449,11 +435,9 @@ private fun MessagesHeader(
         BasicText(
             CommsPresentation.headerLine(live),
             Modifier.weight(1f),
-            style = consoleStyle(skin).copy(
-                fontSize = Metrics.commsHeaderTitleSp.sp,
-                color = Color(skin.colors.textPrimary.toInt()),
-                fontWeight = FontWeight(skin.typography.title.weight),
-            ),
+            // Section, not the 28 sp title: with two 48 dp tabs and the menu on the same row, the
+            // title role would ellipsize the live count at 384 dp wide.
+            style = commsStyle(skin, CommsType.section(skin), skin.colors.textPrimary),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -467,10 +451,7 @@ private fun MessagesHeader(
                         .semantics { contentDescription = "Messages menu"; role = Role.Button },
                     contentAlignment = Alignment.Center,
                 ) {
-                    BasicText("…", style = consoleStyle(skin).copy(
-                        color = Color(skin.colors.textSecondary.toInt()),
-                        fontSize = Metrics.commsHeaderTitleSp.sp,
-                    ))
+                    BasicText("…", style = commsStyle(skin, CommsType.section(skin), skin.colors.textSecondary))
                 }
                 DropdownMenu(
                     expanded = menuOpen,
@@ -479,7 +460,7 @@ private fun MessagesHeader(
                 ) {
                     DropdownMenuItem(
                         text = {
-                            BasicText("Dismiss all", style = consoleStyle(skin).copy(
+                            BasicText("Dismiss all", style = commsStyle(skin).copy(
                                 color = Color(skin.colors.textPrimary.toInt())))
                         },
                         onClick = onDismissAll,
@@ -494,7 +475,8 @@ private fun MessagesHeader(
 @Composable
 private fun CommsTextTab(label: String, selected: Boolean, skin: Skin, onClick: () -> Unit) {
     Box(
-        Modifier.heightIn(min = Metrics.commsActionDp.dp)
+        Modifier.heightIn(min = Metrics.minTouchDp.dp)
+            .widthIn(min = Metrics.minTouchDp.dp)
             .clickable(role = Role.Tab, onClick = onClick)
             .semantics { contentDescription = "Show $label"; role = Role.Tab }
             .padding(horizontal = Metrics.itemGapDp.dp),
@@ -509,10 +491,8 @@ private fun CommsTextTab(label: String, selected: Boolean, skin: Skin, onClick: 
                     drawLine(Color(skin.colors.accent.toInt()), Offset(0f, y), Offset(size.width, y), stroke)
                 }
             },
-            style = consoleStyle(skin).copy(
-                fontSize = Metrics.commsHeaderSp.sp,
-                color = Color((if (selected) skin.colors.textPrimary else skin.colors.textSecondary).toInt()),
-            ),
+            style = commsStyle(skin, CommsType.caption(skin),
+                if (selected) skin.colors.textPrimary else skin.colors.textSecondary),
             maxLines = 1,
         )
     }
@@ -523,22 +503,23 @@ private fun CommsTextTab(label: String, selected: Boolean, skin: Skin, onClick: 
 @Composable
 private fun CommsCardHeader(app: String, sender: String, time: String, skin: Skin,
     onLongPress: (() -> Unit)? = null) {
+    // A header with a long-press action keeps the 48 dp minimum touch height; a plain one stays
+    // as tight as its text so the live cards do not grow.
     val modifier = Modifier.fillMaxWidth().then(
-        if (onLongPress != null) Modifier.combinedClickable(
-            onClickLabel = "Conversation actions",
-            onLongClickLabel = "Delete conversation",
-            onClick = {},
-            onLongClick = onLongPress,
-        ) else Modifier,
+        if (onLongPress != null) Modifier
+            .heightIn(min = Metrics.minTouchDp.dp)
+            .combinedClickable(
+                onClickLabel = "Conversation actions",
+                onLongClickLabel = "Delete conversation",
+                onClick = {},
+                onLongClick = onLongPress,
+            ) else Modifier,
     )
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         BasicText(
             CommsPresentation.appName(app),
             Modifier.widthIn(max = Metrics.commsChipMaxWidthDp.dp),
-            style = consoleStyle(skin).copy(
-                fontSize = Metrics.commsHeaderSp.sp,
-                color = Color(skin.colors.textSecondary.toInt()),
-            ),
+            style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -546,20 +527,14 @@ private fun CommsCardHeader(app: String, sender: String, time: String, skin: Ski
         BasicText(
             sender,
             Modifier.weight(1f),
-            style = consoleStyle(skin).copy(
-                fontSize = Metrics.commsMessageSp.sp,
-                color = Color(skin.colors.textPrimary.toInt()),
-            ),
+            style = commsStyle(skin, CommsType.body(skin), skin.colors.textPrimary),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.width(Metrics.itemGapDp.dp))
         BasicText(
             time,
-            style = consoleStyle(skin).copy(
-                fontSize = Metrics.commsHeaderSp.sp,
-                color = Color(skin.colors.textSecondary.toInt()),
-            ),
+            style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary),
             maxLines = 1,
         )
     }
@@ -599,7 +574,7 @@ private fun LiveConversationCard(
             BasicText(
                 text,
                 Modifier.fillMaxWidth().padding(top = Metrics.commsCardInnerGapDp.dp),
-                style = consoleStyle(skin).copy(color = Color(skin.colors.textPrimary.toInt())),
+                style = commsStyle(skin, CommsType.body(skin), skin.colors.textPrimary),
                 maxLines = Metrics.commsMaxLines,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -608,10 +583,7 @@ private fun LiveConversationCard(
             BasicText(
                 CommsPresentation.messageCount(conversation.messages.size),
                 Modifier.padding(top = Metrics.commsCardInnerGapDp.dp),
-                style = consoleStyle(skin).copy(
-                    fontSize = Metrics.commsHeaderSp.sp,
-                    color = Color(skin.colors.textSecondary.toInt()),
-                ),
+                style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary),
             )
         }
         notice?.let { line -> ConsoleAction(line, skin) { onOpenApp() } }
@@ -627,8 +599,8 @@ private fun LiveConversationCard(
             if (selected) ConsoleAction("Cancel", skin) { onCancelReply() }
         }
         if (selected && !conversation.canReply) {
-            BasicText("This app does not allow replies here.", style = consoleStyle(skin).copy(
-                fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textSecondary.toInt())))
+            BasicText("This app does not allow replies here.",
+                style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary))
         }
         if (card.showField) {
             LaunchedEffect(focusRequest) {
@@ -643,7 +615,7 @@ private fun LiveConversationCard(
                 Modifier.fillMaxWidth().heightIn(min = Metrics.commsActionDp.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (skin.style.terminalStats) BasicText("> ", style = consoleStyle(skin))
+                if (skin.style.terminalStats) BasicText("> ", style = commsStyle(skin))
                 BasicTextField(
                     value = draft,
                     onValueChange = onDraft,
@@ -651,7 +623,7 @@ private fun LiveConversationCard(
                         .heightIn(min = Metrics.commsActionDp.dp).wrapContentHeight(),
                     enabled = !sending,
                     singleLine = true,
-                    textStyle = consoleStyle(skin),
+                    textStyle = commsStyle(skin),
                     cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { onSend(draft) }),
@@ -677,7 +649,7 @@ private fun HistoryMessageCard(
     val action = remember(message, conversations) {
         CommsExtrasPresentation.historyAction(message, conversations)
     }
-    val dim = Color(skin.colors.textSecondary.toInt())
+    val dim = skin.colors.textSecondary
     val sender = message.sender.ifBlank { CommsPresentation.appName(message.app) }
     Column(Modifier.fillMaxWidth().commsCardSurface(skin).commsFrame(skin, false).parcCardPadding()) {
         CommsCardHeader(
@@ -689,13 +661,15 @@ private fun HistoryMessageCard(
         )
         BasicText(
             message.text,
-            Modifier.fillMaxWidth().padding(top = Metrics.commsCardInnerGapDp.dp).combinedClickable(
-                onClickLabel = if (action.action == CommsHistoryAction.Reply) "Reply" else CommsPresentation.openLabel(message.app),
-                onLongClickLabel = "Message actions",
-                onClick = onAction,
-                onLongClick = onBodyLongPress,
-            ),
-            style = consoleStyle(skin).copy(color = Color(skin.colors.textPrimary.toInt())),
+            Modifier.fillMaxWidth().padding(top = Metrics.commsCardInnerGapDp.dp)
+                .heightIn(min = Metrics.minTouchDp.dp)
+                .combinedClickable(
+                    onClickLabel = if (action.action == CommsHistoryAction.Reply) "Reply" else CommsPresentation.openLabel(message.app),
+                    onLongClickLabel = "Message actions",
+                    onClick = onAction,
+                    onLongClick = onBodyLongPress,
+                ),
+            style = commsStyle(skin, CommsType.body(skin), skin.colors.textPrimary),
             maxLines = Metrics.commsMaxLines,
             overflow = TextOverflow.Ellipsis,
         )
@@ -708,7 +682,7 @@ private fun HistoryMessageCard(
             } else {
                 ConsoleAction(CommsPresentation.openLabel(message.app), skin) { onAction() }
                 action.status?.let { status ->
-                    BasicText(status, style = consoleStyle(skin).copy(fontSize = Metrics.commsHeaderSp.sp, color = dim))
+                    BasicText(status, style = commsStyle(skin, CommsType.caption(skin), dim))
                 }
             }
         }
@@ -720,10 +694,7 @@ private fun HistoryDateHeader(label: String, skin: Skin) {
     BasicText(
         label,
         Modifier.padding(top = Metrics.lineGapDp.dp),
-        style = consoleStyle(skin).copy(
-            fontSize = Metrics.commsHeaderSp.sp,
-            color = Color(skin.colors.textSecondary.toInt()),
-        ),
+        style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary),
         maxLines = 1,
     )
 }
@@ -731,24 +702,23 @@ private fun HistoryDateHeader(label: String, skin: Skin) {
 @Composable
 private fun HistorySearch(query: String, onQuery: (String) -> Unit, accessOn: Boolean,
     notice: String?, skin: Skin) {
-    val dim = Color(skin.colors.textSecondary.toInt())
+    val dim = skin.colors.textSecondary
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = Metrics.commsActionDp.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BasicText("> ", style = consoleStyle(skin))
+            BasicText("> ", style = commsStyle(skin))
             Box(Modifier.weight(1f)) {
                 if (query.isEmpty()) {
-                    BasicText("Search messages", style = consoleStyle(skin).copy(
-                        fontSize = Metrics.commsHeaderSp.sp, color = dim))
+                    BasicText("Search messages", style = commsStyle(skin, CommsType.body(skin), dim))
                 }
                 BasicTextField(
                     value = query,
                     onValueChange = onQuery,
                     modifier = Modifier.fillMaxWidth().heightIn(min = Metrics.commsActionDp.dp).wrapContentHeight(),
                     singleLine = true,
-                    textStyle = consoleStyle(skin),
+                    textStyle = commsStyle(skin),
                     cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 )
@@ -756,12 +726,11 @@ private fun HistorySearch(query: String, onQuery: (String) -> Unit, accessOn: Bo
             if (query.isNotEmpty()) ConsoleAction("Clear search", skin) { onQuery("") }
         }
         if (!accessOn) {
-            BasicText("Notification access is off. Stored messages are still readable.", style = consoleStyle(skin).copy(
-                fontSize = Metrics.commsHeaderSp.sp, color = dim))
+            BasicText("Notification access is off. Stored messages are still readable.",
+                style = commsStyle(skin, CommsType.caption(skin), dim))
         }
         notice?.let {
-            BasicText(it, style = consoleStyle(skin).copy(
-                fontSize = Metrics.commsHeaderSp.sp, color = dim))
+            BasicText(it, style = commsStyle(skin, CommsType.caption(skin), dim))
         }
     }
 }
@@ -774,16 +743,15 @@ private fun CommsEmptyBody(state: CommsEmptyState?, skin: Skin,
     Column(modifier.verticalScroll(rememberHubScrollState()), verticalArrangement = Arrangement.Center) {
         HudCell(skin, Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
-                BasicText(state.message, style = consoleStyle(skin))
+                BasicText(state.message, style = commsStyle(skin, CommsType.body(skin), skin.colors.textPrimary))
                 state.note?.let { note ->
-                    BasicText(note, style = consoleStyle(skin).copy(
-                        fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textSecondary.toInt())))
+                    BasicText(note, style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary))
                 }
-                Box(Modifier.heightIn(min = Metrics.commsActionDp.dp)
+                Box(Modifier.heightIn(min = Metrics.minTouchDp.dp)
                     .clickable { action(state.action) }.padding(vertical = Metrics.lineGapDp.dp),
                     contentAlignment = Alignment.CenterStart) {
-                    BasicText(state.actionLabel, style = consoleStyle(skin).copy(
-                        fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.readableAccent.toInt())))
+                    BasicText(state.actionLabel,
+                        style = commsStyle(skin, CommsType.body(skin), skin.colors.readableAccent))
                 }
             }
         }
@@ -796,25 +764,25 @@ private fun CommsWhyDialog(rows: List<CommsWhyRow>, skin: Skin, dismiss: () -> U
     androidx.compose.material3.AlertDialog(
         onDismissRequest = dismiss,
         containerColor = Color(skin.colors.surface.toInt()),
-        title = { BasicText("Why?", style = settingsText(skin)) },
+        title = { BasicText("Why?", style = commsStyle(skin, CommsType.body(skin), skin.colors.textPrimary)) },
         text = {
             // T230: the dropped-notification list can be longer than the dialog; scroll it.
             Column(Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
                 if (rows.isEmpty()) {
-                    BasicText("No notifications have been dropped.", style = consoleStyle(skin).copy(
-                        fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textSecondary.toInt())))
+                    BasicText("No notifications have been dropped.",
+                        style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary))
                 } else {
                     rows.forEach { row ->
-                        BasicText("${row.packageName} · ${row.reason}", style = consoleStyle(skin).copy(
-                            fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textPrimary.toInt())))
+                        BasicText("${row.packageName} · ${row.reason}",
+                            style = commsStyle(skin, CommsType.body(skin), skin.colors.textPrimary))
                     }
                 }
             }
         },
         confirmButton = {
             androidx.compose.material3.TextButton(onClick = dismiss) {
-                BasicText("Close", style = settingsText(skin, skin.colors.textSecondary))
+                BasicText("Close", style = commsStyle(skin, CommsType.body(skin), skin.colors.textSecondary))
             }
         },
     )
@@ -831,18 +799,19 @@ private fun ReplyChips(replies: List<String>, skin: Skin, enabled: Boolean, send
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Metrics.commsChipGapDp.dp)) {
         // Brackets only on terminal skins; every other skin uses plain words.
-        BasicText(CommsPresentation.quickRepliesLabel(skin.style.terminalStats), style = consoleStyle(skin).copy(
-            fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textSecondary.toInt())))
+        BasicText(CommsPresentation.quickRepliesLabel(skin.style.terminalStats),
+            style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary))
         replies.forEach { reply ->
             val shape = RoundedCornerShape(Metrics.commsChipCornerDp.dp)
-            Box(Modifier.heightIn(min = Metrics.commsActionDp.dp).widthIn(max = Metrics.commsChipMaxWidthDp.dp)
+            Box(Modifier.heightIn(min = Metrics.minTouchDp.dp)
+                .widthIn(min = Metrics.minTouchDp.dp, max = Metrics.commsChipMaxWidthDp.dp)
                 .background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha), shape)
                 .border(skin.shape.surfaceBorderDp.dp, Color((if (enabled) skin.colors.lineActive else skin.colors.lineBase).toInt()), shape)
                 .clickable(enabled = enabled) { send(reply) }
                 .padding(horizontal = Metrics.itemGapDp.dp, vertical = Metrics.lineGapDp.dp),
                 contentAlignment = Alignment.Center) {
-                BasicText(reply, style = consoleStyle(skin).copy(
-                    color = Color((if (enabled) skin.colors.readableAccent else skin.colors.lineActive).toInt())),
+                BasicText(reply, style = commsStyle(skin, CommsType.body(skin),
+                    if (enabled) skin.colors.readableAccent else skin.colors.lineActive),
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
@@ -860,10 +829,10 @@ private fun CommsMessageMenuDialog(
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(skin.colors.surface.toInt()),
-        title = { BasicText("Message", style = settingsText(skin)) },
+        title = { BasicText("Message", style = commsStyle(skin, CommsType.body(skin), skin.colors.textPrimary)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
-                BasicText(message.text, style = consoleStyle(skin).copy(color = Color(skin.colors.textSecondary.toInt())),
+                BasicText(message.text, style = commsStyle(skin, CommsType.body(skin), skin.colors.textSecondary),
                     maxLines = Metrics.commsMaxLines, overflow = TextOverflow.Ellipsis)
                 ConsoleAction("Copy", skin, action = onCopy)
                 ConsoleAction("Delete", skin, action = onDelete)
@@ -871,7 +840,7 @@ private fun CommsMessageMenuDialog(
         },
         confirmButton = {
             androidx.compose.material3.TextButton(onClick = onDismiss) {
-                BasicText("Close", style = settingsText(skin, skin.colors.textSecondary))
+                BasicText("Close", style = commsStyle(skin, CommsType.body(skin), skin.colors.textSecondary))
             }
         },
     )
@@ -887,11 +856,12 @@ private fun CommsConversationMenuDialog(
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(skin.colors.surface.toInt()),
-        title = { BasicText(CommsPresentation.header(group.app, group.title), style = settingsText(skin)) },
+        title = { BasicText(CommsPresentation.header(group.app, group.title),
+            style = commsStyle(skin, CommsType.body(skin), skin.colors.textPrimary)) },
         text = { ConsoleAction("Delete conversation", skin, action = onDelete) },
         confirmButton = {
             androidx.compose.material3.TextButton(onClick = onDismiss) {
-                BasicText("Close", style = settingsText(skin, skin.colors.textSecondary))
+                BasicText("Close", style = commsStyle(skin, CommsType.body(skin), skin.colors.textSecondary))
             }
         },
     )
@@ -909,16 +879,16 @@ private fun CommsConfirmDialog(
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(skin.colors.surface.toInt()),
-        title = { BasicText(title, style = settingsText(skin)) },
-        text = { BasicText(body, style = settingsText(skin, skin.colors.textSecondary)) },
+        title = { BasicText(title, style = commsStyle(skin, CommsType.body(skin), skin.colors.textPrimary)) },
+        text = { BasicText(body, style = commsStyle(skin, CommsType.body(skin), skin.colors.textSecondary)) },
         confirmButton = {
             androidx.compose.material3.TextButton(onClick = onConfirm) {
-                BasicText(confirm, style = settingsText(skin, skin.colors.warn))
+                BasicText(confirm, style = commsStyle(skin, CommsType.body(skin), skin.colors.warn))
             }
         },
         dismissButton = {
             androidx.compose.material3.TextButton(onClick = onDismiss) {
-                BasicText("Cancel", style = settingsText(skin, skin.colors.textSecondary))
+                BasicText("Cancel", style = commsStyle(skin, CommsType.body(skin), skin.colors.textSecondary))
             }
         },
     )
@@ -992,13 +962,13 @@ internal fun CommsSettings(repository: CommsExtrasRepository, skin: Skin, apps: 
     val body: @Composable () -> Unit = {
     ParcBlocks(Metrics.rowGapDp, Modifier.fillMaxWidth().imePadding()) {
         if (section == CommsSettingsSection.Summary) {
-        BasicText("Messages and quick replies", style = settingsText(skin).copy(
-            fontSize = skin.typography.title.sizeSp.sp, fontWeight = androidx.compose.ui.text.font.FontWeight(skin.typography.title.weight)))
+        BasicText("Messages and quick replies",
+            style = commsStyle(skin, CommsType.title(skin), skin.colors.textPrimary))
         CommsSwitch("Messages", enabled, skin) { value -> scope.launch { repository.setEnabled(value) } }
         CommsSwitch("Keep history", keepHistory, skin) { value -> scope.launch { repository.setKeepHistory(value) } }
         BasicText(
             "Messages from WhatsApp, Telegram and Instagram are stored on this phone: text and links only, no images, and not in backups. Nothing is deleted automatically. Clear all messages below, or long-press one in History, to remove it.",
-            style = settingsText(skin, skin.colors.textSecondary, true),
+            style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary),
         )
         SettingsSection("Messages", skin)
         SettingsCard(skin) {
@@ -1051,19 +1021,19 @@ internal fun CommsSettings(repository: CommsExtrasRepository, skin: Skin, apps: 
             }
         }
         if (canned.isEmpty()) {
-            BasicText(EditorSpec.QuickReplies.empty, style = consoleStyle(skin).copy(
-                fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textSecondary.toInt())))
+            BasicText(EditorSpec.QuickReplies.empty,
+                style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary))
         }
         Row(Modifier.fillMaxWidth().heightIn(min = Metrics.commsActionDp.dp).bringIntoViewRequester(editorView),
             verticalAlignment = Alignment.CenterVertically) {
-            BasicText("> ", style = consoleStyle(skin))
+            BasicText("> ", style = commsStyle(skin))
             BasicTextField(
                 value = draft,
                 onValueChange = { draft = it },
                 modifier = Modifier.weight(1f).heightIn(min = Metrics.commsActionDp.dp).wrapContentHeight(),
                 enabled = canned.size < CommsCannedReplies.Max,
                 singleLine = true,
-                textStyle = consoleStyle(skin),
+                textStyle = commsStyle(skin),
                 cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
@@ -1080,8 +1050,8 @@ internal fun CommsSettings(repository: CommsExtrasRepository, skin: Skin, apps: 
                 scope.launch { repository.setCannedReplies(next) }
             }
         }
-        BasicText("${canned.size}/${CommsCannedReplies.Max}", style = consoleStyle(skin).copy(
-            fontSize = Metrics.commsHeaderSp.sp, color = Color(skin.colors.textSecondary.toInt())))
+        BasicText("${canned.size}/${CommsCannedReplies.Max}",
+            style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary))
         }
     }
     }

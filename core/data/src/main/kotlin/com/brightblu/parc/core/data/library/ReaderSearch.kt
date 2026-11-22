@@ -13,7 +13,7 @@ data class ReaderSearchHit(
     val after: String,
 )
 
-/** Pure, framework-free in-book search: case-insensitive, non-overlapping, in reading order. */
+/** Pure, framework-free in-book search: case-insensitive, accent-insensitive, non-overlapping, in reading order. */
 object ReaderSearch {
     const val MinQueryLength = 2
     const val MaxResults = 200
@@ -27,19 +27,62 @@ object ReaderSearch {
     fun inText(text: String, query: String, chapter: Int, page: Int, limit: Int = MaxResults): List<ReaderSearchHit> {
         val needle = clean(query)
         if (needle.length < MinQueryLength || limit <= 0) return emptyList()
+        val foldedNeedle = fold(needle)
+        if (foldedNeedle.text.isEmpty()) return emptyList()
+        val hay = fold(text)
         val hits = ArrayList<ReaderSearchHit>()
         var from = 0
         while (hits.size < limit) {
-            val at = text.indexOf(needle, from, ignoreCase = true)
+            val at = hay.text.indexOf(foldedNeedle.text, from)
             if (at < 0) break
-            val end = at + needle.length
-            hits += ReaderSearchHit(chapter, at, page,
-                snippet(text, (at - SnippetContext).coerceAtLeast(0), at, leading = true),
-                text.substring(at, end),
+            val foldedEnd = at + foldedNeedle.text.length
+            // A hit can end on a combining mark's base; map the last folded unit back and include
+            // any marks that belong to it, so a decomposed accent reads as one word.
+            val start = hay.map[at]
+            var end = hay.map[foldedEnd - 1] + 1
+            while (end < text.length && isMark(text[end])) end++
+            hits += ReaderSearchHit(chapter, start, page,
+                snippet(text, (start - SnippetContext).coerceAtLeast(0), start, leading = true),
+                text.substring(start, end),
                 snippet(text, end, (end + SnippetContext).coerceAtMost(text.length), leading = false))
-            from = end
+            from = foldedEnd
         }
         return hits
+    }
+
+    private fun isMark(c: Char): Boolean {
+        val type = Character.getType(c).toInt()
+        return type == Character.NON_SPACING_MARK.toInt() ||
+            type == Character.COMBINING_SPACING_MARK.toInt() ||
+            type == Character.ENCLOSING_MARK.toInt()
+    }
+
+    /**
+     * T347: lowercase text plus a map from each folded character back to its source character.
+     * Accents are removed so a query typed without them still finds the printed Portuguese word,
+     * while every hit keeps the exact character offset used to restore the reading place.
+     */
+    private class Folded(val text: String, val map: IntArray)
+
+    private fun fold(source: String): Folded {
+        val out = StringBuilder(source.length)
+        val map = IntArray(source.length * 2)
+        var used = 0
+        for (index in source.indices) {
+            val c = source[index]
+            if (c.code < 0x80) {
+                out.append(c.lowercaseChar())
+                map[used++] = index
+                continue
+            }
+            val decomposed = java.text.Normalizer.normalize(c.toString(), java.text.Normalizer.Form.NFD)
+            for (part in decomposed) {
+                if (isMark(part)) continue
+                out.append(part.lowercaseChar())
+                map[used++] = index
+            }
+        }
+        return Folded(out.toString(), map.copyOf(used))
     }
 
     fun inDoc(doc: ReaderBookDoc, query: String, limit: Int = MaxResults): List<ReaderSearchHit> {

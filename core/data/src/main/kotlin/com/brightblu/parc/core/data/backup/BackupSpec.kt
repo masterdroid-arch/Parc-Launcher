@@ -121,6 +121,8 @@ object BackupSpecs {
             b("left_hand"),
             // T98: unlock timeout and hide-name. The folder lock flag itself travels in the layout section.
             t("lock_timeout", 32), b("lock_hide_name"), i("arcs_shown"), i("icons_per_arc"),
+            // T312: per-arc "Maximum apps" ("A2=12;A4=8"; absent = Auto).
+            t("arc_maximums", 256),
             // T100: Agenda page. Days ahead and the calendars left out (by display name, not by id).
             t("agenda_days", 32), t("agenda_excluded_calendars", 4_096),
         ),

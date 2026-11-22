@@ -65,6 +65,8 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
     private val editHome: () -> RingState? = { null },
     /** OPUS4: external turning of the All-apps ring (the letter strip); null when not offered. */
     private val steer: RingSteer? = null,
+    /** T312: external turning of a Home arc to reveal a newly added app; null when not offered. */
+    private val reveal: RingReveal? = null,
     /**
      * OPUS5: touches that START where the host draws its own control over the ring (the All-apps
      * letter arc) are left alone entirely: no hub, aim, rotation or tap handling for that gesture.
@@ -267,7 +269,7 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                 }
             }
             val decorations = remember(skin, density, screenWidth, screenHeight) {
-                SkinDecorationCache(skin, screenWidth, screenHeight, density)
+                SkinDecorationCache(skin, screenWidth, screenHeight, density, folderWordFace)
             }
             var prepared by remember { mutableStateOf<SceneDrawing?>(null) }
             var warmed by remember { mutableStateOf<SceneDrawing?>(null) }
@@ -320,6 +322,18 @@ class CanvasRingRenderer(private val allocationCheck: Boolean = false,
                 session.rotation.turnTo(id, target, SystemClock.uptimeMillis(),
                     if (request.animate) session.rotationTimeScale() else 0f, arcFeel()) { arcId, offset -> latest.onRotate(arcId, offset) }
                 session.reportSteer(steer)
+                session.activity.intValue++
+                session.frame.intValue++
+            }
+            // T312: the "Add to arc" chooser turns a Home arc to its target offset after an add.
+            val revealRequest = reveal?.request?.value
+            LaunchedEffect(revealRequest) {
+                val request = revealRequest ?: return@LaunchedEffect
+                val drawing = session.current ?: return@LaunchedEffect
+                if (drawing.state.layer != Layer.Home) return@LaunchedEffect
+                if (drawing.state.arcs.none { it.id == request.arcId }) return@LaunchedEffect
+                session.rotation.turnTo(request.arcId, request.targetOffset, SystemClock.uptimeMillis(),
+                    0f, arcFeel()) { arcId, offset -> latest.onRotate(arcId, offset) }
                 session.activity.intValue++
                 session.frame.intValue++
             }
@@ -1162,7 +1176,7 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
         color = skin.colors.bg.toInt()
         textSize = skin.typography.caption.sizeSp * density
         textAlign = Paint.Align.CENTER
-        typeface = Typeface.create(spec.annotationFamily, Typeface.BOLD)
+        typeface = Typeface.create(folderWordFace, Typeface.BOLD)
     }
     private val badgeBaseline = -(badgeTextPaint.ascent() + badgeTextPaint.descent()) / 2f
     private val workPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = skin.colors.accent.toInt() }
@@ -1301,8 +1315,7 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
     private val half = look.iconSizeDp * density / 2f
     private val glowRadius = skin.glowRadiusDp * density
     private val glow = Bitmap.createBitmap(Metrics.iconBitmapPx, Metrics.iconBitmapPx, Bitmap.Config.ARGB_8888)
-    private val headerTypeface = if (spec.header == HeaderStyle.ruled) Typeface.create(spec.clockFamily, Typeface.NORMAL) else null
-    private val title = text(state.title, skin.typography.title, fontScale, typefaceOverride = if (state.layer == Layer.Folder) folderWordFace?.let { Typeface.create(it, skin.typography.title.weight, false) } else headerTypeface)
+    private val title = text(state.title, skin.typography.title, fontScale)
     private val folderCount = if (state.layer == Layer.Folder) text(state.slots.size.toString(),
         skin.typography.countDot, 1f, typefaceOverride = Typeface.create(
             if (skin.typography.numeralFamily == "Doto") folderNumberFace else folderWordFace,
@@ -1480,7 +1493,7 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
             textSize = token.sizeSp * density * scale
             letterSpacing = token.trackingSp / token.sizeSp
             typeface = typefaceOverride
-                ?: Typeface.create(Typeface.create(spec.annotationFamily, Typeface.NORMAL), token.weight, false)
+                ?: Typeface.create(folderWordFace, token.weight, false)
         }
         var label = value
         val padding = if (halo) Metrics.gridDp * density else 0f
@@ -1515,14 +1528,8 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
         if (look.clockStyle == ClockStyle.Digital) return digitalClock(value)
         val weight = LookRules.clockWeight(look.clockStyle, spec.clockWeight)
         val token = skin.typography.clock.copy(weight = weight)
-        val mono = when {
-            look.clockStyle == ClockStyle.Mono -> Typeface.create(Typeface.MONOSPACE, if (weight >= 600) Typeface.BOLD else Typeface.NORMAL)
-            skin.style.clockFamily.isNotEmpty() -> Typeface.create(Typeface.create(spec.clockFamily, Typeface.NORMAL), weight, false)
-            else -> null
-        }
         return text(value, token, fontScale,
-            textColor = (if (spec.header == HeaderStyle.ruled) skin.colors.accent else skin.colors.textPrimary).toInt(),
-            typefaceOverride = mono)
+            textColor = (if (spec.header == HeaderStyle.ruled) skin.colors.accent else skin.colors.textPrimary).toInt())
     }
 
     /**
@@ -1688,7 +1695,7 @@ private class SceneDrawing(val state: RingState, private val skin: Skin,
                 p.textAlign = Paint.Align.CENTER
                 val token = skin.typography.search
                 p.textSize = token.sizeSp / Metrics.iconDp * size
-                p.typeface = Typeface.create(skin.typography.fallbackFamily, Typeface.NORMAL)
+                p.typeface = folderWordFace
                 val glyph = if (slot.slot is Slot.Action) "⋮" else slot.label.take(1)
                 c.drawText(glyph, size / 2f, size / 2f - (p.ascent() + p.descent()) / 2f, p)
             }
@@ -2668,7 +2675,7 @@ fun rasterHome(state: RingState, skin: Skin, widthDp: Float, heightDp: Float,
     drawHomeStage(canvas, skin, look, glassStage, picture, phone, destination, Paint(Paint.FILTER_BITMAP_FLAG),
         GlassBackdrop.wallpaperTint(skin.colors.bg.toInt()), wallpaperScrim(skin, look, null, bitmap.height), haze,
         android.graphics.RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat()), Paint(Paint.FILTER_BITMAP_FLAG))
-    val decorations = SkinDecorationCache(skin, widthDp, heightDp, density)
+    val decorations = SkinDecorationCache(skin, widthDp, heightDp, density, folderWordFace)
     // Home draws the arcs on the module card (moduleCard = true), so the preview does too.
     val scene = SceneDrawing(state.copy(clock = ""), skin, density, 1f, widthDp, heightDp,
         decorations.get(state.arcs), look, moduleCard = arcCard != null, folderWordFace = folderWordFace, folderNumberFace = folderNumberFace)

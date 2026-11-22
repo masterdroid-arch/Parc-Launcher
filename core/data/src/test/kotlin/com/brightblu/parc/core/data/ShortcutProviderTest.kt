@@ -10,6 +10,20 @@ class ShortcutProviderTest {
     private val id = AppId("com.x/com.x.Main@0")
 
     @Test
+    fun `missing labels become words or a generic action for opaque ids`() {
+        assertEquals("New reminder", shortcutLabel("launcher_shortcuts_shortcut_new_reminder", null, " "))
+        assertEquals("Shortcut", shortcutLabel("897923", null, null))
+    }
+
+    @Test
+    fun `usable localized labels take priority and long labels stay intact`() {
+        val id = "launcher_shortcuts_shortcut_new_event"
+        val longLabel = "Create an event and invite everyone from the calendar"
+        assertEquals(longLabel, shortcutLabel(id, id, longLabel))
+        assertEquals("Novo evento", shortcutLabel(id, "Novo evento", longLabel))
+    }
+
+    @Test
     fun `empty when not the default home app`() {
         val source = FakeLauncherSource().apply {
             hasShortcutPermission = false

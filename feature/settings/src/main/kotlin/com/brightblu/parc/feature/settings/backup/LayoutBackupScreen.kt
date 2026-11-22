@@ -9,6 +9,9 @@ import com.brightblu.parc.feature.settings.ui.*
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,6 +54,8 @@ fun LayoutBackupScreen(
     weekly: WeeklyBackupUiState = WeeklyBackupUiState(),
     onWeeklyEnabled: (Boolean) -> Unit = {},
     onWeeklyFolder: (String) -> Boolean = { true },
+    hasBackupKey: () -> Boolean = { false },
+    showUpdateTokenNote: Boolean = false,
 ) {
     val state by controller.state.collectAsState()
     val export = rememberLauncherForActivityResult(
@@ -69,9 +74,20 @@ fun LayoutBackupScreen(
         }
         enableAfterPick = false
     }
+    state.passphrasePurpose?.let { purpose ->
+        PassphraseDialog(purpose, state.message, skin, controller::submitPassphrase, controller::cancelPassphrase)
+    }
+    androidx.compose.runtime.DisposableEffect(controller) {
+        onDispose { controller.cancelPassphrase() }
+    }
+    val warnAboutKey = !state.encrypted && hasBackupKey()
     LayoutBackupContent(
         state = state,
+        warnAboutKey = warnAboutKey,
+        showUpdateTokenNote = showUpdateTokenNote,
         skin = skin,
+        onToggleEncryption = controller::toggleEncryption,
+        onEnterPassphrase = controller::enterPassphraseAgain,
         onExport = { export.launch(state.suggestedFileName) },
         onImport = { restore.launch(BackupFileName.ImportMimeTypes) },
         onConfirmRestore = controller::confirmRestore,
@@ -96,6 +112,10 @@ fun LayoutBackupScreen(
     )
 }
 
+private const val KeyWarning = "This backup contains your DeepL key and anyone with the file can read it. Set a passphrase to protect it."
+
+private enum class PlainBackupAction { Export, EnableWeekly }
+
 /** Stateless surface; a preview or a host can drive it without the controller. */
 @Composable
 fun LayoutBackupContent(
@@ -110,7 +130,32 @@ fun LayoutBackupContent(
     weekly: WeeklyBackupUiState = WeeklyBackupUiState(),
     onToggleWeekly: () -> Unit = {},
     onChooseWeeklyFolder: () -> Unit = {},
+    onToggleEncryption: () -> Unit = {},
+    onEnterPassphrase: () -> Unit = {},
+    warnAboutKey: Boolean = false,
+    showUpdateTokenNote: Boolean = false,
 ) {
+    var plainAction by remember { mutableStateOf<PlainBackupAction?>(null) }
+    plainAction?.let { action ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { plainAction = null }) {
+            Column(Modifier.fillMaxWidth().background(color(skin.colors.bg))
+                .padding(Metrics.rowGapDp.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+                BasicText(KeyWarning, style = style(skin, skin.colors.textPrimary, skin.typography.menu))
+                ActionRow("Set a passphrase", "", true, skin) {
+                    plainAction = null
+                    onToggleEncryption()
+                }
+                ActionRow("Continue without a passphrase", "", true, skin) {
+                    plainAction = null
+                    when (action) {
+                        PlainBackupAction.Export -> onExport()
+                        PlainBackupAction.EnableWeekly -> onToggleWeekly()
+                    }
+                }
+            }
+        }
+    }
     ParcPage(
         modifier.background(color(skin.colors.bg)).padding(top = topPaddingDp.dp),
         safeTop = false,
@@ -118,20 +163,35 @@ fun LayoutBackupContent(
     ) {
         BasicText("Backup", style = style(skin, skin.colors.textPrimary, skin.typography.title))
         BasicText(
-            "The backup is one JSON file with your layout and settings. Export it before a reinstall, then restore it on the new install.",
+            "The backup is one file with your layout and settings. Export it before a reinstall, then restore it on the new install.",
             style = style(skin, skin.colors.textSecondary, skin.typography.caption),
             modifier = Modifier.fillMaxWidth(),
         )
+        SettingsCard(skin) {
+            SettingRow("Encrypt backups", skin, SettingKind.Toggle,
+                description = "Protect manual and weekly backups with a passphrase.",
+                checked = state.encrypted, enabled = !state.busy, divider = false, onClick = onToggleEncryption)
+        }
+        if (state.encrypted) {
+            BasicText("After uninstalling Parc, you must remember your passphrase. Nobody can recover it. Forget it and the backup cannot be opened.",
+                style = style(skin, skin.colors.textSecondary, skin.typography.caption))
+            ActionRow("Enter your passphrase again", "For weekly backups on this phone", !state.busy, skin, onEnterPassphrase)
+        }
+        if (showUpdateTokenNote) {
+            BasicText("Backups exclude the GitHub update token. It gives access to private builds and is easy to recreate.",
+                style = style(skin, skin.colors.textSecondary, skin.typography.caption))
+        }
         SettingsSection("Automatic backup", skin)
         SettingsCard(skin) {
             SettingRow(
                 "Back up every week",
                 skin,
                 SettingKind.Toggle,
-                description = "While charging and idle, save the same backup into a folder you choose. Keeps the last 4 weekly files (named parc-weekly-date).",
+                description = (if (warnAboutKey) "Anyone with the weekly file can read your DeepL key. " else "") + "While charging and idle, save the same backup into a folder you choose. Keeps the last 4 weekly files (named parc-weekly-date).",
+                descriptionMaxLines = Int.MAX_VALUE,
                 checked = weekly.enabled,
                 divider = true,
-                onClick = onToggleWeekly,
+                onClick = { if (warnAboutKey && !weekly.enabled) plainAction = PlainBackupAction.EnableWeekly else onToggleWeekly() },
             )
             SettingRow(
                 "Backup folder",
@@ -164,7 +224,7 @@ fun LayoutBackupContent(
             detail = state.suggestedFileName,
             enabled = !state.busy,
             skin = skin,
-            onClick = onExport,
+            onClick = { if (warnAboutKey) plainAction = PlainBackupAction.Export else onExport() },
         )
         ActionRow(
             label = "Restore backup",
@@ -215,3 +275,43 @@ private fun style(skin: com.brightblu.parc.model.Skin, tint: Long, token: TypeTo
     fontWeight = FontWeight(token.weight),
     letterSpacing = token.trackingSp.sp,
 )
+
+/** Password inputs live only in this dialog, never in saved state or diagnostics. */
+@Composable
+private fun PassphraseDialog(
+    purpose: PassphrasePurpose, message: String?, skin: Skin,
+    submit: (String, String) -> Unit, cancel: () -> Unit,
+) {
+    var first by remember { mutableStateOf("") }
+    var second by remember { mutableStateOf("") }
+    androidx.compose.ui.window.Dialog(onDismissRequest = cancel) {
+        Column(Modifier.fillMaxWidth().background(color(skin.colors.bg))
+            .padding(Metrics.rowGapDp.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+            BasicText(if (purpose == PassphrasePurpose.Enable) "Protect your backups" else "Enter your passphrase",
+                style = style(skin, skin.colors.textPrimary, skin.typography.title))
+            if (purpose == PassphrasePurpose.Enable) BasicText(
+                "Use at least 8 characters. Nobody can recover your passphrase. Forget it and the backup cannot be opened. After uninstalling Parc, you must remember it.",
+                style = style(skin, skin.colors.textSecondary, skin.typography.caption))
+            PassphraseField("Passphrase", first, { first = it }, skin)
+            if (purpose == PassphrasePurpose.Enable) PassphraseField("Repeat passphrase", second, { second = it }, skin)
+            if (message != null) BasicText(message, style = style(skin, skin.colors.warn, skin.typography.caption))
+            ActionRow("Continue", "", true, skin) { submit(first, second) }
+            ActionRow("Cancel", "", true, skin, cancel)
+        }
+    }
+}
+
+@Composable
+private fun PassphraseField(label: String, value: String, change: (String) -> Unit, skin: Skin) {
+    BasicText(label, style = style(skin, skin.colors.textSecondary, skin.typography.caption))
+    androidx.compose.foundation.text.BasicTextField(value, change, singleLine = true,
+        textStyle = style(skin, skin.colors.textPrimary, skin.typography.menu),
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Password, autoCorrectEnabled = false),
+        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(color(skin.colors.accent)),
+        modifier = Modifier.fillMaxWidth().heightIn(min = Metrics.minTouchDp.dp)
+            .background(color(skin.colors.surface)).padding(Metrics.rowGapDp.dp)
+            .semantics { contentDescription = label })
+}

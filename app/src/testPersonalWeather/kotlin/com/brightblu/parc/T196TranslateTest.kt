@@ -1,6 +1,11 @@
 package com.brightblu.parc
 
 import com.brightblu.parc.core.data.backup.BackupSpecs
+import com.brightblu.parc.core.data.backup.BackupFileStore
+import com.brightblu.parc.feature.settings.backup.BackupOutcome
+import com.brightblu.parc.feature.settings.backup.BackupFailure
+import com.brightblu.parc.feature.settings.backup.LayoutBackupService
+import com.brightblu.parc.model.fakes.FakeLayoutRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
@@ -211,9 +216,9 @@ class T196TranslateTest {
     }
 
     // The key
-    private class FakeCipher : KeyCipher {
-        override fun encrypt(plain: ByteArray) = byteArrayOf(9) + plain.reversedArray()
-        override fun decrypt(blob: ByteArray): ByteArray? = if (blob.isNotEmpty() && blob[0] == 9.toByte()) blob.copyOfRange(1, blob.size).reversedArray() else null
+    private class FakeCipher(private val marker: Byte = 9) : KeyCipher {
+        override fun encrypt(plain: ByteArray) = byteArrayOf(marker) + plain.reversedArray()
+        override fun decrypt(blob: ByteArray): ByteArray? = if (blob.isNotEmpty() && blob[0] == marker) blob.copyOfRange(1, blob.size).reversedArray() else null
     }
     private class MemoryBlob : KeyBlobStorage {
         var value: String? = null
@@ -232,6 +237,52 @@ class T196TranslateTest {
         assertTrue(store.has())
         store.clear()
         assertNull(store.load())
+    }
+
+    @Test fun translationCredentialSurvivesPlainAndProtectedBackups() = runTest {
+        val files = object : BackupFileStore {
+            var document = ""
+            override suspend fun read(uri: String) = document
+            override suspend fun write(uri: String, text: String) { document = text }
+        }
+        fun service(key: DeepLKeyStore) = LayoutBackupService(FakeLayoutRepository(), files,
+            stores = { listOf(key.backupStore()) })
+        val sourceBlob = MemoryBlob()
+        val source = DeepLKeyStore(FakeCipher(1), sourceBlob)
+        val exporter = service(source)
+        for (passphrase in listOf(null, "backup-test".toCharArray())) {
+            val destinationBlob = MemoryBlob()
+            val destination = DeepLKeyStore(FakeCipher(2), destinationBlob)
+            val importer = service(destination)
+            destination.save(proFakeKey)
+            source.clear()
+            exporter.exportTo("old")
+            assertFalse(files.document.contains("\"deepl\""))
+            assertTrue(importer.restoreFrom("old") is BackupOutcome.Restored)
+            assertEquals(proFakeKey, destination.load())
+
+            source.save(fakeKey)
+            assertTrue(exporter.exportTo("new", passphrase) is BackupOutcome.Exported)
+            assertEquals(passphrase == null, files.document.contains(fakeKey))
+            if (passphrase != null) {
+                val before = destinationBlob.value
+                assertEquals(BackupOutcome.NeedsPassphrase, importer.prepareRestore("new"))
+                assertEquals(BackupOutcome.Failed(BackupFailure.UnlockFailed),
+                    importer.prepareRestore("new", "incorrect".toCharArray()))
+                assertEquals(before, destinationBlob.value)
+            }
+            destination.clear()
+            val ready = importer.prepareRestore("new", passphrase) as BackupOutcome.Ready
+            assertFalse(destination.has())
+            assertTrue(importer.confirm(ready) is BackupOutcome.Restored)
+            val reopened = DeepLKeyStore(FakeCipher(2), destinationBlob)
+            assertTrue(reopened.has())
+            assertEquals(fakeKey, reopened.load())
+            assertFalse(sourceBlob.value == destinationBlob.value)
+            assertFalse(ParcLog.lines().any { fakeKey in it })
+            val header = DiagnosticsHeader("test", 1L, "14", 34, "Pixel", 384, 853, 450, emptyList(), emptyList())
+            assertFalse(fakeKey in ExportDiagnostics.build(header, 0, ParcLog.lines(), ParcLog.dropped(), null, null))
+        }
     }
 
     @Test fun badPastesAreRefusedAndNothingIsStored() {
@@ -268,7 +319,7 @@ class T196TranslateTest {
         assertEquals(listOf(TranslationEntry("a", "b", TranslateTarget.Portuguese, 1)), TranslationHistory.decode(mixed))
     }
 
-    @Test fun historyAndTheKeyStayOutOfBackups() {
+    @Test fun historyAndDeviceEncryptedBlobStayOutOfCoreRegistry() {
         // T204 intentionally replaces T196's history-in-backups policy.
         assertNull(BackupSpecs.byId("translate"))
         assertFalse(BackupSpecs.all.any { it.id == "translate" || it.id == "parc_translate_key" })

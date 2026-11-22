@@ -54,8 +54,12 @@ class LauncherSession internal constructor(
     private val lockGate: FolderLockGate? = null,
     /** OPUS8 (T133): opens Parc settings on a page (Home menu rows and Settings search results). */
     private val openSettingsAt: (SettingsTarget) -> Unit = { openSettings() },
+    /** T324: the Home menu's "Wallpaper and look" opens the wallpaper picker sheet over Home. */
+    private val onWallpaperSheet: (() -> Unit)? = null,
     /** T217: every package hidden right now; the folder app picker never offers one. */
     private val hiddenPackages: () -> Set<String> = { emptySet() },
+    /** T313: the All-apps ring's "Add/Move to arc" asks the host to open the shared chooser. */
+    private val onAddToArc: (AppId) -> Unit = {},
     /** T245: the Home edit host records undo steps and reads the live "Lock layout" choice. */
     private val layoutEditing: RingEditSession? = null,
 ) : RingCallbacks {
@@ -338,6 +342,9 @@ class LauncherSession internal constructor(
         dismissHomeMenu()
         when (row) {
             HomeMenuRow.EditHome -> enterEditMode()
+            // T324: "Wallpaper and look" is a sheet over Home now. Without a sheet host it still
+            // opens the Settings page, so nothing that builds a session loses the row.
+            HomeMenuRow.Look -> onWallpaperSheet?.invoke() ?: openSettingsAt(row.target ?: return)
             else -> openSettingsAt(row.target ?: return)
         }
     }
@@ -353,6 +360,7 @@ class LauncherSession internal constructor(
             onArc = navigation.state.value.layer == Layer.Home,
             pinLabel = pinRowLabel(layout.layout.value, hit.position),
             canUninstall = entry != null && uninstallable(entry),
+            placed = FolderDrop.homePosition(layout.layout.value, id) != null,
             notifications = entry?.let { peekLines(it.packageName) }.orEmpty())
         onMenuOpened()
         if (isDefaultHome) {
@@ -441,6 +449,10 @@ class LauncherSession internal constructor(
             }
             MenuAction.Shortcut -> open.shortcuts.firstOrNull { it.id == detail }?.let(::launchShortcut)
             MenuAction.TogglePin -> togglePin()
+            MenuAction.AddToArc -> {
+                dismissMenu()
+                onAddToArc(open.appId)
+            }
             MenuAction.OpenMoveToFolder -> _menu.value = open.copy(
                 page = MenuPage.MoveToFolder,
                 // OPUS6 (audit F1): a folder locked right now is listed as "Locked" when the user

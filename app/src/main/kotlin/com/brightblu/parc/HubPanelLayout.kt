@@ -17,10 +17,10 @@ internal object HubPanelLayout {
             else -> ((heightDp / (Metrics.hudCellHeightDp * fontScale.coerceAtLeast(1f))).toInt()).coerceAtLeast(1)
         })
     fun topDp(statusBarInsetDp: Float): Float = statusBarInsetDp.coerceAtLeast(0f) + Metrics.hubTopGapDp
-    fun tileHeightDp(availableDp: Float, rows: Int): Float {
+    fun tileHeightDp(availableDp: Float, rows: Int, maxDp: Float = Metrics.hubTileMaxHeightDp): Float {
         if (rows <= 0) return Metrics.hudCellHeightDp
         return ((availableDp - Metrics.hudCellGapDp * (rows - 1)) / rows)
-            .coerceIn(Metrics.hudCellHeightDp, Metrics.hubTileMaxHeightDp)
+            .coerceIn(Metrics.hudCellHeightDp, maxDp)
     }
 }
 internal val LocalHubTileHeight = compositionLocalOf { Metrics.hudCellHeightDp }

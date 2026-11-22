@@ -15,7 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,14 +60,6 @@ internal object ClockFaces {
     }
 }
 
-/** The family of the non-dot clock, shared by the panel's Clock page and the standalone clock. */
-internal fun hubClockFamily(style: ClockStyle, skin: Skin): FontFamily =
-    if (style == ClockStyle.Mono) FontFamily.Monospace
-    else skin.textFamily?.takeIf { skin.style.clockFamily != "monospace" }
-        ?: FontFamily(androidx.compose.ui.text.font.Typeface(android.graphics.Typeface.create(
-            android.graphics.Typeface.create(skin.style.clockFamily.ifEmpty { skin.typography.fallbackFamily }, android.graphics.Typeface.NORMAL),
-            hubClockWeight(style, skin), false)))
-
 /** Wall-clock time in millis, refreshed on every minute boundary. */
 @Composable
 internal fun rememberMinuteMillis(): Long {
@@ -101,10 +92,9 @@ internal fun HomeClock(skin: Skin, look: LookSettings, options: ClockOptions, de
             face == ClockFace.Digital && SevenSegment.supports(text) -> DigitalHubClock(text, skin)
             else -> {
                 val token = skin.typography.clock
-                val family = remember(look.clockStyle, skin) { hubClockFamily(look.clockStyle, skin) }
                 BasicText(text, style = TextStyle(color = ink, fontSize = token.sizeSp.sp,
                     letterSpacing = token.trackingSp.sp,
-                    fontWeight = FontWeight(hubClockWeight(look.clockStyle, skin)), fontFamily = family))
+                    fontWeight = FontWeight(hubClockWeight(look.clockStyle, skin)), fontFamily = skin.textFamily))
             }
         }
         if (detail.hasText) {

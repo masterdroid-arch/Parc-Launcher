@@ -22,6 +22,8 @@ internal object WeatherVariant {
     /** These builds have no Weather places, so nothing of Weather is in their backup. */
     fun backupStores(context: android.content.Context): List<com.brightblu.parc.core.data.backup.BackupStore> = emptyList()
 
+    fun hasBackupKey(context: android.content.Context) = false
+
     /** T189: the Sky page's place. These builds have no weather places, so there is none; the page uses the typed one. */
     @Composable fun homePlace(): SkyPlace? = null
     /** T198: no saved places in these builds, so no weather for a named one. */

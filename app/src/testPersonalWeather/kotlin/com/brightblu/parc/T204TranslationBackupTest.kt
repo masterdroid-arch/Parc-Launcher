@@ -48,11 +48,11 @@ class T204TranslationBackupTest {
     private val localEntry = TranslationEntry("Local source", "Local result", TranslateTarget.Portuguese, 5)
     private val oldEntry = TranslationEntry("Old source", "Old result", TranslateTarget.English, 1)
 
-    @Test fun neitherRegistryIncludesTranslationHistoryOrKey() {
+    @Test fun registriesExcludeHistoryAndDeviceEncryptedKeyBlob() {
         for (registered in listOf(BackupSpecs.all, specs, WeatherVariant.backupStores(context).map { it.spec })) {
             assertFalse(registered.any { it.id == TranslateStore.Name || it.id == "parc_translate_key" })
         }
-        assertEquals(listOf(BackupSpecs.weather), WeatherVariant.backupStores(context).map { it.spec })
+        assertEquals(listOf(BackupSpecs.weather, DeepLKeyStore.BackupSpec), WeatherVariant.backupStores(context).map { it.spec })
     }
 
     @Test fun exportingWithLocalHistoryOmitsTheSectionAndItsText() = runTest {

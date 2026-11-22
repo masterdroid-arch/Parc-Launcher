@@ -140,8 +140,11 @@ internal fun LanderGame(skin: Skin, active: Boolean, best: Int, onRunEnd: (Int) 
     }
     val latestTap by rememberUpdatedState(::tapped)
     val density = LocalDensity.current.density
-    val typeface = remember(context) { runCatching { context.resources.getFont(com.brightblu.parc.core.model.R.font.doto_variable) }.getOrNull() }
-    val painter = remember(skin, density, typeface) { LanderPainter(skin, density, typeface) }
+    val painter = remember(skin, density, context) {
+        LanderPainter(skin, density,
+            context.resources.getFont(com.brightblu.parc.core.model.R.font.figtree_variable),
+            context.resources.getFont(com.brightblu.parc.core.model.R.font.doto_variable))
+    }
     val joystickOn = host?.joystickEnabled?.invoke() == true
     val description = when {
         paused -> "Lander, paused. Level $shownLevel. Double tap to continue."
@@ -217,7 +220,7 @@ internal fun LanderGame(skin: Skin, active: Boolean, best: Int, onRunEnd: (Int) 
  * skin's accent, and the ship and the gauge dots use its text colours. Fuel, speed and wind are drawn as small labelled
  * gauges so no value is a bare number.
  */
-private class LanderPainter(skin: Skin, private val density: Float, typeface: Typeface?) {
+private class LanderPainter(skin: Skin, private val density: Float, wordFace: Typeface, numberFace: Typeface) {
     private fun paint(color: Long, alpha: Float, style: Paint.Style = Paint.Style.FILL) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         this.color = color.toInt(); this.alpha = (255 * alpha).toInt(); this.style = style; strokeWidth = density
     }
@@ -228,12 +231,12 @@ private class LanderPainter(skin: Skin, private val density: Float, typeface: Ty
     private val flame = paint(skin.colors.accent, 0.9f)
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = skin.colors.textSecondary.toInt(); textAlign = Paint.Align.LEFT
-        if (typeface != null) this.typeface = typeface
+        typeface = wordFace
     }
     private val rightLabel = Paint(label).apply { textAlign = Paint.Align.RIGHT }
     private val value = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = skin.colors.textPrimary.toInt(); textAlign = Paint.Align.RIGHT
-        if (typeface != null) this.typeface = typeface
+        typeface = numberFace
     }
     private val limitLabel = "LAND UNDER ${(LanderRules.MaxLandingSpeed * 100f).roundToInt()}"
     private val gaugeDots = 10

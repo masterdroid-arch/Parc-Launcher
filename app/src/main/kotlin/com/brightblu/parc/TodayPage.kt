@@ -22,7 +22,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,6 +39,7 @@ import com.brightblu.parc.feature.settings.ui.*
 import com.brightblu.parc.model.Metrics
 import com.brightblu.parc.model.SevenSegment
 import com.brightblu.parc.model.Skin
+import com.brightblu.parc.model.textFamily
 import com.brightblu.parc.model.readableAccent
 import com.brightblu.parc.reader.ReaderContract
 import com.brightblu.parc.reader.ReaderMotion
@@ -242,7 +242,8 @@ internal fun TodayClockHeader(
     Column(Modifier.fillMaxWidth().combinedClickable(onClick = onOpenAlarms, onLongClick = onOpenOptions),
         verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
         if (face != ClockFace.Hidden) {
-            val sizeSp = if (compact) Metrics.hubValueSp else if (options.seconds || !options.hour24) Metrics.hubValueSp else Metrics.hubClockSp
+            // T322: the clock is the skin's clock role (44 sp), never a separate hard-coded size.
+            val sizeSp = skin.typography.clock.sizeSp
             if (face == ClockFace.Digital && SevenSegment.supports(shownTime) && !options.seconds) DigitalHubClock(shownTime, skin)
             else if (face == ClockFace.Dot) {
                 val dot = skin.typography.clockDot
@@ -251,7 +252,7 @@ internal fun TodayClockHeader(
                 letterSpacing = skin.typography.clock.trackingSp.sp,
                 fontSize = sizeSp.sp,
                 fontWeight = FontWeight(hubClockWeight(look.clockStyle, skin)),
-                fontFamily = remember(look.clockStyle, skin) { hubClockFamily(look.clockStyle, skin) }))
+                fontFamily = skin.textFamily))
         }
         // 1.5.1: the date leads under the time, the week beside it; then one row per fact in the page's row style.
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
@@ -329,12 +330,7 @@ private fun TodayQuoteCard(quote: Quote?, message: String?, skin: Skin) {
         .background(Color(skin.colors.paper.toInt()), RoundedCornerShape(skin.shape.surfaceCornerDp.dp))
         .padding(Metrics.quoteInsetDp.dp).semantics(mergeDescendants = true) {},
         verticalArrangement = Arrangement.spacedBy(Metrics.quoteCreditGapDp.dp)) {
-        BasicText(quote?.text ?: message.orEmpty(), style = TextStyle(
-            color = Color(skin.colors.ink.toInt()), fontFamily = FontFamily.Serif,
-            fontSize = Metrics.quoteTextSp.sp, lineHeight = Metrics.quoteLineSp.sp))
-        if (!quote?.credit.isNullOrBlank()) BasicText(quote!!.credit, style = TextStyle(
-            color = Color(skin.colors.ink.toInt()), fontFamily = FontFamily.Serif,
-            fontSize = skin.typography.caption.sizeSp.sp, lineHeight = Metrics.quoteCreditLineSp.sp))
+        QuoteText(quote?.text ?: message.orEmpty(), quote?.credit, skin)
     }
 }
 

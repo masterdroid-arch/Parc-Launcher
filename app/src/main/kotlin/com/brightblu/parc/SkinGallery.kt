@@ -212,11 +212,12 @@ internal fun SkinFullPreview(candidate: Skin, services: LauncherServices, look: 
 
 internal fun rasterSkinHome(scene: RingState, services: LauncherServices, skin: Skin, look: LookSettings, wallpaperFile: java.io.File,
     phoneColour: Int? = null, appearance: HubAppearance = HubAppearance(), hubSize: HubSize = HubSize.Standard,
-    statusInsetDp: Float = services.geometry.insets.top, resources: android.content.res.Resources? = null): ImageBitmap {
+    statusInsetDp: Float = services.geometry.insets.top, resources: android.content.res.Resources): ImageBitmap {
     val layout = services.layout.layout.value
     val locked = layout.folders.filter { it.locked }.map { it.id }.toSet()
     val previewApps = if (DemoMode.enabled) DemoHomeLayout.appsIfDemo(true) else services.unlockedApps.value
-    val previews = FolderPreviews.prepare(layout, previewApps, services.usage, skin, locked) { id ->
+    val wordFace = resources.getFont(com.brightblu.parc.core.model.R.font.figtree_variable)
+    val previews = FolderPreviews.prepare(layout, previewApps, services.usage, skin, locked, wordFace = wordFace) { id ->
         if (DemoMode.enabled && DemoHomeLayout.isSampleApp(id)) {
             com.brightblu.parc.core.data.demo.DemoIcons.iconFor(
                 demo = true, id = id, sizePx = Metrics.iconBitmapPx, label = DemoHomeLayout.labelFor(id))
@@ -242,7 +243,7 @@ internal fun rasterSkinHome(scene: RingState, services: LauncherServices, skin: 
         Metrics.panelGutterDp, panelTop, widthDp - 2 * Metrics.panelGutterDp, panelBottom - panelTop, hubs.refraction)
     return rasterHome(complete, hubs.arc, widthDp, services.geometry.heightDp, 1f,
         look, image, phoneColour, arcCard, statsCard,
-        resources?.getFont(com.brightblu.parc.core.model.R.font.figtree_variable), resources?.getFont(com.brightblu.parc.core.model.R.font.doto_variable)).asImageBitmap()
+        wordFace, resources.getFont(com.brightblu.parc.core.model.R.font.doto_variable)).asImageBitmap()
 }
 
 /** Where the stats card ends in a preview: above the arcs, and (as on Home, T165) never closer than the gap to the arc card. */

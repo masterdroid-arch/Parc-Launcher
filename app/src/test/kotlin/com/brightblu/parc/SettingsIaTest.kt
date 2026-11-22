@@ -19,6 +19,7 @@ class SettingsIaTest {
         // Home
         "ArcsShown" to Row("Home", "Arcs", "Arcs"),
         "IconsPerArc" to Row("Home", "Arcs", "Arcs"),
+        "ArcMaximums" to Row("Home", "Arcs", "Maximum apps"),
         "ArcLayout" to Row("Home", "Arcs", "Arcs"),
         "LeftHand" to Row("Home", "Arcs", "Arcs"),
         "LockLayout" to Row("Home", "Arcs", "Arcs"),
@@ -57,6 +58,7 @@ class SettingsIaTest {
         "HubPages" to Row("Appearance", "Hubs", "Pages & alerts"),
         // Appearance > Hubs > Pages & alerts
         "HubSize" to Row("Appearance", "Pages & alerts", "Stats hub"),
+        "HubFullScreen" to Row("Appearance", "Pages & alerts", "Stats hub"),
         "Agenda" to Row("Appearance", "Pages & alerts", "Pages"),
         "StatsAlerts" to Row("Appearance", "Pages & alerts", "Alerts"),
         // Gestures & search > Gestures
@@ -109,7 +111,7 @@ class SettingsIaTest {
     )
 
     @Test fun theExactRowMapIsImplementedOnce() {
-        assertEquals(74, expected.size)
+        assertEquals(76, expected.size)
         assertEquals(expected.keys, SettingsRegistry.all.map { it.id }.toSet())
         assertEquals(SettingsRegistry.all.size, SettingsRegistry.all.map { it.id }.toSet().size)
         SettingsRegistry.all.forEach { def ->
@@ -131,8 +133,8 @@ class SettingsIaTest {
             val rows = SettingsRegistry.on(page).size
             assertTrue("${page.title} has $rows rows", rows <= 8)
         }
-        // Pages & alerts is a list editor plus three rows, still under the cap.
-        assertEquals(3, SettingsRegistry.on(SettingsPage.HubPages).size)
+        // Pages & alerts is a list editor plus four rows, still under the cap.
+        assertEquals(4, SettingsRegistry.on(SettingsPage.HubPages).size)
         assertEquals(8, SettingsRegistry.on(SettingsPage.Hubs).size)
     }
 
@@ -186,7 +188,7 @@ class SettingsIaTest {
 
     @Test fun theHubObjectIsOnlyUnderAppearanceHubs() {
         val hubRows = listOf("GlassEffect", "GlassRefraction", "ArcHubColour", "ArcHubOpacity", "StatsHubColour",
-            "StatsHubOpacity", "StatsVisible", "HubPages", "HubSize", "Agenda", "StatsAlerts").map { SettingsRegistry.byId.getValue(it) }
+            "StatsHubOpacity", "StatsVisible", "HubPages", "HubSize", "HubFullScreen", "Agenda", "StatsAlerts").map { SettingsRegistry.byId.getValue(it) }
         hubRows.forEach { def ->
             assertEquals(def.id, SettingsGroup.Appearance, def.page.group)
             assertTrue(def.id, def.page == SettingsPage.Hubs || def.page == SettingsPage.HubPages)

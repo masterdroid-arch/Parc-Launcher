@@ -62,6 +62,7 @@ internal class SettingsWriter(
             ui.setLayoutCounts(new.counts)
             layout.updateLayout { LayoutCounts.migrate(it, new.counts.arcs) }
         }
+        if (old.arcMaximums != new.arcMaximums) ui.setArcMaximums(new.arcMaximums)
         if (old.aligned != new.aligned) live.aligned(new.aligned)
         if (old.joystick != new.joystick) live.joystick(new.joystick)
         if (old.hubDoubleTap != new.hubDoubleTap) live.hubDoubleTap(new.hubDoubleTap)
@@ -76,6 +77,7 @@ internal class SettingsWriter(
         }
         if (old.menuNotificationText != new.menuNotificationText) ui.setMenuNotificationText(new.menuNotificationText)
         if (old.hubSize != new.hubSize) hubStore.update { it.copy(size = new.hubSize) }
+        if (old.hubFullScreen != new.hubFullScreen) hubStore.update { it.copy(fullScreenEnabled = new.hubFullScreen) }
         if (old.searchPhoneSettings != new.searchPhoneSettings) search.setPhoneSettingsEnabled(new.searchPhoneSettings)
         if (old.searchFiles != new.searchFiles) search.setFilesEnabled(new.searchFiles)
         if (old.searchEvents != new.searchEvents) search.setEventsEnabled(new.searchEvents)

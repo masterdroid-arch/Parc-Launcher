@@ -11,8 +11,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 import com.brightblu.parc.model.*
 
 internal data class HubTemplateSpec(val summary: String, val action: String, val empty: String)
@@ -44,10 +42,18 @@ internal val LocalHubPrimary = compositionLocalOf { false }
 @Composable
 internal fun HubHero(value: String, label: String, skin: Skin) {
     Column {
-        BasicText(value, style = hudValueStyle(skin).copy(
-            fontSize = (if (LocalHubSize.current == HubSize.Compact) Metrics.hubLineSp else Metrics.hubValueSp).sp,
-            fontWeight = FontWeight.Light))
-        if (LocalHubSize.current != HubSize.Compact) BasicText(label, style = hudValueStyle(skin))
+        if (HubType.isFigureNumeral(value)) {
+            if (isAllDot(value) && skin.typography.numeralFamily == "Doto") {
+                DotNumerals(value, DotRole.countDot, skin.typography, Color(skin.colors.textPrimary.toInt()))
+            } else {
+                BasicText(value, style = hudValueStyle(skin, role = HubType.figure(skin.typography)), maxLines = 1)
+            }
+        } else {
+            BasicText(value, style = hubTitleStyle(skin))
+        }
+        if (LocalHubSize.current != HubSize.Compact) {
+            BasicText(label, style = hubPairLabelStyle(skin))
+        }
     }
 }
 

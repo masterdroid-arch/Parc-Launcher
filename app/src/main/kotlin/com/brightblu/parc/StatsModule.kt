@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.os.PowerManager
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,12 +16,16 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -48,7 +53,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -63,6 +67,7 @@ import com.brightblu.parc.model.Metrics
 import com.brightblu.parc.model.ParcSpacing
 import com.brightblu.parc.model.StatsFrame
 import com.brightblu.parc.model.Skin
+import com.brightblu.parc.model.TypeToken
 import java.io.File
 
 /**
@@ -92,6 +97,12 @@ fun BoxScope.StatsModule(
     onToggleExpanded: () -> Unit,
     pullProgress: () -> Float = { 0f },
     hubTopDp: Float = Metrics.keepOutTopDp + Metrics.hubTopGapDp,
+    /** T330: the full-screen view is open; the card fills the screen and every page keeps its place. */
+    fullScreen: Boolean = false,
+    /** T330: the "Full-screen hub" setting. */
+    fullScreenEnabled: Boolean = true,
+    onExpandFullScreen: () -> Unit = {},
+    onCloseFullScreen: () -> Unit = {},
     /** T73: the active focus mode, shown as the hub header switch; null when nothing is active. */
     focusActiveName: String? = null,
     /** T73: true when at least one mode is configured, so the hub offers the switch. */
@@ -136,10 +147,17 @@ fun BoxScope.StatsModule(
         focusActiveName = focusActiveName,
         focusAvailable = focusAvailable,
         onToggleFocus = onToggleFocus,
-        modifier = Modifier
+        fullScreen = fullScreen,
+        fullScreenEnabled = fullScreenEnabled,
+        onExpandFullScreen = onExpandFullScreen,
+        onCloseFullScreen = onCloseFullScreen,
+        modifier = (if (fullScreen) Modifier
+            .align(Alignment.TopStart)
+            .fillMaxSize()
+        else Modifier
             .align(Alignment.TopStart)
             .padding(start = Metrics.panelGutterDp.dp, end = Metrics.panelGutterDp.dp, top = top.dp)
-            .height(panelDp.dp)
+            .height(panelDp.dp))
             .clipToBounds()
             .graphicsLayer { alpha = 1f - (1f - Metrics.searchPullMinHubAlpha) * pullProgress() },
     )
@@ -168,13 +186,24 @@ internal fun StatsHud(
     focusActiveName: String? = null,
     focusAvailable: Boolean = false,
     onToggleFocus: () -> Unit = {},
+    fullScreen: Boolean = false,
+    fullScreenEnabled: Boolean = true,
+    onExpandFullScreen: () -> Unit = {},
+    onCloseFullScreen: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // T158: the hub is always the card (DESIGN 3.4): 32 dp corners, 16 dp inside on every side. T176: drawn like the arc card.
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(skin.shape.moduleCornerDp.dp)
+    // T330: the full-screen view takes the whole screen with square corners; a page gutter holds the text.
+    val shape: androidx.compose.ui.graphics.Shape =
+        if (fullScreen) androidx.compose.ui.graphics.RectangleShape
+        else androidx.compose.foundation.shape.RoundedCornerShape(skin.shape.moduleCornerDp.dp)
     val surfaceModifier = remember(skin) { Modifier.hubSurface(skin) }
-    val inset = ParcSpacing.hubCard()
-    val panel = modifier.then(surfaceModifier).then(Modifier.clip(shape))
+    val inset = if (fullScreen) ParcSpacing.hubFullScreen() else ParcSpacing.hubCard()
+    val panel = modifier
+        // T330: the arcs stay behind; the full-screen page is opaque even when the card is set see-through.
+        .then(if (fullScreen) Modifier.background(Color(skin.colors.bg.toInt())) else Modifier)
+        .then(surfaceModifier).then(Modifier.clip(shape))
+        .then(if (fullScreen) Modifier.windowInsetsPadding(WindowInsets.systemBars) else Modifier)
         .padding(start = inset.startDp.dp, top = inset.topDp.dp, end = inset.endDp.dp, bottom = inset.bottomDp.dp)
     // T121: the demo store resolves under T120a/T120b's namespace because this context is the
     // application context (ParcApplication delegates storage to the wrapped base). Never built
@@ -185,6 +214,10 @@ internal fun StatsHud(
     }
     Column(panel) {
         HubPages(skin, expanded = expanded, onToggleExpanded = onToggleExpanded,
+            fullScreen = fullScreen,
+            fullScreenEnabled = fullScreenEnabled,
+            onExpandFullScreen = onExpandFullScreen,
+            onCloseFullScreen = onCloseFullScreen,
             focusLabel = focusActiveName,
             focusAvailable = focusAvailable,
             onToggleFocus = onToggleFocus,
@@ -574,15 +607,19 @@ internal fun hudLabelStyle(skin: Skin): TextStyle = TextStyle(
     fontSize = skin.typography.caption.sizeSp.sp,
     fontWeight = FontWeight(skin.typography.caption.weight),
     letterSpacing = skin.typography.caption.trackingSp.sp,
-    fontFamily = if (skin.style.terminalStats || skin.style.annotationFamily == "monospace") FontFamily.Monospace else skin.textFamily ?: FontFamily.SansSerif,
+    fontFamily = skin.textFamily,
 )
 
-internal fun hudValueStyle(skin: Skin, color: Long? = null): TextStyle = TextStyle(
+internal fun hudValueStyle(
+    skin: Skin,
+    color: Long? = null,
+    role: TypeToken = skin.typography.body,
+): TextStyle = TextStyle(
     color = Color((color ?: skin.colors.textPrimary).toInt()),
-    fontSize = Metrics.hubLineSp.sp,
-    fontWeight = FontWeight(skin.typography.caption.weight),
-    letterSpacing = skin.typography.caption.trackingSp.sp,
-    fontFamily = if (skin.style.terminalStats) FontFamily.Monospace else skin.textFamily ?: FontFamily.SansSerif,
+    fontSize = role.sizeSp.sp,
+    fontWeight = FontWeight(role.weight),
+    letterSpacing = role.trackingSp.sp,
+    fontFamily = skin.textFamily,
     fontFeatureSettings = "tnum",
 )
 

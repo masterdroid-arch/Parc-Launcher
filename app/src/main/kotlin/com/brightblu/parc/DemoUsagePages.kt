@@ -37,9 +37,12 @@ internal fun DemoNetworkPage(skin: Skin, scroll: Boolean = true) {
             }
             "data totals" -> Column(verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
                 PeriodLabel(page.summary.networkLabel(), skin, cycle)
-                Readout("Wi-Fi / mobile",
-                    "${PowerNetworkFormat.bytes(page.summary.wifiBytes)} / ${PowerNetworkFormat.bytes(page.summary.mobileBytes)}",
-                    skin)
+                val wifi = page.summary.wifiBytes
+                val mobile = page.summary.mobileBytes
+                // One scale per unit: both bars share the day total (T377).
+                val total = wifi + mobile
+                ValueBar("Wi-Fi", PowerNetworkFormat.bytes(wifi), sharedBarFraction(wifi, total), skin)
+                ValueBar("Mobile", PowerNetworkFormat.bytes(mobile), sharedBarFraction(mobile, total), skin)
             }
             "top apps" -> Column(verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
                 CellLabel("Top apps · data", skin)

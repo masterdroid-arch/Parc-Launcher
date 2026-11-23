@@ -17,19 +17,19 @@ class SettingsIaTest {
     /** id → group, sub-page, card. The 72 rows of REVIEW-PLAN §3.3, with T219/T220, T245 and T260 new rows. */
     private val expected: Map<String, Row> = mapOf(
         // Home
-        "ArcsShown" to Row("Home", "Arcs", "Arcs"),
-        "IconsPerArc" to Row("Home", "Arcs", "Arcs"),
-        "ArcMaximums" to Row("Home", "Arcs", "Maximum apps"),
-        "ArcLayout" to Row("Home", "Arcs", "Arcs"),
-        "LeftHand" to Row("Home", "Arcs", "Arcs"),
-        "LockLayout" to Row("Home", "Arcs", "Arcs"),
-        "Rotation" to Row("Home", "Arcs", "Arcs"),
-        "MainApps" to Row("Home", "Apps & folders", "Apps"),
-        "Folders" to Row("Home", "Apps & folders", "Folders"),
-        "MarkWorkApps" to Row("Home", "Apps & folders", "Work apps"),
-        "HiddenApps" to Row("Home", "Hidden & locked", "Hidden apps"),
-        "HiddenFolders" to Row("Home", "Hidden & locked", "Hidden folders"),
-        "LockedFolders" to Row("Home", "Hidden & locked", "Locked"),
+        "ArcsShown" to Row("Home layout", "Arcs", "Arcs"),
+        "IconsPerArc" to Row("Home layout", "Arcs", "Arcs"),
+        "ArcMaximums" to Row("Home layout", "Arcs", "Arc capacities"),
+        "ArcLayout" to Row("Home layout", "Arcs", "Arcs"),
+        "LeftHand" to Row("Home layout", "Arcs", "Arcs"),
+        "LockLayout" to Row("Home layout", "Arcs", "Arcs"),
+        "Rotation" to Row("Home layout", "Arcs", "Arcs"),
+        "MainApps" to Row("Home layout", "Apps & folders", "Apps"),
+        "Folders" to Row("Home layout", "Apps & folders", "Folders"),
+        "MarkWorkApps" to Row("Home layout", "Apps & folders", "Work apps"),
+        "HiddenApps" to Row("Home layout", "Hidden & locked", "Hidden apps"),
+        "HiddenFolders" to Row("Home layout", "Hidden & locked", "Hidden folders"),
+        "LockedFolders" to Row("Home layout", "Hidden & locked", "Locked"),
         // Appearance > Skin
         "Appearance" to Row("Appearance", "Skin", "Skin"),
         "SkinStudio" to Row("Appearance", "Skin", "Skin"),
@@ -54,13 +54,13 @@ class SettingsIaTest {
         "ArcHubOpacity" to Row("Appearance", "Hubs", "Arc hub"),
         "StatsHubColour" to Row("Appearance", "Hubs", "Stats hub"),
         "StatsHubOpacity" to Row("Appearance", "Hubs", "Stats hub"),
-        "StatsVisible" to Row("Appearance", "Hubs", "Stats hub"),
-        "HubPages" to Row("Appearance", "Hubs", "Pages & alerts"),
-        // Appearance > Hubs > Pages & alerts
-        "HubSize" to Row("Appearance", "Pages & alerts", "Stats hub"),
-        "HubFullScreen" to Row("Appearance", "Pages & alerts", "Stats hub"),
-        "Agenda" to Row("Appearance", "Pages & alerts", "Pages"),
-        "StatsAlerts" to Row("Appearance", "Pages & alerts", "Alerts"),
+        // Hub pages (T375: page visibility and default size moved up one level)
+        "StatsVisible" to Row("Hub pages", "Hub pages", "Stats hub"),
+        "HubPages" to Row("Hub pages", "Hub pages", "Page visibility"),
+        "HubSize" to Row("Hub pages", "Hub pages", "Stats hub"),
+        "HubFullScreen" to Row("Hub pages", "Hub pages", "Stats hub"),
+        "Agenda" to Row("Hub pages", "Hub pages", "Pages"),
+        "StatsAlerts" to Row("Hub pages", "Hub pages", "Alerts"),
         // Gestures & search > Gestures
         "SwipeUp" to Row("Gestures & search", "Gestures", "Gestures"),
         "HubLongPress" to Row("Gestures & search", "Gestures", "Gestures"),
@@ -75,47 +75,50 @@ class SettingsIaTest {
         "SpinLimit" to Row("Gestures & search", "Feel", "Feel"),
         "Bounce" to Row("Gestures & search", "Feel", "Feel"),
         "Magnify" to Row("Gestures & search", "Feel", "Feel"),
-        // Gestures & search > Search
-        "Search" to Row("Gestures & search", "Search", "Search"),
-        "SearchPhoneSettings" to Row("Gestures & search", "Search", "Search"),
-        "SearchFiles" to Row("Gestures & search", "Search", "Search"),
-        "SearchEvents" to Row("Gestures & search", "Search", "Search"),
+        // Gestures & search > Search settings (T375: sources, access, web engine and history in one page)
+        "Search" to Row("Gestures & search", "Search settings", "Search"),
+        "SearchPhoneSettings" to Row("Gestures & search", "Search settings", "Search"),
+        "SearchFiles" to Row("Gestures & search", "Search settings", "Search"),
+        "SearchEvents" to Row("Gestures & search", "Search settings", "Search"),
         // Notifications & Focus > Notifications
-        "NotificationAccess" to Row("Notifications & Focus", "Notifications", "Access"),
-        "NotificationBadges" to Row("Notifications & Focus", "Notifications", "Badges"),
-        "BadgesInAllApps" to Row("Notifications & Focus", "Notifications", "Badges"),
-        "MenuNotifications" to Row("Notifications & Focus", "Notifications", "Menus"),
-        "MenuNotificationText" to Row("Notifications & Focus", "Notifications", "Menus"),
+        "NotificationAccess" to Row("Notifications & focus", "Notifications", "Access"),
+        "NotificationBadges" to Row("Notifications & focus", "Notifications", "Badges"),
+        "BadgesInAllApps" to Row("Notifications & focus", "Notifications", "Badges"),
+        "MenuNotifications" to Row("Notifications & focus", "Notifications", "Menus"),
+        "MenuNotificationText" to Row("Notifications & focus", "Notifications", "Menus"),
         // Notifications & Focus > Messages
-        "Comms" to Row("Notifications & Focus", "Messages", "Messages"),
-        "CommsEnabled" to Row("Notifications & Focus", "Messages", "Messages"),
-        "CommsRecordHistory" to Row("Notifications & Focus", "Messages", "History"),
-        "CommsApps" to Row("Notifications & Focus", "Messages", "Apps"),
-        "QuickReplies" to Row("Notifications & Focus", "Messages", "Replies"),
-        "CommsClearHistory" to Row("Notifications & Focus", "Messages", "History"),
+        "Comms" to Row("Notifications & focus", "Messages", "Messages"),
+        "CommsEnabled" to Row("Notifications & focus", "Messages", "Messages"),
+        "CommsRecordHistory" to Row("Notifications & focus", "Messages", "History"),
+        "CommsApps" to Row("Notifications & focus", "Messages", "Apps"),
+        "QuickReplies" to Row("Notifications & focus", "Messages", "Replies"),
+        "CommsClearHistory" to Row("Notifications & focus", "Messages", "History"),
         // Notifications & Focus > Focus
-        "Focus" to Row("Notifications & Focus", "Focus", "Focus"),
+        "Focus" to Row("Notifications & focus", "Focus", "Focus"),
         // Data & about > Backup
-        "Backup" to Row("Data & about", "Backup", "Backup"),
-        "WallpaperImageBackup" to Row("Data & about", "Backup", "Backup"),
+        "Backup" to Row("Data & help", "Backup", "Backup"),
+        "WallpaperImageBackup" to Row("Data & help", "Backup", "Backup"),
         // Data & about > This build
-        "About" to Row("Data & about", "This build", "About"),
-        "WhatsNew" to Row("Data & about", "This build", "About"),
-        "VersionHistory" to Row("Data & about", "This build", "About"),
+        "About" to Row("Data & help", "This build", "About"),
+        "WhatsNew" to Row("Data & help", "This build", "About"),
+        "VersionHistory" to Row("Data & help", "This build", "About"),
+        "ReportProblem" to Row("Data & help", "This build", "About"),
         // Data & about > Permissions
-        "Permissions" to Row("Data & about", "Permissions", "Access"),
-        "RerunOnboarding" to Row("Data & about", "Permissions", "Access"),
-        "AndroidSettings" to Row("Data & about", "Permissions", "Access"),
+        "Permissions" to Row("Data & help", "Permissions", "Access"),
+        "RerunOnboarding" to Row("Data & help", "Permissions", "Access"),
+        "AndroidSettings" to Row("Data & help", "Permissions", "Access"),
         // Data & about > Help
-        "Diagnostics" to Row("Data & about", "Help", "Help"),
+        "Diagnostics" to Row("Data & help", "Help", "Help"),
     )
 
     @Test fun theExactRowMapIsImplementedOnce() {
-        assertEquals(76, expected.size)
-        assertEquals(expected.keys, SettingsRegistry.all.map { it.id }.toSet())
+        assertEquals(77, expected.size)
+        // T396: the family build adds one row (Check for updates, Data & help > This build > Updates); no other build does.
+        val withBuildRows = expected + FamilyUpdate.settingRows.associate { it.id to Row("Data & help", "This build", "Updates") }
+        assertEquals(withBuildRows.keys, SettingsRegistry.all.map { it.id }.toSet())
         assertEquals(SettingsRegistry.all.size, SettingsRegistry.all.map { it.id }.toSet().size)
         SettingsRegistry.all.forEach { def ->
-            val row = expected.getValue(def.id)
+            val row = withBuildRows.getValue(def.id)
             assertEquals(def.id, row.group, def.page.group?.title)
             assertEquals(def.id, row.page, def.page.title)
             assertEquals(def.id, row.card, def.card)
@@ -123,27 +126,33 @@ class SettingsIaTest {
     }
 
     @Test fun everyGroupHasThreeOrFourSubPagesAndEverySubPageFitsTheRowCap() {
-        assertEquals(listOf("Home", "Appearance", "Gestures & search", "Notifications & Focus", "Data & about"),
+        assertEquals(listOf("Appearance", "Home layout", "Hub pages", "Gestures & search", "Notifications & focus", "Data & help"),
             SettingsGroup.entries.map { it.title })
         val counts = SettingsGroup.entries.map { group ->
             SettingsPage.entries.count { it.group == group && it.parent == null }
         }
-        assertEquals(listOf(3, 4, 3, 3, 4), counts)
+        // T382 adds the personal-build Launch pause page under Notifications & focus. T373: Hub pages is one direct page,
+        // and Diagnostics is reached from Data & help without the Help wrapper.
+        assertEquals(listOf(4, 3, 1, 3, 4, 5), counts)
         SettingsPage.entries.filter { it != SettingsPage.Root && it.parent == null }.forEach { page ->
             val rows = SettingsRegistry.on(page).size
             assertTrue("${page.title} has $rows rows", rows <= 8)
         }
         // Pages & alerts is a list editor plus four rows, still under the cap.
-        assertEquals(4, SettingsRegistry.on(SettingsPage.HubPages).size)
-        assertEquals(8, SettingsRegistry.on(SettingsPage.Hubs).size)
+        assertEquals(6, SettingsRegistry.on(SettingsPage.HubPages).size)
+        assertEquals(6, SettingsRegistry.on(SettingsPage.Hubs).size)
     }
 
     @Test fun selfEntryRowsAreSearchableButHiddenOnTheirOwnPage() {
-        assertEquals(setOf("Comms", "Focus"), SettingsRegistry.selfEntryIds)
+        assertEquals(setOf("Comms", "Focus", "HubPages", "Search"), SettingsRegistry.selfEntryIds)
         assertTrue("Comms" in SettingsRegistry.on(SettingsPage.Messages).map { it.id })
         assertTrue("Focus" in SettingsRegistry.on(SettingsPage.Focus).map { it.id })
         assertTrue("Comms" !in SettingsRegistry.shown(SettingsPage.Messages, SettingsSnapshot()).map { it.id })
         assertTrue("Focus" !in SettingsRegistry.shown(SettingsPage.Focus, SettingsSnapshot()).map { it.id })
+        assertTrue("HubPages" in SettingsRegistry.on(SettingsPage.HubPages).map { it.id })
+        assertTrue("Search" in SettingsRegistry.on(SettingsPage.Search).map { it.id })
+        assertTrue("HubPages" !in SettingsRegistry.shown(SettingsPage.HubPages, SettingsSnapshot()).map { it.id })
+        assertTrue("Search" !in SettingsRegistry.shown(SettingsPage.Search, SettingsSnapshot()).map { it.id })
         assertTrue(SettingsRegistry.search("Messages").any { it.id == "Comms" })
         assertTrue(SettingsRegistry.search("Focus").any { it.id == "Focus" })
     }
@@ -170,9 +179,9 @@ class SettingsIaTest {
             "Messages and quick replies", "Gestures and feel").forEach { old ->
             assertTrue("old page name: $old", SettingsRegistry.search(old).isNotEmpty())
         }
-        assertEquals("Appearance · Hubs", SettingsRegistry.byId.getValue("StatsVisible").page.breadcrumb)
-        assertEquals("Appearance · Hubs · Pages & alerts", SettingsRegistry.byId.getValue("HubSize").page.breadcrumb)
-        assertEquals("Notifications & Focus · Messages", SettingsRegistry.byId.getValue("CommsEnabled").page.breadcrumb)
+        assertEquals("Hub pages · Hub pages", SettingsRegistry.byId.getValue("StatsVisible").page.breadcrumb)
+        assertEquals("Hub pages · Hub pages", SettingsRegistry.byId.getValue("HubSize").page.breadcrumb)
+        assertEquals("Notifications & focus · Messages", SettingsRegistry.byId.getValue("CommsEnabled").page.breadcrumb)
         assertTrue(SettingsRegistry.search("look").any { it.page == SettingsPage.AppearanceSkin })
         assertTrue(SettingsRegistry.search("layout").any { it.page == SettingsPage.HomeArcs })
         assertTrue(SettingsRegistry.search("storage").any { it.id == "CommsClearHistory" })
@@ -180,18 +189,21 @@ class SettingsIaTest {
 
     @Test fun searchResultSubtitleIsTheBreadcrumbAndTheHiddenRowNote() {
         val visible = SettingsRegistry.byId.getValue("HubSize")
-        assertEquals("Appearance · Hubs · Pages & alerts", settingsSearchSubtitle(visible, false))
-        assertEquals("Appearance · Hubs · Pages & alerts · not shown now, it has no effect here",
+        assertEquals("Hub pages · Hub pages", settingsSearchSubtitle(visible, false))
+        assertEquals("Hub pages · Hub pages · not shown now, it has no effect here",
             settingsSearchSubtitle(visible, true))
-        assertEquals("Notifications & Focus · Messages", settingsSearchSubtitle(SettingsRegistry.byId.getValue("CommsEnabled"), false))
+        assertEquals("Notifications & focus · Messages", settingsSearchSubtitle(SettingsRegistry.byId.getValue("CommsEnabled"), false))
     }
 
-    @Test fun theHubObjectIsOnlyUnderAppearanceHubs() {
-        val hubRows = listOf("GlassEffect", "GlassRefraction", "ArcHubColour", "ArcHubOpacity", "StatsHubColour",
-            "StatsHubOpacity", "StatsVisible", "HubPages", "HubSize", "HubFullScreen", "Agenda", "StatsAlerts").map { SettingsRegistry.byId.getValue(it) }
-        hubRows.forEach { def ->
+    @Test fun theHubCardsAreUnderAppearanceAndTheirPagesUnderHubPages() {
+        listOf("GlassEffect", "GlassRefraction", "ArcHubColour", "ArcHubOpacity", "StatsHubColour",
+            "StatsHubOpacity").map { SettingsRegistry.byId.getValue(it) }.forEach { def ->
             assertEquals(def.id, SettingsGroup.Appearance, def.page.group)
-            assertTrue(def.id, def.page == SettingsPage.Hubs || def.page == SettingsPage.HubPages)
+            assertEquals(def.id, SettingsPage.Hubs, def.page)
+        }
+        listOf("StatsVisible", "HubPages", "HubSize", "HubFullScreen", "Agenda", "StatsAlerts").map { SettingsRegistry.byId.getValue(it) }.forEach { def ->
+            assertEquals(def.id, SettingsGroup.HubPages, def.page.group)
+            assertEquals(def.id, SettingsPage.HubPages, def.page)
         }
     }
 

@@ -10,6 +10,14 @@ import org.junit.Test
 
 /** OPUS3: the result list starts at the best match, right above the search field. */
 class SearchSheetItemsTest {
+    @Test fun optionalResultsKeepNormalOrderAndIdentity() {
+        val normal = listOf(SheetItem.Header("Apps"))
+        val command = SheetItem.Extra("quick-action", "Start timer", "Quick action") {}
+        val typo = SheetItem.Extra("folder-id", "Maps", "Folder") {}
+        org.junit.Assert.assertSame(normal, SearchSheetItems.withExtras(normal, emptyList()))
+        assertEquals(listOf(command, normal.single(), typo), SearchSheetItems.withExtras(normal, listOf(typo, command)))
+    }
+
     private fun row(label: String) = SearchRow(AppId("p.$label/Main@0"), label)
 
     @Test fun theBestMatchIsTheFirstItemSoItSitsNextToTheField() {

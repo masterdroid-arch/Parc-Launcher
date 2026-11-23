@@ -123,7 +123,7 @@ internal object WeeklyBackupText {
 
     /** One clear line; the screen shows it under the weekly rows. */
     fun failure(failure: WeeklyBackupFailure): String = when (failure) {
-        WeeklyBackupFailure.PassphraseMissing -> "Enter your passphrase again"
+        WeeklyBackupFailure.PassphraseMissing -> com.brightblu.parc.feature.settings.backup.WeeklyBackupUiState.PausedLine
         WeeklyBackupFailure.FolderGone -> "Last backup failed: the folder is gone. Choose it again."
         WeeklyBackupFailure.NoSpace -> "Last backup failed: not enough space in the folder."
         WeeklyBackupFailure.Unreadable -> "Last backup failed: your setup could not be read."

@@ -66,6 +66,20 @@ class ParcSettingsReviewActivity : ComponentActivity() {
                         return@produceState
                     }
                 }
+                // T379: "wallpaperAsset=waves.jpg" / "discs.jpg" writes the same stored picture the Wallpaper
+                // picker writes, from a debug-only asset, so the Settings reading pass can run on both stages.
+                if (intent.getStringExtra("wallpaperAsset") != null) {
+                    val asset = intent.getStringExtra("wallpaperAsset")!!
+                    val target = java.io.File(applicationContext.filesDir, "wallpaper/home.jpg").also { it.parentFile?.mkdirs() }
+                    assets.open(asset).use { input -> target.outputStream().use { input.copyTo(it) } }
+                    ParcLookStore(applicationContext).update {
+                        it.copy(wallpaper = WallpaperStyle.Image, wallpaperImageRevision = System.currentTimeMillis())
+                    }
+                    host.prefs.setOnboardingCompleted(true)
+                    startActivity(android.content.Intent(this@ParcSettingsReviewActivity, MainActivity::class.java))
+                    finish()
+                    return@produceState
+                }
                 // T176: "wallpaper=palms" puts the palm sunset test picture in place as the chosen picture (what the owner uses).
                 if (intent.getStringExtra("wallpaper") == "palms") {
                     val target = java.io.File(applicationContext.filesDir, "wallpaper/home.jpg").also { it.parentFile?.mkdirs() }
@@ -151,6 +165,22 @@ class ParcSettingsReviewActivity : ComponentActivity() {
                     return@let
                 }
                 val reviewSkin = host.skins.firstOrNull { it.id == intent.getStringExtra("skinId") } ?: skin
+                // T379: a debug-only preview of the restore confirmation, using the real Backup surface and
+                // its Cancel action, so the wording can be checked on the emulator without a backup file.
+                if (intent.getBooleanExtra("backupConfirm", false)) {
+                    var pending by remember {
+                        mutableStateOf<com.brightblu.parc.core.data.backup.RestoreSummary?>(
+                            com.brightblu.parc.core.data.backup.RestoreSummary(3, 41, 12))
+                    }
+                    Box(Modifier.fillMaxSize().background(Color(reviewSkin.colors.bg.toInt()))) {
+                        com.brightblu.parc.feature.settings.backup.LayoutBackupContent(
+                            state = com.brightblu.parc.feature.settings.backup.BackupUiState(
+                                suggestedFileName = "parc-layout.json", pendingRestore = pending),
+                            skin = reviewSkin, onExport = {}, onImport = {},
+                            onConfirmRestore = { pending = null }, onCancelRestore = { pending = null })
+                    }
+                    return@let
+                }
                 val ui = remember { ParcUiPrefs(this) }
                 var aligned by remember { mutableStateOf(ui.alignAcrossArcs()) }
                 var joystick by remember { mutableStateOf(ui.joystickAim()) }

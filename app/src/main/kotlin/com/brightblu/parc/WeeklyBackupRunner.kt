@@ -163,6 +163,9 @@ internal class WeeklyBackupRunner(
         val store = WeeklyBackupStore(context)
         val settings = store.read()
         if (!settings.enabled) return null
+        // T402: the weekly file is always encrypted. Without a passphrase nothing is read, built or
+        // written, and the older files in the folder stay exactly as they are.
+        if (!BackupPassphraseStore(context).enabled) return fail(store, WeeklyBackupFailure.PassphraseMissing)
         val folderUri = settings.folderUri?.takeIf { it.isNotBlank() }
             ?: return fail(store, WeeklyBackupFailure.FolderGone)
         val folder = AndroidBackupFolder(context, Uri.parse(folderUri))
@@ -191,7 +194,7 @@ internal class WeeklyBackupRunner(
 
         val text = try {
             val customSkins = CustomSkinStore(File(context.filesDir, "skins"))
-            FullBackup(repository, AppBackup.stores(context, customSkins)).export()
+            FullBackup(repository, AppBackup.stores(context, customSkins)).export(includeSecrets = true)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -260,9 +263,12 @@ class WeeklyBackupWorker(appContext: Context, params: WorkerParameters) : Corout
     }
 }
 
-/** Null means no write is permitted: encryption must never silently fall back to plain text. */
+/**
+ * T402: the weekly backup is never plain text. Null means no write is permitted: with protection off
+ * or the passphrase unreadable, encryption must never silently fall back to plain text.
+ */
 internal fun protectWeeklyBackup(text: String, enabled: Boolean, secret: () -> CharArray?): String? {
-    if (!enabled) return text
+    if (!enabled) return null
     val passphrase = secret() ?: return null
     return try { com.brightblu.parc.core.data.backup.BackupEncryption.encrypt(text, passphrase) }
         finally { passphrase.fill('\u0000') }

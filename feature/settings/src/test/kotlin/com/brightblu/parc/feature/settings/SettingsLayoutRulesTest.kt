@@ -29,4 +29,17 @@ class SettingsLayoutRulesTest {
         assertTrue(SettingsLayoutRules.valueBeside("1.5.8", allowLong = true))
         assertFalse(SettingsLayoutRules.valueBeside("", allowLong = true))
     }
+    @Test fun enlargedTextStacksEvenShortValues() {
+        for (scale in listOf(1.3f, 2f)) {
+            org.junit.Assert.assertFalse(SettingsLayoutRules.valueBeside("On", allowLong = true, fontScale = scale))
+            org.junit.Assert.assertTrue(SettingsLayoutRules.stackSegments(scale))
+        }
+        org.junit.Assert.assertFalse(SettingsLayoutRules.stackSegments(1f))
+    }
+    @Test fun rootTilesGoThreeAcrossAndTwoAcrossAtEnlargedText() {
+        org.junit.Assert.assertEquals(3, SettingsLayoutRules.tileColumns(1f))
+        org.junit.Assert.assertEquals(3, SettingsLayoutRules.tileColumns(1.15f))
+        org.junit.Assert.assertEquals(2, SettingsLayoutRules.tileColumns(1.3f))
+        org.junit.Assert.assertEquals(2, SettingsLayoutRules.tileColumns(2f))
+    }
 }

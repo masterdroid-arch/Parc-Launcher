@@ -154,6 +154,9 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     var pendingFocusExit by remember { mutableStateOf<com.brightblu.parc.core.data.focus.FocusExit?>(null) }
     var pendingFocusLaunch by remember { mutableStateOf<AppId?>(null) }
     var approvedFocusLaunch by remember { mutableStateOf<AppId?>(null) }
+    // T382: the personal pause gate. Null in family and play because services.appPause is null.
+    var pendingPauseLaunch by remember { mutableStateOf<PauseRequest?>(null) }
+    var approvedPauseLaunch by remember { mutableStateOf<AppId?>(null) }
     val shell by navigation.state.collectAsState()
     val ui by search.state.collectAsState()
     // T259: notes are read only while search is open; a typed query asks the same rules as the Notes page.
@@ -200,12 +203,33 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     services.focus.recordBlockedAttempt()
                     pendingFocusLaunch = id
                     com.brightblu.parc.core.data.profiles.LaunchOutcome.Unavailable
-                } else { approvedFocusLaunch = null; services.appIndex.launchWithOutcome(id) }
+                } else {
+                    approvedFocusLaunch = null
+                    val pause = services.appPause
+                    val decision = if (pause != null && entry != null && approvedPauseLaunch != id) {
+                        runCatching {
+                            pause.decision(entry, services.dayLedger.ledger.value,
+                                services.dayLedger.accessGranted.value,
+                                System.currentTimeMillis(), java.time.ZoneId.systemDefault())
+                        }.getOrDefault(PauseDecision.Allow)
+                    } else PauseDecision.Allow
+                    if (decision is PauseDecision.Gate) {
+                        pendingPauseLaunch = PauseRequest(id, entry?.label ?: "app", decision)
+                        com.brightblu.parc.core.data.profiles.LaunchOutcome.Unavailable
+                    } else {
+                        approvedPauseLaunch = null
+                        services.appIndex.launchWithOutcome(id)
+                    }
+                }
             },
             onLaunchRefused = { outcome -> workProfileNotice(outcome)?.let {
                 Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
             } },
-            onAppLaunched = services.lastApp::onLaunched,
+            onAppLaunched = { id ->
+                services.lastApp.onLaunched(id)
+                // T382: Parc's own count for the pause page. It never leaves the phone.
+                services.appPause?.markOpened(id, System.currentTimeMillis())
+            },
             lastApp = { services.lastApp.lastApp.value?.appId },
             hubDoubleTapEnabled = uiPrefs.hubDoubleTap(),
             onPinnedLaunch = { if (haptics) feel.play(view, FeelEvent.Confirm) },
@@ -243,6 +267,10 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     if (!settings.statsVisible) services.prefs.setStatsVisible(true)
                     // Hub size is independent of the retired expanded preference.
                 }
+            },
+            pauseState = { id -> services.appPause?.isEnabled(id) },
+            togglePause = { id ->
+                services.appIndex.apps.value.firstOrNull { it.id == id }?.let { entry -> services.appPause?.toggle(entry) }
             },
             layoutEditing = edit)
     }
@@ -332,6 +360,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
         newAppPrompt = null; spotPickerApp = null
         searchAppMenu = null; searchArcTarget = null
         pendingFocusLaunch = null; approvedFocusLaunch = null; pendingFocusExit = null
+        pendingPauseLaunch = null; approvedPauseLaunch = null
         // The hub goes back to its first page, also when Home was already clean.
         hubFullScreen = false
         HomeKey.firstHubPage(DemoMode.enabled, hubConfig.pages) { focus.active?.hubPages?.let(HubCatalog::canonicalPages)?.contains(it) != false }
@@ -346,10 +375,11 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     // prompt is offered only once the screen is clean, and only for an app still waiting in New,
     // unseen, and not already on an arc. The first run of this version sets the baseline, so an
     // upgrade never asks about the existing New folder.
-    LaunchedEffect(apps, layout, liveReady, resumed, shell.layer, ui.isOpen, menu, folderMenu,
+    val tipOnScreen = TipSession.latch.tipOnScreen
+    LaunchedEffect(apps, layout, liveReady, resumed, shell.layer, ui.isOpen, menu, folderMenu, tipOnScreen,
         shortcutMenu, homeMenu, edit.enabled, edit.emptyPosition, edit.undoAvailable, showSettings,
         showWallpaperSheet, showFolderCreate, spotPickerApp, newAppPrompt, layoutLocked, searchAppMenu, searchArcTarget) {
-        if (!liveReady || !resumed || DemoMode.enabled || layoutLocked || edit.undoAvailable) return@LaunchedEffect
+        if (!liveReady || !resumed || DemoMode.enabled || layoutLocked || edit.undoAvailable || tipOnScreen) return@LaunchedEffect
         if (shell.layer != Layer.Home || ui.isOpen || edit.enabled || showSettings || showWallpaperSheet || showFolderCreate ||
             edit.emptyPosition != null || spotPickerApp != null || newAppPrompt != null ||
             searchAppMenu != null || searchArcTarget != null) return@LaunchedEffect
@@ -367,7 +397,10 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     // T97: the in-memory notification collection follows the setting; re-read on resume so a
     // restored backup takes effect without a restart.
     LaunchedEffect(resumed) { MenuNotifications.applyEnabled(uiPrefs.menuNotifications()) }
-    LaunchedEffect(resumed) { if (!resumed) { edit.onHostPaused(); pendingFocusLaunch = null; approvedFocusLaunch = null } }
+    LaunchedEffect(resumed) { if (!resumed) {
+        edit.onHostPaused(); pendingFocusLaunch = null; approvedFocusLaunch = null
+        pendingPauseLaunch = null; approvedPauseLaunch = null
+    } }
     LaunchedEffect(resumed, liveReady) {
         if (resumed && liveReady) {
             services.focus.refresh()
@@ -531,7 +564,9 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
     val newAppPromptVisible = newAppPrompt != null && !showSettings && !showFolderCreate && !showWallpaperSheet &&
         edit.emptyPosition == null && !edit.enabled && !ui.isOpen && shell.layer == Layer.Home &&
         menu == null && folderMenu == null && shortcutMenu == null && homeMenu == null && !edit.undoAvailable &&
-        searchAppMenu == null && searchArcTarget == null
+        searchAppMenu == null && searchArcTarget == null &&
+        // T411: a first-run tip on screen goes first; the prompt is offered once it is gone.
+        !TipSession.latch.tipOnScreen
     // Marked seen when it is actually on screen, not when it is chosen: a prompt that was held back by a
     // menu or Settings is offered again later.
     LaunchedEffect(newAppPromptVisible, newAppPrompt?.id) {
@@ -938,13 +973,18 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 },
             )
             }
+            // T390: sheets raised by a hub page (Page settings) are drawn here, over the whole screen, still
+            // inside the provider so they see the same focus, library and look as the page that raised them.
+            ScreenSheetHost()
             }
             if (edit.undoAvailable && !edit.enabled) {
                 UndoSnackbar(skin, message = edit.undoLabel.ifEmpty { edit.notice.ifEmpty { "Moved" } },
                     onUndo = { edit.undo() }, modifier = Modifier.align(Alignment.BottomCenter))
             }
+            // T411: the queue lets this card in only while it is the tip picked for this start.
             if (!hintSeen && shell.layer == Layer.Home && !ui.isOpen && menu == null &&
-                folderMenu == null && !edit.enabled && !showSettings && liveReady) {
+                folderMenu == null && !edit.enabled && !showSettings && liveReady &&
+                TipSession.latch.allowed(TipKind.GettingAround, hintSeen, uiPrefs.seenGestureHints())) {
                 FirstRunHint(skin) { uiPrefs.markHintSeen(); hintSeen = true }
             }
             // T260: one quiet hint per start, once the first-run card is done and Home is idle.
@@ -952,12 +992,15 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             val homeIdle = hintSeen && shell.layer == Layer.Home && !ui.isOpen && menu == null &&
                 folderMenu == null && !edit.enabled && !showSettings && liveReady && !DemoMode.enabled &&
                 homeMenu == null && shortcutMenu == null && edit.emptyPosition == null
-            LaunchedEffect(homeIdle) {
+            val whatsNewOpen = TipSession.latch.whatsNewOpen
+            LaunchedEffect(homeIdle, whatsNewOpen) {
                 if (!homeIdle) { gestureHint = null; return@LaunchedEffect }
-                if (gestureHint != null || GestureHintSession.shown) return@LaunchedEffect
+                if (gestureHint != null || whatsNewOpen) return@LaunchedEffect
                 delay(3_000)
-                val next = GestureHintRules.nextOnHome(uiPrefs.seenGestureHints()) ?: return@LaunchedEffect
-                GestureHintSession.shown = true
+                // T411: one tip per start. The queue says yes to a chip once, and only when no other tip is picked.
+                val seen = uiPrefs.seenGestureHints()
+                val next = GestureHintRules.nextOnHome(seen) ?: return@LaunchedEffect
+                if (!TipSession.latch.claim(TipKind.HomeGesture, hintSeen, seen)) return@LaunchedEffect
                 gestureHint = next
             }
             gestureHint?.let { hint ->
@@ -991,7 +1034,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                 navigation.emit(ShellEvent.ResetToBase)
             }
             if (showSettings) {
-                ParcSettings(services = services, skin = skin, initialPage = settingsInitialPage, initialRow = settingsInitialRow,
+                ParcSettings(services = services, skin = skin, glassSkin = statsSkin, initialPage = settingsInitialPage, initialRow = settingsInitialRow,
                     alignedArcs = aligned, joystick = joystick,
                     hubDoubleTap = hubDoubleTap,
                     onSetHubDoubleTap = { hubDoubleTap = it; uiPrefs.setHubDoubleTap(it); session.setHubDoubleTap(it) },
@@ -1015,7 +1058,7 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
             }
             // T324: the wallpaper picker as a sheet over Home, with the same choices as the Settings page.
             if (showWallpaperSheet) {
-                WallpaperSheet(skin, look,
+                WallpaperSheet(statsSkin, look,
                     onChange = { change -> scope.launch { lookStore.update(change) } },
                     onClose = { showWallpaperSheet = false })
             }
@@ -1037,6 +1080,11 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     uiPrefs.markSearchSucceeded(); searchSucceeded = true; session.launch(id)
                 }, hiddenLabels = hiddenLabels, modifier = Modifier.fillMaxSize(), searchPrefs = searchPrefs,
                     notes = searchNotes,
+                    extension = personalSearchExtension(visibleApps.filterNot { it.id in layout.hidden || it.suspended },
+                        layout.folders.filterNot { it.id in hiddenFolders || it.id in lockedFolders }) { id ->
+                        session.dismissSearch()
+                        session.openFolder(id)
+                    },
                     onOpenNote = { id ->
                         session.dismissSearch()
                         NoteOpenRequests.post(id)
@@ -1209,6 +1257,21 @@ internal fun LauncherHome(services: LauncherServices, geometry: RingLayout, navi
                     onOpen = { approvedFocusLaunch = id; pendingFocusLaunch = null; session.launch(id) })
                 else pendingFocusLaunch = null
             }
+            // T382: the personal pause page. Absent in family and play.
+            pendingPauseLaunch?.let { request ->
+                val pause = services.appPause
+                if (pause != null) pause.PausePage(request, skin,
+                    onOpen = {
+                        approvedPauseLaunch = request.appId
+                        pendingPauseLaunch = null
+                        runCatching {
+                            pause.recordOpenAnyway(request.appId, request.gate.reason, System.currentTimeMillis())
+                        }
+                        session.launch(request.appId)
+                    },
+                    onNotNow = { pendingPauseLaunch = null })
+                else pendingPauseLaunch = null
+            }
 
         }
     }
@@ -1225,7 +1288,7 @@ private fun UndoSnackbar(skin: Skin, message: String, onUndo: () -> Unit, modifi
     ) {
         Row(
             Modifier
-                .background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha),
+                .background(skin.floatingSurface(),
                     RoundedCornerShape(Metrics.snackbarCornerDp.dp))
                 .padding(start = Metrics.cardInsetDp.dp, end = Metrics.actionEdgeGapDp.dp),
             verticalAlignment = Alignment.CenterVertically,

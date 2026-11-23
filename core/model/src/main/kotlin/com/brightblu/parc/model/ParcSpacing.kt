@@ -26,11 +26,12 @@ object ParcSpacing {
         Metrics.screenGutterDp + startInsetDp.coerceAtLeast(0f)
 
     /**
-     * The right gutter plus any display cutout, never inside gesturenav's right Back strip.
-     * PROJECT.md keeps the right 40 dp clear; [Metrics.keepOutRightDp] leaves 48 dp.
+     * T392: the right gutter plus any display cutout. It is the same as [pageStartDp], so a page has equal margins
+     * left and right. (It used to be at least [Metrics.keepOutRightDp], 48 dp, which put a page's cards 113 px from the
+     * right edge against 47 px from the left.) The 48 dp keep-out stays a rule for ring slots; a page is a surface and
+     * its rows sit a further card inset inside it, clear of gesturenav's default 16 dp Back strip.
      */
-    fun pageEndDp(endInsetDp: Float): Float =
-        max(Metrics.keepOutRightDp, Metrics.screenGutterDp + endInsetDp.coerceAtLeast(0f))
+    fun pageEndDp(endInsetDp: Float): Float = pageStartDp(endInsetDp)
 
     /** Page content starts below the top keep-out, and a card inset below any status bar or cutout. */
     fun pageTopDp(statusTopDp: Float): Float =
@@ -64,7 +65,7 @@ object ParcSpacing {
      */
     fun settingsTextWidthDp(rowWidthDp: Float, leadingDp: Float = 0f, trailingDp: Float = 0f): Float {
         val neighbours = (if (leadingDp > 0f) 1 else 0) + (if (trailingDp > 0f) 1 else 0)
-        return (rowWidthDp - 2 * Metrics.settingsRowInsetDp - leadingDp - trailingDp - neighbours * Metrics.rowGapDp)
+        return (rowWidthDp - 2 * Metrics.settingsRowInsetDp - leadingDp - trailingDp - neighbours * Metrics.itemGapDp)
             .coerceAtLeast(0f)
     }
 

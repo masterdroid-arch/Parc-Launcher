@@ -4,8 +4,8 @@ import com.brightblu.parc.model.textFamily
 import com.brightblu.parc.model.readableAccent
 import com.brightblu.parc.feature.settings.ui.*
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -14,7 +14,6 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import kotlin.math.roundToInt
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -23,15 +22,23 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import kotlinx.coroutines.delay
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.Animatable
@@ -109,8 +116,7 @@ internal fun HubPages(
     val selected = if (demo || forcing) savedPage else restoredHubPage(savedPage, config)
     fun select(id: String) { if (id != "notes") forcedNotes = false; scope.launch { store.rememberPage(id) } }
     var optionsPage by remember { mutableStateOf<String?>(null) }
-    // T242: the small sheet that a hold on a page name opens.
-    var quickPage by remember { mutableStateOf<String?>(null) }
+    // T376: a hold on a page name and a hold on the page body now open the same combined sheet.
     val reorderGate = remember { HubReorderGate() }
     // OPUS8 (T133): the Home key closes the hub's sheets and the open page's own dialogs (the page
     // body is keyed on [homeReset], like a page switch). The first page itself is chosen by the
@@ -119,10 +125,6 @@ internal fun HubPages(
     val homeSeen = remember { homePresses }
     var homeReset by remember { mutableIntStateOf(0) }
     val openSettings = LocalHubSettings.current
-    quickPage?.takeIf { it in config.orderedPages }?.let { id ->
-        HubPageQuickSheet(id, skin, config, { change -> scope.launch { store.update(change) } },
-            onDismiss = { quickPage = null }, onPageSettings = { quickPage = null; optionsPage = id })
-    }
     optionsPage?.let { id ->
         HubPageOptionsSheet(id, skin, config, { change -> scope.launch { store.update(change) } },
             onDismiss = { optionsPage = null }, onFullSettings = { destination ->
@@ -136,7 +138,7 @@ internal fun HubPages(
     val focusSummary = focusRepo?.summary?.collectAsState()?.value
     var focusControls by remember { mutableStateOf(false) }
     LaunchedEffect(homePresses) {
-        if (homePresses != homeSeen) { optionsPage = null; quickPage = null; focusControls = false; homeReset++ }
+        if (homePresses != homeSeen) { optionsPage = null; focusControls = false; homeReset++ }
     }
     if (focusControls) androidx.compose.material3.AlertDialog(
         onDismissRequest = { focusControls = false },
@@ -212,17 +214,20 @@ internal fun HubPages(
         // T158: the tabs lead the card; the focus pass row shows only while a Focus mode is running.
         if (pages.isNotEmpty()) HubTabStrip(pages, page, skin, reorderGate = reorderGate,
             onLift = { feel.play(view, com.brightblu.parc.ring.FeelEvent.Menu) },
-            onHold = if (demo) null else { id -> quickPage = id },
+            onHold = if (demo) null else { id -> optionsPage = id },
             onSlot = { feel.play(view, com.brightblu.parc.ring.FeelEvent.Tick) },
             // Demo tabs are sample pages: they never rewrite the saved order.
             onReorder = if (demo) null else { moved -> scope.launch { store.update { it.reorderVisible(pages, moved) } } }) { select(it) }
         // T260: the page-name hold has no sign on screen; say so once, the first time there are pages to reorder.
         val hintPrefs = remember(context) { ParcUiPrefs(context) }
         var pageNameHint by remember { mutableStateOf(false) }
-        LaunchedEffect(pages.size, demo) {
-            if (!demo && GestureHintRules.pageNameDue(hintPrefs.seenGestureHints(), pages.size)) {
+        val whatsNewOpen = TipSession.latch.whatsNewOpen
+        LaunchedEffect(pages.size, demo, whatsNewOpen) {
+            if (!demo && !whatsNewOpen && GestureHintRules.pageNameDue(hintPrefs.seenGestureHints(), pages.size)) {
                 kotlinx.coroutines.delay(1_500)
-                pageNameHint = true
+                // T411: one tip per start. This chip is last in the queue: it is let in only when it is the tip picked.
+                val seen = hintPrefs.seenGestureHints()
+                if (TipSession.latch.claim(TipKind.PageName, hintPrefs.hintSeen(), seen)) pageNameHint = true
             }
         }
         if (pageNameHint) GestureHintChip(GestureHint.PageName, skin,
@@ -243,60 +248,63 @@ internal fun HubPages(
         if (page == null) {
             HubText("All pages hidden · open Hub pages in Settings", skin)
         } else {
-            val showMoreBelow by remember(scrollGate) {
-                derivedStateOf { scrollGate?.canScrollForward == true }
-            }
-            Box(Modifier.weight(1f)) {
-            BoxWithConstraints(Modifier.fillMaxSize().clipToBounds().pointerInput(page) {
-                detectTapGestures(onLongPress = { optionsPage = page })
-            }.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }.drawWithCache {
-                val fadeHeight = Metrics.hubFadeDrawDp.dp.toPx().coerceAtMost(size.height)
-                // T158: the card can be frosted or see-through, so the fade is a mask on the content, not a colour.
-                val fade = Brush.verticalGradient(0f to Color.Black, Metrics.hubFadeClearFraction to Color.Transparent, 1f to Color.Transparent,
-                    startY = size.height - fadeHeight, endY = size.height)
-                // T167: the fade only shows while a page has more content below it.
-                onDrawWithContent {
-                    drawContent()
-                    if (scrollGate?.canScrollForward == true) drawRect(fade, blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
-                }
-            }) {
-                val configuredTiles = config.tiles(page).filterNot { it in config.hiddenTiles[page].orEmpty() }
-                // T330: the full-screen view shows every tile of the page, like Tall does in the card.
-                val shownSize = HubFullScreen.sizeFor(fullScreen, config.sizeFor(page))
-                val tiles = if (page == "timers" || page == DevicePage.Id || page == ControlsPage.Id) configuredTiles
-                    else HubPanelLayout.visibleTiles(configuredTiles, shownSize, maxHeight.value, density.fontScale)
-                val rows = tiles.size
-                val cellHeight = HubPanelLayout.tileHeightDp(maxHeight.value, rows,
-                    if (fullScreen) Metrics.hubFullTileMaxHeightDp else Metrics.hubTileMaxHeightDp)
-                CompositionLocalProvider(LocalHubSize provides shownSize, LocalHubTileHeight provides cellHeight,
-                    LocalHubOpenOptions provides { optionsPage = page },
-                    LocalHubSwipeExclusions provides swipeExclusions,
-                    LocalTodayVisiblePages provides pages.toSet(),
-                    LocalTodayOpenPage provides { id -> if (id in pages) select(id) },
-                    LocalHubContentHeight provides maxHeight.value) { key(page, homeReset) {
-                    if (tiles.isEmpty() && page !in HubCatalog.tilelessPages) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CellLabel("No tiles shown · use …", skin) }
-                    } else when (page) {
-                        "comms" -> if (demo) demoContent("comms") else comms()
-                        "notes" -> if (demo) demoContent("notes") else NotesHubPage(skin)
-                        else -> if (demo) demoContent(page) else pageContent(page, tiles)
+            BoxWithConstraints(Modifier.weight(1f)) {
+                BoxWithConstraints(Modifier.fillMaxSize().clipToBounds().pointerInput(page) {
+                    detectTapGestures(onLongPress = { optionsPage = page })
+                }.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }.drawWithCache {
+                    val fadeHeight = Metrics.hubFadeHeightDp.dp.toPx().coerceAtMost(size.height)
+                    // T158: the card can be frosted or see-through, so the fade is a mask on the content, not a colour.
+                    val fade = Brush.verticalGradient(0f to Color.Black, 1f to Color.Transparent,
+                        startY = size.height - fadeHeight, endY = size.height)
+                    // T167: the fade only shows while a page has more content below it.
+                    onDrawWithContent {
+                        drawContent()
+                        if (scrollGate?.canScrollForward == true) drawRect(fade, blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
                     }
-                } }
-                // T262: a page taller than the panel says so in words, not only with a faint fade.
-            }
-                if (showMoreBelow) {
-                    Box(Modifier.align(Alignment.BottomCenter)
-                        .padding(bottom = Metrics.hubScrollHintBottomDp.dp)
-                        .background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha),
-                            RoundedCornerShape(Metrics.hubScrollHintCornerDp.dp))
-                        .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()),
-                            RoundedCornerShape(Metrics.hubScrollHintCornerDp.dp))
-                        .padding(horizontal = Metrics.itemGapDp.dp, vertical = Metrics.lineGapDp.dp)
-                        .semantics { contentDescription = "More below. Scroll the page to see it." },
-                        contentAlignment = Alignment.Center) {
-                        BasicText("More below", style = hudLabelStyle(skin).copy(color = Color(skin.colors.textSecondary.toInt())))
+                }) {
+                    val configuredTiles = config.tiles(page).filterNot { it in config.hiddenTiles[page].orEmpty() }
+                    // T330: the full-screen view shows every tile of the page, like Tall does in the card.
+                    val shownSize = HubFullScreen.sizeFor(fullScreen, config.sizeFor(page))
+                    val maxTileDp = if (fullScreen) Metrics.hubFullTileMaxHeightDp else Metrics.hubTileMaxHeightDp
+                    val densityPlan = HubPanelLayout.density(maxHeight.value, configuredTiles.size, shownSize,
+                        density.fontScale, maxTileDp)
+                    // T378: Timers, Device and Controls keep every tile (their pages chart a whole reading);
+                    // every other page shows whole rows that fit, then grows them to fill the panel.
+                    val scrollsOwnTiles = page == "timers" || page == DevicePage.Id || page == ControlsPage.Id
+                    val tiles = if (scrollsOwnTiles) configuredTiles else configuredTiles.take(densityPlan.rows)
+                    val rows = tiles.size
+                    val cellHeight = if (scrollsOwnTiles)
+                        HubPanelLayout.tileHeightDp(maxHeight.value, rows, maxTileDp)
+                    else densityPlan.tileHeightDp
+                    val expandAction = when {
+                        fullScreen -> CustomAccessibilityAction(HubFullScreen.CloseLabel) { onCloseFullScreen(); true }
+                        fullScreenEnabled -> CustomAccessibilityAction(HubFullScreen.ExpandLabel) { onExpandFullScreen(); true }
+                        else -> null
+                    }
+                    HubPageScrollSemantics(scrollGate, expandAction) {
+                        CompositionLocalProvider(LocalHubSize provides shownSize, LocalHubFullScreen provides fullScreen, LocalHubTileHeight provides cellHeight,
+                            LocalHubOpenOptions provides { optionsPage = page },
+                            LocalHubSwipeExclusions provides swipeExclusions,
+                            LocalTodayVisiblePages provides pages.toSet(),
+                            LocalTodayOpenPage provides { id -> if (id in pages) select(id) },
+                            LocalHubContentHeight provides maxHeight.value) { key(page, homeReset) {
+                            // T378: the thumb has its own gutter at the trailing edge, so no value, title or
+                            // chart label is ever drawn underneath it.
+                            Box(Modifier.fillMaxSize().padding(end = Metrics.hubScrollEdgeGutterDp.dp)) {
+                                if (tiles.isEmpty() && page !in HubCatalog.tilelessPages) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CellLabel("No tiles shown · use …", skin) }
+                                } else when (page) {
+                                    "comms" -> if (demo) demoContent("comms") else comms()
+                                    "notes" -> if (demo) demoContent("notes") else NotesHubPage(skin)
+                                    else -> if (demo) demoContent(page) else pageContent(page, tiles)
+                                }
+                            }
+                        } }
                     }
                 }
+                // T378: the overflow sign is a slim thumb on its own edge, not a chip over the last row.
+                HubScrollThumbBar(scrollGate, skin,
+                    Modifier.align(Alignment.CenterEnd).fillMaxHeight())
             }
         }
         // T219: the Focus chip is the grip's stateful front door. It is shown whenever a mode exists or is
@@ -360,6 +368,60 @@ internal fun HubPages(
             }
         }
     }
+}
+
+/**
+ * T378: scroll progress and the existing Expand/Close action are announced once, on the page body,
+ * so a TalkBack user is not left with a purely visual cue at the edge.
+ */
+@Composable
+private fun HubPageScrollSemantics(
+    gate: HubScrollGate?,
+    expand: CustomAccessibilityAction?,
+    content: @Composable () -> Unit,
+) {
+    val percent by remember(gate) {
+        derivedStateOf { ((gate?.progress ?: 0f) * 100f).roundToInt().coerceIn(0, 100) }
+    }
+    Box(Modifier.fillMaxSize().semantics {
+        contentDescription = "Hub page"
+        progressBarRangeInfo = ProgressBarRangeInfo(percent / 100f, 0f..1f)
+        if (expand != null) customActions = listOf(expand)
+    }) { content() }
+}
+
+/**
+ * T378: the slim overflow thumb. Its height and place are read in the draw phase from [gate], so a
+ * scroll redraws one small layer and never recomposes the page; the settle fade is one animation.
+ */
+@Composable
+private fun HubScrollThumbBar(gate: HubScrollGate?, skin: Skin, modifier: Modifier = Modifier) {
+    val more = gate?.canScrollForward == true
+    var settling by remember(gate) { mutableStateOf(false) }
+    LaunchedEffect(gate, more) {
+        if (!more) delay(Metrics.hubScrollThumbSettleMs)
+        settling = more
+    }
+    val shown = HubScrollThumb.visible(more, settling, canScrollBackward = gate?.atTop == false)
+    val fade by animateFloatAsState(if (shown) Metrics.hubScrollThumbAlpha else 0f,
+        spring(Springs.sheet.damping, Springs.sheet.stiffness), label = "hubScrollThumb")
+    val ink = Color(skin.colors.textSecondary.toInt())
+    Box(modifier.width(Metrics.hubScrollEdgeGutterDp.dp).clearAndSetSemantics {}
+        .drawBehind {
+            if (gate == null || fade <= 0f) return@drawBehind
+            val trackPx = size.height
+            if (trackPx <= 0f) return@drawBehind
+            val trackDp = trackPx / density
+            val thumbDp = HubScrollThumb.heightDp(trackDp, gate.viewportFraction)
+            val thumbPx = thumbDp * density
+            val widthPx = Metrics.hubScrollThumbWidthDp * density
+            drawRoundRect(ink,
+                topLeft = Offset((size.width - widthPx) / 2f,
+                    HubScrollThumb.topDp(trackDp, thumbDp, gate.progress) * density),
+                size = Size(widthPx, thumbPx),
+                cornerRadius = CornerRadius(widthPx / 2f),
+                alpha = fade)
+        })
 }
 
 @Composable

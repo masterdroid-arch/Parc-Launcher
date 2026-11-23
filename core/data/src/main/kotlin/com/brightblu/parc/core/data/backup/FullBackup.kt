@@ -75,10 +75,15 @@ class FullBackup(
     private val layout: LayoutRepository,
     private val stores: List<BackupStore>,
 ) {
-    /** The whole backup as JSON text. */
-    suspend fun export(): String {
+    /**
+     * The whole backup as JSON text. T402: stores marked secret (credentials) are included only when
+     * [includeSecrets] is true, so the default can never put a key into a plain-text document. Pass
+     * true only when the text is encrypted before it is written.
+     */
+    suspend fun export(includeSecrets: Boolean = false): String {
         val values = LinkedHashMap<String, Map<String, Any>>()
         for (store in stores) {
+            if (store.spec.secret && !includeSecrets) continue
             val read = try {
                 store.access.read(store.spec)
             } catch (e: CancellationException) {

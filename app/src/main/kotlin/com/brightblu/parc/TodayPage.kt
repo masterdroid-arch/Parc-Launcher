@@ -197,6 +197,8 @@ internal fun TodayContent(date: LocalDate, lines: List<TodayLine>, quote: Quote?
     val context = LocalContext.current
     val card: @Composable () -> Unit = { if (quote != null || quoteMessage != null) TodayQuoteCard(quote, quoteMessage, skin) }
     Column(Modifier.fillMaxWidth().hubPageScroll(), verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
+        // T396: the family build's slim update notice leads the first page (nothing in other builds).
+        FamilyUpdate.HubRow(skin)
         clock()
         if (quoteFirst) card()
         if (continueBook != null || lines.isNotEmpty()) HubDivider(skin)

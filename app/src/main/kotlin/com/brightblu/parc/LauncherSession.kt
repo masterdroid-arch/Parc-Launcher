@@ -62,6 +62,10 @@ class LauncherSession internal constructor(
     private val onAddToArc: (AppId) -> Unit = {},
     /** T245: the Home edit host records undo steps and reads the live "Lock layout" choice. */
     private val layoutEditing: RingEditSession? = null,
+    /** T382: the personal pause state for the long-press row; null hides it (family and play). */
+    private val pauseState: (AppId) -> Boolean? = { null },
+    /** T382: turn the pause on or off for the app whose menu is open. */
+    private val togglePause: (AppId) -> Unit = {},
 ) : RingCallbacks {
     private val hubTaps = HubTapDispatcher(scope, hubDoubleTapEnabled, hubTapClock,
         singleTap = ::toggleAllApps, doubleTap = { lastApp()?.let(::launch) })
@@ -295,7 +299,7 @@ class LauncherSession internal constructor(
     }
 
     /** T98: a locked folder asks for authentication first, then opens; others open directly. */
-    private fun openFolder(id: FolderId) {
+    fun openFolder(id: FolderId) {
         val gate = lockGate
         if (gate != null && gate.isFolderLockedNow(id)) {
             gate.authenticateFolder(id) {
@@ -361,7 +365,8 @@ class LauncherSession internal constructor(
             pinLabel = pinRowLabel(layout.layout.value, hit.position),
             canUninstall = entry != null && uninstallable(entry),
             placed = FolderDrop.homePosition(layout.layout.value, id) != null,
-            notifications = entry?.let { peekLines(it.packageName) }.orEmpty())
+            notifications = entry?.let { peekLines(it.packageName) }.orEmpty(),
+            pauseBeforeOpening = pauseState(id))
         onMenuOpened()
         if (isDefaultHome) {
             scope.launch(shortcutDispatcher) {
@@ -433,6 +438,10 @@ class LauncherSession internal constructor(
         val open = _menu.value ?: return
         when (action) {
             MenuAction.Dismiss -> dismissMenu()
+            MenuAction.PauseBeforeOpening -> {
+                dismissMenu()
+                togglePause(open.appId)
+            }
             MenuAction.Back -> _menu.value = open.copy(page = MenuPage.Root)
             MenuAction.OpenNotification -> {
                 val opened = try { menuNotifications?.open(detail) == true } catch (e: Exception) { false }

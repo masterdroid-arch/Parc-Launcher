@@ -13,6 +13,7 @@ sealed class SheetItem(val key: String) {
     /** "Recent searches" with its Clear action, shown above the remembered queries. */
     data object RecentHeader : SheetItem("recent-searches-header")
     data class RecentQuery(val text: String) : SheetItem("recent-search-$text")
+    class Extra(key: String, val title: String, val detail: String, val onTap: () -> Unit) : SheetItem(key)
     data class Calculator(val calculation: Calculation) : SheetItem("calculator")
     data class App(val row: SearchRow) : SheetItem(row.appId.value)
     /** A shortcut of the top hit; drawn just above its app so the app name stays nearest the field. */
@@ -37,6 +38,12 @@ sealed class SheetItem(val key: String) {
  * them. Pure, so the order is unit-tested.
  */
 object SearchSheetItems {
+    /** Extras use the same bottom-up ordering as the existing results. */
+    internal fun withExtras(normal: List<SheetItem>, extras: List<SheetItem>): List<SheetItem> {
+        if (extras.isEmpty()) return normal
+        return extras.filter { it.key == "quick-action" } + normal + extras.filter { it.key != "quick-action" }
+    }
+
     /** T248: captions of the two suggestion groups under an empty field. */
     const val MostUsedSection = "Most used"
     const val RecentAppsSection = "Recent apps"
@@ -176,4 +183,10 @@ object SearchSheetItems {
     /** How many items are hidden above the visible part; 0 means nothing more to scroll to. */
     fun hiddenAbove(total: Int, lastVisibleIndex: Int): Int =
         if (total <= 0) 0 else (total - 1 - lastVisibleIndex.coerceAtLeast(0)).coerceAtLeast(0)
+}
+
+/** Optional Apps-mode results. Commands occupy the best position and suggestions follow normal hits. */
+fun interface AppsSearchExtension {
+    @androidx.compose.runtime.Composable
+    fun results(query: String, normal: List<SheetItem>, contacts: com.brightblu.parc.feature.search.contacts.ContactSource?): List<SheetItem>
 }

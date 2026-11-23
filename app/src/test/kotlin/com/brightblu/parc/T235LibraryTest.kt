@@ -49,7 +49,7 @@ class T235LibraryTest {
 
     @Test fun theLibraryShelfIsRegisteredWithTheHubScrollGateAndRemembersItsPlace() {
         val source = File("src/main/kotlin/com/brightblu/parc/LibraryPage.kt").readText()
-        assertTrue(source.contains("rememberLazyGridState()"))
+        assertTrue(source.contains("rememberHubGridState()"))
         assertTrue(source.contains("RegisterHubScroll(gridState)"))
         assertTrue(source.contains("LocalHubPageScrollMemory.current"))
         assertTrue(source.contains("LibraryScroll.restore(savedScroll"))

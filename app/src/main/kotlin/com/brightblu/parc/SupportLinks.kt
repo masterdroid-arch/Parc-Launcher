@@ -8,15 +8,17 @@ import android.net.Uri
  * The one place for Parc's donation link (T267, set by T309).
  *
  * [donate] is the Ko-fi page. An empty value keeps the "Support Parc" row out of
- * About, so no dead link is ever shown. [donateNote] is the plain, honest wording
- * shown beside the row.
+ * About, so no dead link is ever shown. [rowTitle] and [rowNote] are the plain, honest
+ * wording of the row (T394); the note matches the Support section of the README.
  */
 internal object SupportLinks {
     const val donate: String = "https://ko-fi.com/parcapp"
 
-    /** Shown in About next to the Support row: free, optional tip, nothing locked behind it. */
-    const val donateNote: String =
-        "Parc is free and always will be. If it helps you, you can leave a tip on Ko-fi. Nothing is locked behind it."
+    /** The About row's title. Opening it is a normal view intent; Parc makes no network call itself. */
+    const val rowTitle: String = "Support Parc on Ko-fi"
+
+    /** The one line under the row: optional, nothing locked behind it. */
+    const val rowNote: String = "Optional. Nothing is locked behind it."
 
     /** A link is shown only when it has a destination. Pure so the empty case can be tested. */
     fun isVisible(url: String): Boolean = url.isNotBlank()

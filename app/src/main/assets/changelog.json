@@ -503,5 +503,136 @@
         "text": "Small fixes and improvements. Easier to read."
       }
     ]
+  },
+  {
+    "versionName": "1.5.12",
+    "versionCode": 10512,
+    "date": "2026-11-23",
+    "items": [
+      {
+        "headline": "Fixes",
+        "text": "Small fixes and improvements. Easier to read."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.13",
+    "versionCode": 10513,
+    "date": "2026-11-23",
+    "items": [
+      {
+        "headline": "Fixes",
+        "text": "Small fixes and improvements. Easier to read."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.14",
+    "versionCode": 10514,
+    "date": "2026-11-23",
+    "items": [
+      {
+        "headline": "Fixes",
+        "text": "Small fixes and improvements. Easier to read."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.15",
+    "versionCode": 10515,
+    "date": "2026-11-23",
+    "items": [
+      {
+        "headline": "Fixes",
+        "text": "Small fixes and improvements. Easier to read."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.16",
+    "versionCode": 10516,
+    "date": "2026-11-23",
+    "items": [
+      {
+        "headline": "New glass look",
+        "text": "Calmer cards with frosted glass, one type scale and text that is easier to read."
+      },
+      {
+        "headline": "Redesigned Settings",
+        "text": "Settings regrouped into six clear sections with quick tiles on top."
+      },
+      {
+        "headline": "Redesigned pages",
+        "text": "The hub and library pages follow the new look."
+      },
+      {
+        "headline": "Redesigned dialogs",
+        "text": "Page settings and sheets are simpler, with fewer words."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.17",
+    "versionCode": 10517,
+    "date": "2026-11-23",
+    "items": [
+      {
+        "headline": "Fixes",
+        "text": "Small fixes and improvements. Easier to read."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.18",
+    "versionCode": 10518,
+    "date": "2026-11-23",
+    "items": [
+      {
+        "headline": "Fixes",
+        "text": "Small fixes and improvements. Easier to read."
+      }
+    ]
+  },
+  {
+    "versionName": "1.5.19",
+    "versionCode": 10519,
+    "date": "2026-11-23",
+    "items": [
+      {
+        "headline": "Fixes",
+        "text": "Small fixes and improvements. Easier to read."
+      }
+    ]
+  },
+  {
+    "versionName": "1.6.0",
+    "versionCode": 10600,
+    "date": "2026-11-23",
+    "items": [
+      {
+        "headline": "Redesigned throughout",
+        "text": "A calmer glass-style look with one type scale and tidier spacing."
+      },
+      {
+        "headline": "Settings in six groups",
+        "text": "Settings is regrouped into clear sections, with quick tiles on top."
+      },
+      {
+        "headline": "Updates inside Parc",
+        "text": "Parc can tell you when a new version is out and install it with one tap."
+      },
+      {
+        "headline": "Report a problem",
+        "text": "Open a pre-filled bug report from About. Parc sends nothing itself."
+      },
+      {
+        "headline": "Encrypted weekly backups",
+        "text": "Weekly backups now always need a passphrase and are never plain text."
+      },
+      {
+        "headline": "Easier to read",
+        "text": "Short labels and larger touch targets that hold up at big font sizes."
+      }
+    ]
   }
 ]

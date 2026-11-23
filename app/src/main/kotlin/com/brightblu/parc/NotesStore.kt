@@ -45,16 +45,26 @@ internal class NotesStore(
         }
     }
     fun save(note: Note) { commands.trySend { saveNow(note) } }
-    private suspend fun saveNow(note: Note) {
+    private suspend fun saveNow(note: Note, reminder: Long? = null) {
         data.edit { prefs ->
             val notes = read(prefs)
             // The reminder is changed only by setReminder, never by a text autosave carrying a stale value.
-            val kept = note.copy(remindAt = notes.firstOrNull { it.id == note.id }?.remindAt ?: 0)
+            val kept = note.copy(remindAt = reminder ?: notes.firstOrNull { it.id == note.id }?.remindAt ?: 0)
             val encoded = NotesJson.encode(notes.filterNot { it.id == note.id } + kept)
             if (encoded.length > com.brightblu.parc.core.data.backup.BackupSpecs.notes.keys.single().maxLength) throw NotesTooLargeException()
             prefs[key] = encoded
         }
     }
+    /** Create the note and its reminder in the same edit before arming the alarm. */
+    fun saveWithReminder(note: Note, at: Long, onResult: (Boolean) -> Unit) { commands.trySend {
+        try {
+            saveNow(note, at)
+            alarms.schedule(note.id, at)
+            onResult(true)
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { onResult(false); throw e }
+    } }
+
     /** T195: like [save], and tells the caller (on the store's scope) whether the write went through. */
     fun saveReporting(note: Note, onResult: (Boolean) -> Unit) { commands.trySend {
         try { saveNow(note); onResult(true) }

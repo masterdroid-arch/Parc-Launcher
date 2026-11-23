@@ -77,19 +77,22 @@ class SettingsRegistryTest {
     @Test fun idsAreUniqueAndEveryGroupHasThreeOrFourSubPages() {
         val ids = SettingsRegistry.all.map { it.id }
         assertEquals(ids.size, ids.toSet().size)
-        assertEquals(listOf("Home", "Appearance", "Gestures & search", "Notifications & Focus", "Data & about"),
+        assertEquals(listOf("Appearance", "Home layout", "Hub pages", "Gestures & search", "Notifications & focus", "Data & help"),
             SettingsGroup.entries.map { it.title })
         SettingsGroup.entries.forEach { group ->
             val pages = SettingsPage.entries.filter { it.group == group && it.parent == null }
-            assertTrue("${group.title} has ${pages.size} sub-pages", pages.size in 3..4)
+            // T373: Hub pages is one direct page; Data & help lists Diagnostics beside its four wrapper pages.
+            assertTrue("${group.title} has ${pages.size} sub-pages", pages.size in 1..5)
         }
-        assertEquals(17, SettingsPage.entries.count { it.group != null && it.parent == null })
+        // T382 adds the personal-build "Launch pause" sub-page; it is hidden when the hook is absent.
+        assertEquals(20, SettingsPage.entries.count { it.group != null && it.parent == null })
     }
 
     @Test fun pageRowsOpenAnEditorAndEveryPageIsReachable() {
         SettingsRegistry.all.filter { it.control == SettingControl.Page && it.id !in SettingsRegistry.selfEntryIds }.forEach { def ->
             assertNotNull(def.id, def.opens)
-            assertEquals(def.id, def.page, def.opens!!.parent)
+            // T373: a row may open a top-level page (the Hubs row opens Pages & alerts, which is also its own root group).
+            assertTrue(def.id, def.opens!!.parent == def.page || def.opens!!.parent == null)
         }
         val opened = SettingsRegistry.all.mapNotNull { it.opens }.toSet() +
             SettingsPage.entries.filter { it.group != null && it.parent == null }.toSet() +
@@ -199,8 +202,8 @@ class SettingsRegistryTest {
         val rows = SettingsRegistry.shown(SettingsPage.Hubs, s)
         val arc = rows.filter { it.card == "Arc hub" }.map { it.title to it.control }
         val stats = rows.filter { it.card == "Stats hub" }.map { it.title to it.control }.take(2)
-        assertEquals(listOf("Colour" to SettingControl.Colour, "Opacity" to SettingControl.Slider), arc)
-        assertEquals(arc, stats)
+        assertEquals(listOf("Colour" to SettingControl.Colour, "Arc opacity" to SettingControl.Slider), arc)
+        assertEquals(listOf("Colour" to SettingControl.Colour, "Stats opacity" to SettingControl.Slider), stats)
         assertEquals(listOf("GlassEffect", "GlassRefraction"), rows.filter { it.card == "Both hubs" }.map { it.id })
     }
 

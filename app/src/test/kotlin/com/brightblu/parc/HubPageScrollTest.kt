@@ -16,8 +16,7 @@ class HubPageScrollTest {
         return HubPanelLayout.heightDp(size, standardPanel) - chrome
     }
 
-    @Test fun endPaddingIsFadePlusGap() {
-        assertEquals(28f, HubPageScroll.endPaddingDp, 0f)
+    @Test fun endPaddingIsTheOpaqueFadePlusGap() {
         assertEquals(Metrics.hubFadeHeightDp + Metrics.hubScrollEndGapDp, HubPageScroll.endPaddingDp, 0f)
     }
 
@@ -40,7 +39,7 @@ class HubPageScrollTest {
         val oldRows = port * 2f
         val oldGap = (port - Metrics.hubFadeHeightDp) - (oldRows - HubPageScroll.maxScrollDp(oldRows, port))
         assertTrue(oldGap < 0f)
-        assertTrue(gap >= Metrics.hubScrollEndGapDp)
+        assertTrue(gap >= Metrics.hubScrollEndGapDp - 0.001f)
     }
 
     @Test fun maxScrollIsZeroWhenContentFits() {

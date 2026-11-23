@@ -29,6 +29,10 @@ internal interface ExtraPageSet {
     fun backupStores(context: Context): List<BackupStore>
     /** 1.5.1: a second clock zone shown on Today until the user picks one in the page options. Public builds have none. */
     val defaultClockZone: String? get() = null
+    /** T381: an optional daily task (the birthday notification); every public build does nothing. */
+    fun morningTasks(context: Context) {}
+    /** T382: pause before opening. Null in family, play and the public snapshot. */
+    val appPause: AppPauseFactory? get() = null
 }
 
 internal fun extraPage(id: String): ExtraHubPage? = PersonalExtras.pages.firstOrNull { it.id == id }

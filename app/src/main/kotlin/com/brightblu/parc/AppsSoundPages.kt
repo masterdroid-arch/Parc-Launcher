@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -144,15 +145,28 @@ internal fun SoundHubPage(repository: VolumeRepository?, active: Boolean, tiles:
             val stream = VolumeStream.All.first { it.name.lowercase() == tile }
             val level = state.level(stream)
             Column {
-                Readout(stream.name, level?.let { "${it.index} / ${it.maxIndex}" } ?: "Unavailable", skin)
-                if (level != null) VolumeSlider(level, skin, active) { fraction ->
-                    val index = AppsSoundFormat.sliderIndex(fraction, level.maxIndex)
-                    val current = repository?.state?.value?.level(stream)?.index
-                    if (index != current) {
-                        if (repository?.setVolume(stream, index) == true) {
-                            refused = null
-                            feel.play(view, FeelEvent.Tick)
-                        } else refused = stream
+                // T377: a labelled bar, not a value over a slider. The stream name sits left, the bar
+                // fills the middle and the exact "n / m" reading sits right, so the four streams line up.
+                Row(Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BasicText(stream.name, Modifier.width(Metrics.hudBarLabelDp.dp), style = hudValueStyle(skin), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.width(Metrics.itemGapDp.dp))
+                    if (level != null) {
+                        VolumeSlider(level, skin, active, Modifier.weight(1f)) { fraction ->
+                            val index = AppsSoundFormat.sliderIndex(fraction, level.maxIndex)
+                            val current = repository?.state?.value?.level(stream)?.index
+                            if (index != current) {
+                                if (repository?.setVolume(stream, index) == true) {
+                                    refused = null
+                                    feel.play(view, FeelEvent.Tick)
+                                } else refused = stream
+                            }
+                        }
+                        Spacer(Modifier.width(Metrics.itemGapDp.dp))
+                        BasicText("${level.index} / ${level.maxIndex}", style = hudLabelStyle(skin), maxLines = 1)
+                    } else {
+                        Box(Modifier.weight(1f)) { DataBar(0f, skin) }
+                        Spacer(Modifier.width(Metrics.itemGapDp.dp))
+                        BasicText("Unavailable", style = hudLabelStyle(skin), maxLines = 1)
                     }
                 }
                 if (refused == stream) CellLabel("Volume change refused by Android", skin)
@@ -163,14 +177,14 @@ internal fun SoundHubPage(repository: VolumeRepository?, active: Boolean, tiles:
 
 /** Consumes horizontal drags before the hub pager; TalkBack uses the same discrete mapping. */
 @Composable
-private fun VolumeSlider(level: StreamVolume, skin: Skin, active: Boolean, change: (Float) -> Unit) {
+private fun VolumeSlider(level: StreamVolume, skin: Skin, active: Boolean, modifier: Modifier = Modifier, change: (Float) -> Unit) {
     var width by remember { mutableFloatStateOf(1f) }
     var drag by remember(level.stream) { mutableFloatStateOf(level.fraction) }
     val currentChange by rememberUpdatedState(change)
     val currentLevel by rememberUpdatedState(level)
     val base = Color(skin.colors.lineBase.toInt())
     val accent = Color(skin.colors.accent.toInt())
-    Canvas(Modifier.fillMaxWidth().height(Metrics.menuRowHeightDp.dp).onSizeChanged { width = it.width.toFloat().coerceAtLeast(1f) }
+    Canvas(modifier.height(Metrics.menuRowHeightDp.dp).onSizeChanged { width = it.width.toFloat().coerceAtLeast(1f) }
         .semantics {
             contentDescription = "${level.stream.name} volume"
             progressBarRangeInfo = ProgressBarRangeInfo(level.index.toFloat(), 0f..level.maxIndex.toFloat(), (level.maxIndex - 1).coerceAtLeast(0))

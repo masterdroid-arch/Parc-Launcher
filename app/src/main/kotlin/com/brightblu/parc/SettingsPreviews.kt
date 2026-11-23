@@ -64,22 +64,24 @@ internal fun settingsTitle(skin: Skin): TextStyle = TextStyle(
     color = Color(skin.colors.textPrimary.toInt()), fontSize = skin.typography.title.sizeSp.sp,
     fontWeight = FontWeight(skin.typography.title.weight), letterSpacing = skin.typography.title.trackingSp.sp)
 
+/** T374: what a Home preview needs once its picture is ready: the scene it draws, the raster behind the hub cards and the hub look. */
+internal class HomeRaster(val scene: RingState, val ring: ImageBitmap?, val appearance: HubAppearance)
+
 /**
- * The real home in miniature with [look], [counts] and [aligned] applied (null = the saved value).
- * Touches are swallowed so nothing in the preview launches or changes.
+ * T374: the one place a Settings preview prepares Home. The raster is built off the main thread after a short pause and
+ * the previous picture stays up meanwhile. [counts], [aligned] and [mirrored] override the saved arc values (null = saved).
  */
 @Composable
-internal fun HomePreview(services: LauncherServices, skin: Skin, look: LookSettings,
-    counts: LayoutCounts? = null, aligned: Boolean? = null, caption: String = "Preview of your home",
-    appearance: HubAppearance? = null) {
+internal fun rememberHomeRaster(services: LauncherServices, skin: Skin, look: LookSettings,
+    counts: LayoutCounts? = null, aligned: Boolean? = null, mirrored: Boolean? = null, appearance: HubAppearance? = null): HomeRaster {
     val context = LocalContext.current
     val layout by services.layout.layout.collectAsState()
     val liveApps by services.unlockedApps.collectAsState()
     val apps = if (DemoMode.enabled) DemoHomeLayout.appsIfDemo(true) else liveApps
     val revision by services.iconRevision.collectAsState()
     val prefs = remember(context) { ParcUiPrefs(context) }
-    val scene = remember(layout, apps, revision, counts, aligned) {
-        skinPreviewScene(services, layout, apps, prefs, counts, aligned)
+    val scene = remember(layout, apps, revision, counts, aligned, mirrored) {
+        skinPreviewScene(services, layout, apps, prefs, counts, aligned, mirrored)
     }
     val phoneColour = rememberPhoneWallpaperColour()
     val wallpaperFile = remember(context) { WallpaperImageStore(context).file }
@@ -93,10 +95,22 @@ internal fun HomePreview(services: LauncherServices, skin: Skin, look: LookSetti
         // T178: Home's own stage, cards and arcs (rasterHome); the phone wallpaper, which Parc cannot read, is its main colour.
         ring = withContext(Dispatchers.Default) { rasterSkinHome(scene, services, skin, look, wallpaperFile, phoneColour, appearance, hubSize, statusInset, context.resources) }
     }
+    return HomeRaster(scene, ring, appearance)
+}
+
+/**
+ * The real home in miniature with [look], [counts] and [aligned] applied (null = the saved value).
+ * Touches are swallowed so nothing in the preview launches or changes.
+ */
+@Composable
+internal fun HomePreview(services: LauncherServices, skin: Skin, look: LookSettings,
+    counts: LayoutCounts? = null, aligned: Boolean? = null, caption: String = "Preview of your home",
+    appearance: HubAppearance? = null) {
+    val raster = rememberHomeRaster(services, skin, look, counts, aligned, appearance = appearance)
     SettingsPreviewFrame(skin, caption) {
-        val current = ring
+        val current = raster.ring
         if (current == null) BasicText("Preparing preview…", style = settingsText(skin, skin.colors.textSecondary, true))
-        else CompositionLocalProvider(LocalHubLook provides look) { SkinHome(skin, services, scene, current, look, appearance) }
+        else CompositionLocalProvider(LocalHubLook provides look) { SkinHome(skin, services, raster.scene, current, look, raster.appearance) }
         Box(Modifier.matchParentSize().pointerInput(Unit) {
             awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } }
         })

@@ -16,6 +16,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.semantics.Role
+import com.brightblu.parc.feature.settings.backup.BackupExportHost
+import com.brightblu.parc.feature.settings.ui.SettingsGroup
+import com.brightblu.parc.feature.settings.ui.SettingsIcon
+import com.brightblu.parc.feature.settings.ui.SettingsSection
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -112,10 +122,28 @@ internal fun settingsParent(screen: SettingsScreen): SettingsScreen = when (scre
     is SettingsScreen.Group -> SettingsScreen.Root
     is SettingsScreen.Page -> when {
         screen.page.parent != null -> SettingsScreen.Page(screen.page.parent)
+        // T373: a group with one page (Hub pages) opens that page at once, so Back skips the empty group screen.
+        screen.page.group?.directPage() == screen.page -> SettingsScreen.Root
         screen.page.group != null -> SettingsScreen.Group(screen.page.group)
         else -> SettingsScreen.Root
     }
 }
+
+/**
+ * T373: Back from [shown], honouring where the user came from. Pages & alerts is a root group of its own and also opens
+ * from the Hubs row; only that one remembered pair ([openedFrom]: page, screen it was opened from) overrides the parent.
+ */
+internal fun settingsBackFor(shown: SettingsScreen, openedFrom: Pair<SettingsPage, SettingsScreen>?): SettingsScreen =
+    if (openedFrom != null && shown is SettingsScreen.Page && shown.page == openedFrom.first) openedFrom.second
+    else settingsParent(shown)
+
+/** T373: the only top-level page of a group that has just one, else null (the group then has its own screen). */
+internal fun SettingsGroup.directPage(): SettingsPage? =
+    SettingsPage.entries.filter { it.group == this && it.parent == null }.singleOrNull()
+
+/** T373: where a root row for [group] goes. */
+internal fun settingsScreenForGroup(group: SettingsGroup): SettingsScreen =
+    group.directPage()?.let { SettingsScreen.Page(it) } ?: SettingsScreen.Group(group)
 
 internal fun settingsParent(page: SettingsPage): SettingsScreen = settingsParent(SettingsScreen.Page(page))
 
@@ -165,6 +193,8 @@ internal fun ParcSettings(
     onClose: () -> Unit,
     initialPage: SettingsPage = SettingsPage.Root,
     initialRow: String? = null,
+    /** T373: the stats hub's resolved skin, so the root tiles carry Home's glass and tint (the sheet does the same). */
+    glassSkin: Skin = skin,
 ) {
     // OPUS6 (audit F7): Settings is always drawn readably, even when the active skin's text is not.
     val activeSkin = skin
@@ -224,6 +254,11 @@ internal fun ParcSettings(
     var screen by remember { mutableStateOf<SettingsScreen>(
         if (initialPage == SettingsPage.Root) SettingsScreen.Root else SettingsScreen.Page(initialPage)) }
     var target by remember { mutableStateOf(initialRow) }
+    // T373: the root keeps its scroll place and gives Back a tile to return focus to.
+    val rootScroll = rememberScrollState()
+    val tileFocus = remember { SettingsShortcut.entries.associateWith { FocusRequester() } }
+    var lastTile by remember { mutableStateOf<SettingsShortcut?>(null) }
+    var openedFrom by remember { mutableStateOf<Pair<SettingsPage, SettingsScreen>?>(null) }
     var hubOptions by remember { mutableStateOf(TodayPage.Id) }
     // T262: the Hub pages list keeps one scroll state for the whole Settings visit, so returning
     // from a page's options does not move the rows under the finger.
@@ -343,13 +378,28 @@ internal fun ParcSettings(
                 screen = SettingsScreen.Page(SettingsPage.Onboarding)
             }
             "Agenda" -> { agendaSettings = menuPrefs.agenda(); screen = SettingsScreen.Page(SettingsPage.Agenda) }
-            else -> def.opens?.let { screen = SettingsScreen.Page(it) }
+            else -> def.opens?.let {
+                // The Hubs row opens Pages & alerts, a root group too: Back returns to Hubs from here.
+                openedFrom = if (def.id == "HubPages") it to screen else null
+                screen = SettingsScreen.Page(it)
+            }
+        }
+    }
+    // T373: a tile or group row either flips its registry row in place or opens the page that holds it.
+    val onShortcut: (SettingsShortcut, Boolean) -> Unit = { item, fromRoot ->
+        if (fromRoot) lastTile = item
+        val next = item.toggledIndex(snapshot)
+        if (next != null) onValue(item.def, next)
+        else {
+            // Back returns to the root tile (or the group row) it was opened from, not to the page's own group.
+            openedFrom = item.def.page to screen
+            target = item.rowId; screen = SettingsScreen.Page(item.def.page)
         }
     }
     val customRow: @Composable (SettingDef) -> Unit = { def ->
         if (def.id == "ArcMaximums") {
-            // T312: per-arc "Maximum apps" rows, persisted like every other setting.
-            ArcMaximumsSection(snapshot, skin, onSet = { map ->
+            // T312: per-arc "Arc capacities" rows, persisted like every other setting.
+            ArcMaximumsSection(snapshot, skin, def.help, def.info, onSet = { map ->
                 scope.launch { writer.persist(snapshot, snapshot.copy(arcMaximums = map)) }
             })
         } else {
@@ -361,28 +411,42 @@ internal fun ParcSettings(
     }
 
     val backTarget = remember { SettingsBackTarget() }
+    val backFrom: (SettingsScreen) -> SettingsScreen = { shown ->
+        settingsBackFor(shown, openedFrom).also { if (it != settingsParent(shown)) openedFrom = null }
+    }
     val goBack = {
         if (previewSkin != null) previewSkin = null
         else when (val shown = screen) {
             SettingsScreen.Root -> onClose()
-            else -> screen = settingsParent(shown)
+            else -> screen = backFrom(shown)
         }
     }
     BackHandler { goBack() }
 
     androidx.compose.runtime.CompositionLocalProvider(LocalSettingsBackTarget provides backTarget) {
-    Box(Modifier.fillMaxSize().background(Color(skin.colors.bg.toInt()))) {
+    Box(Modifier.fillMaxSize()) {
+        SettingsBackdrop(skin)
         androidx.compose.animation.Crossfade(targetState = screen,
             animationSpec = androidx.compose.animation.core.spring(Springs.sheet.damping, Springs.sheet.stiffness), label = "Settings page") { shown ->
-        val back = { screen = settingsParent(shown) }
+        val back = { screen = backFrom(shown) }
         when (shown) {
-            SettingsScreen.Root -> RootPage(skin, snapshot, hubConfig.takeIf { settings.statsVisible },
-                onOpen = { group -> target = null; screen = SettingsScreen.Group(group) },
-                onJump = { def -> target = if (def.id in SettingsRegistry.selfEntryIds) null else def.id
+            SettingsScreen.Root -> RootPage(skin, glassSkin, snapshot, hubConfig.takeIf { settings.statsVisible },
+                scroll = rootScroll, focus = { tileFocus.getValue(it) }, returnTo = lastTile,
+                onShortcut = { item -> onShortcut(item, true) },
+                onOpen = { group -> target = null; lastTile = null; openedFrom = null; screen = settingsScreenForGroup(group) },
+                onJump = { def -> openedFrom = null; target = if (def.id in SettingsRegistry.selfEntryIds) null else def.id
                     screen = SettingsScreen.Page(settingsPageForRow(def)) },
                 onHubPage = { id -> hubOptions = id; screen = SettingsScreen.Page(SettingsPage.HubOptions) }, onClose = onClose)
-            is SettingsScreen.Group -> SettingsGroupPage(shown.group, skin, back,
-                onOpenPage = { page -> target = null; screen = SettingsScreen.Page(page) })
+            is SettingsScreen.Group -> if (shown.group == SettingsGroup.DataAbout) DataHelpGroupPage(skin, glassSkin, backupController,
+                hasBackupKey = { WeatherVariant.hasBackupKey(context) }, back,
+                onOpenPage = { page -> target = null; screen = SettingsScreen.Page(page) },
+                onAction = onOpen)
+            else if (shown.group == SettingsGroup.Appearance) AppearanceGroupPage(skin, glassSkin, activeSkin, snapshot, services, look, back,
+                onOpenPage = { page -> target = null; screen = SettingsScreen.Page(page) },
+                onShortcut = { item -> onShortcut(item, false) }, onValue = onValue)
+            else SettingsGroupPage(shown.group, skin, snapshot, back,
+                onOpenPage = { page -> target = null; screen = SettingsScreen.Page(page) },
+                onShortcut = { item -> onShortcut(item, false) })
             is SettingsScreen.Page -> when (val page = shown.page) {
                 SettingsPage.HubOptions -> SettingsPageFrame(skin, onBack = back) {
                     ParcPage(safeTop = false, scroll = false, padBottom = false) {
@@ -395,19 +459,30 @@ internal fun ParcSettings(
                         ParcPage(Modifier.onGloballyPositioned { hubPagesViewport = it.boundsInWindow() }, safeTop = false, scrollState = hubPagesScroll) {
                             BasicText(page.title, style = style(skin, skin.colors.textPrimary, skin.typography.title))
                             SettingsIntro(skin, page.intro)
-                            if (settings.statsVisible) SettingsAnchor("HubPages", target) {
-                                Column(verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
-                                    HubPagesMainList(skin, hubConfig, { change -> scope.launch { hubStore.update(change) } },
-                                        hubPagesScroll, { hubPagesViewport }) { id -> hubOptions = id; screen = SettingsScreen.Page(SettingsPage.HubOptions) }
+                            // T375: Show stats hub and the default size lead, then the page switches (each with its gear), then the rest.
+                            val lead = HubPagesLayout.leadIds
+                            RegistryRows(SettingsPage.HubPages, snapshot, skin, target, onValue, onOpen, customRow,
+                                hide = SettingsRegistry.on(SettingsPage.HubPages).map { it.id }.filter { it !in lead }.toSet())
+                            if (settings.statsVisible) {
+                                SettingsSection("Page visibility", skin)
+                                SettingsAnchor("HubPages", target) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+                                        HubPagesMainList(skin, hubConfig, { change -> scope.launch { hubStore.update(change) } },
+                                            hubPagesScroll, { hubPagesViewport }) { id -> hubOptions = id; screen = SettingsScreen.Page(SettingsPage.HubOptions) }
+                                    }
                                 }
                             }
-                            RegistryRows(SettingsPage.HubPages, snapshot, skin, target, onValue, onOpen, customRow)
+                            RegistryRows(SettingsPage.HubPages, snapshot, skin, target, onValue, onOpen, customRow, hide = lead)
+                            Spacer(Modifier.height(Metrics.rowGapDp.dp))
                         }
                     }
                 }
-                SettingsPage.Search -> SettingsRegistryPage(page, snapshot, skin, target, back, onValue, onOpen, customRow)
-                SettingsPage.SearchPreferences -> SettingsPageFrame(skin, onBack = back) {
-                    SettingsContent(skin, page.title) { SearchSettingsSection(skin) }
+                SettingsPage.Search -> SettingsPageFrame(skin, onBack = back) {
+                    SettingsContent(skin, page.title) {
+                        PersonalSearchSwitch(skin)
+                        SearchSettingsSection(skin) { id, content -> SettingsAnchor(id, target, content) }
+                        Spacer(Modifier.height(Metrics.rowGapDp.dp))
+                    }
                 }
                 SettingsPage.Messages -> SettingsRegistryPage(page, snapshot, skin, target, back, onValue, onOpen, customRow,
                     footerFor = { card -> if (card == "History") "Messages from WhatsApp, Telegram and Instagram are stored on this phone. Not in backups. Clear them any time." else "" })
@@ -431,6 +506,9 @@ internal fun ParcSettings(
                 SettingsPage.VersionHistory -> SettingsPageFrame(skin, onBack = back) {
                     val entries = remember(context) { loadChangelog(context) }
                     SettingsContent(skin, page.title) { entries.forEach { ReleaseEntry(skin, it) } }
+                }
+                SettingsPage.ReportProblem -> SettingsPageFrame(skin, onBack = back) {
+                    SettingsContent(skin, page.title) { ReportProblemContent(skin) }
                 }
                 SettingsPage.WhatsNew -> SettingsPageFrame(skin, onBack = back) {
                     val entries = remember(context) { loadChangelog(context) }
@@ -477,6 +555,14 @@ internal fun ParcSettings(
                     SettingsContent(skin, page.title) { LockedFoldersContent(services, skin, lockGate) }
                 }
                 SettingsPage.Folders -> FolderEditorHost(services, skin, settingsHost = true, onClose = back)
+                SettingsPage.LaunchPause -> {
+                    val pause = services.appPause
+                    if (pause == null) SettingsPageFrame(skin, onBack = back) {
+                        SettingsContent(skin, page.title) {
+                            SettingsIntro(skin, "Pause before opening is part of the personal build only.")
+                        }
+                    } else pause.SettingsPage(skin, apps, back)
+                }
                 SettingsPage.Focus -> FocusSettingsPage(skin = skin, focus = focus, modes = focusModes, repository = services.focus,
                     folders = settingsLayout.folders.map { folder ->
                         com.brightblu.parc.core.data.lock.LockedApps.folderForDisplay(folder, folder.id in hiddenFolderIds, lockGate.hideName())
@@ -542,6 +628,17 @@ internal fun ParcSettings(
                     Onboarding(onboardingController, skin, onOpenTarget = { AndroidOnboardingIntents.open(context, it) },
                         modifier = Modifier.fillMaxSize(), safeTop = false)
                 }
+                SettingsPage.AppearanceSkin -> SettingsPageFrame(skin, onBack = back) {
+                    SkinPicker(page.title, settingsState, skin, glassSkin, activeSkin, services, look, snapshot.counts, snapshot.aligned,
+                        snapshot.leftHand, target, onApply = { settingsController.selectSkin(it.id) },
+                        onFullPreview = { previewSkin = it }, onEdit = { screen = SettingsScreen.Page(SettingsPage.SkinStudio) })
+                }
+                SettingsPage.AppearanceIcons, SettingsPage.Hubs, SettingsPage.HomeArcs -> SettingsRegistryPage(page, snapshot, skin, target, back,
+                    onValue, onOpen, customRow, header = {
+                        HomeSample(services, activeSkin, glassSkin, look,
+                            if (page == SettingsPage.HomeArcs) HomeSampleFocus.Arcs else HomeSampleFocus.ClockAndArcs,
+                            snapshot.counts, snapshot.aligned, snapshot.leftHand)
+                    })
                 else -> SettingsRegistryPage(page, snapshot, skin, target, back, onValue, onOpen, customRow)
             }
         }
@@ -553,24 +650,86 @@ internal fun ParcSettings(
     }
 }
 
-/** A group page: its three or four sub-page cards. */
+/** A group page: the group's shortcut rows (same values as the root tiles), then its three or four sub-page cards. */
 @Composable
 private fun SettingsGroupPage(
     group: SettingsGroup,
     skin: Skin,
+    snapshot: SettingsSnapshot,
     onBack: () -> Unit,
     onOpenPage: (SettingsPage) -> Unit,
+    onShortcut: (SettingsShortcut) -> Unit,
 ) {
-    val pages = SettingsPage.entries.filter { it.group == group && it.parent == null }
+    // T382: the pause page exists in the enum for every build but is only shown where the hook exists.
+    val pages = SettingsPage.entries.filter { page ->
+        page.group == group && page.parent == null &&
+            (page != SettingsPage.LaunchPause || PersonalExtras.appPause != null)
+    }
     SettingsPageFrame(skin, onBack = onBack) {
         SettingsContent(skin, group.title) {
             SettingsIntro(skin, group.intro)
+            SettingsShortcutRows(group, snapshot, skin, onShortcut)
+            Spacer(Modifier.height(Metrics.rowGapDp.dp))
             pages.forEach { page ->
                 SettingsCard(skin) {
                     SettingRow(page.title, skin, SettingKind.Page, page.summary, divider = false) { onOpenPage(page) }
                 }
                 Spacer(Modifier.height(Metrics.rowGapDp.dp))
             }
+        }
+    }
+}
+
+/**
+ * T373 (mockup 07): Data & help leads with Export. The button runs the Backup page's own export steps, so the
+ * key warning, passphrase and file picker are the same; cancelling the picker leaves this page as it was.
+ */
+@Composable
+private fun DataHelpGroupPage(
+    skin: Skin,
+    glassSkin: Skin,
+    backup: BackupController,
+    hasBackupKey: () -> Boolean,
+    onBack: () -> Unit,
+    onOpenPage: (SettingsPage) -> Unit,
+    onAction: (SettingDef) -> Unit,
+) {
+    SettingsPageFrame(skin, onBack = onBack) {
+        SettingsContent(skin, SettingsGroup.DataAbout.title) {
+            Spacer(Modifier.height(Metrics.rowGapDp.dp))
+            BackupExportHost(backup, skin, hasBackupKey) { start, busy, message, status ->
+                Column(Modifier.fillMaxWidth().settingsSurface(glassSkin).padding(Metrics.cardInsetDp.dp),
+                    verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+                    BasicText("Your backup", style = settingsText(skin).copy(fontSize = skin.typography.section.sizeSp.sp,
+                        fontWeight = FontWeight(skin.typography.section.weight)))
+                    Box(Modifier.heightIn(min = Metrics.touchTargetDp.dp).clip(RoundedCornerShape(percent = 50))
+                        .background(Color(Skin.ParcOrange.toInt()).copy(alpha = if (busy) 0.5f else 1f))
+                        .clickable(enabled = !busy, role = Role.Button, onClick = start)
+                        .padding(horizontal = Metrics.cardInsetDp.dp), contentAlignment = Alignment.Center) {
+                        BasicText("Export backup", style = settingsText(skin, Skin.Midnight.colors.bg).copy(fontWeight = FontWeight.Medium))
+                    }
+                    status.forEach { BasicText(it, style = settingsText(skin, skin.colors.textSecondary, true)) }
+                    if (!message.isNullOrBlank()) BasicText(message, style = settingsText(skin, skin.colors.textSecondary, true))
+                }
+            }
+            SettingsGroup("Your setup", skin) {
+                SettingRow("Backups", skin, SettingKind.Page, leading = { SettingsGroupGlyph(SettingsIcon.DataAbout, skin) }) {
+                    onOpenPage(SettingsPage.DataBackup)
+                }
+                SettingRow("Phone access", skin, SettingKind.Page, leading = { SettingsGroupGlyph(SettingsIcon.LockLayout, skin) }) {
+                    onOpenPage(SettingsPage.DataPermissions)
+                }
+                SettingRow("About Parc", skin, SettingKind.Page, value = BuildConfig.VERSION_NAME,
+                    leading = { SettingsGroupGlyph(SettingsIcon.HubPages, skin) }, divider = false) {
+                    onOpenPage(SettingsPage.DataBuild)
+                }
+            }
+            SettingsGroup("Help", skin) {
+                SettingRow("Review setup", skin, SettingKind.Page) { onAction(SettingsRegistry.byId.getValue("RerunOnboarding")) }
+                SettingRow("Android settings", skin, SettingKind.Page) { onAction(SettingsRegistry.byId.getValue("AndroidSettings")) }
+                SettingRow("Diagnostics", skin, SettingKind.Page, divider = false) { onOpenPage(SettingsPage.Diagnostics) }
+            }
+            Spacer(Modifier.height(Metrics.rowGapDp.dp))
         }
     }
 }
@@ -593,10 +752,13 @@ private fun SettingsRegistryPage(
             else -> ""
         }
     },
+    /** T374: a live Home sample under the page's one-line intro, for the pages whose controls change how Home looks. */
+    header: (@Composable () -> Unit)? = null,
 ) {
     SettingsPageFrame(skin, onBack = onBack) {
         SettingsContent(skin, page.title) {
             SettingsIntro(skin, page.intro)
+            header?.invoke()
             RegistryRows(page, snapshot, skin, target, onValue, onOpen, custom, footer = footerFor)
             // T324: the last card's footer sentence ends clear of the gesture strip (it used to sit
             // right at the bottom edge, so it read as clipped until the page was scrolled).
@@ -611,17 +773,14 @@ private fun RegistryCustom(def: SettingDef, s: SettingsSnapshot, skin: Skin, ser
     onChangeLook: ((LookSettings) -> LookSettings) -> Unit, chooseRequest: Int, onChoose: () -> Unit,
     onValue: (SettingDef, Int) -> Unit, onPreviewSkin: (Skin) -> Unit, onEditSkin: () -> Unit, onWhatsNew: () -> Unit) {
     when (def.id) {
-        "Appearance" -> Column(Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp)) {
-            val state = com.brightblu.parc.feature.settings.skins.SettingsUiState(s.skins, s.skinId)
-            SkinGallery(state, skin, services, look, onPreview = onPreviewSkin, onEdit = onEditSkin)
-        }
+        // T374: the skin page is SkinPicker, drawn by the host; this row has no control of its own to draw.
+        "Appearance" -> Unit
         "WallpaperImage" -> WallpaperChooser(def, s, skin, look, onChangeLook, chooseRequest, onChoose, onValue)
+        // T396: the family build's update rows (switch, Check now, Last checked, Update).
+        "UpdateCheck" -> FamilyUpdate.SettingsRows(skin)
         // T325: the page title ("This build") is the only heading; the version is a row, not a second title.
         "About" -> Column(Modifier.padding(vertical = Metrics.rowGapDp.dp)) {
             BasicText("A home screen with thumb-reach arcs. Settings and layout stay on this device.",
-                style = settingsText(skin, skin.colors.textSecondary, true),
-                modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp).padding(top = Metrics.lineGapDp.dp))
-            BasicText(SupportLinks.donateNote,
                 style = settingsText(skin, skin.colors.textSecondary, true),
                 modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp).padding(top = Metrics.lineGapDp.dp))
             // T293: the personal and weather builds are online for the private-repo update and the data
@@ -629,7 +788,7 @@ private fun RegistryCustom(def: SettingDef, s: SettingsSnapshot, skin: Skin, ser
             val onlineLine = when (BuildConfig.FLAVOR) {
                 "personal" -> "This build is online only to check for updates and download language packs: no accounts, ads, analytics or tracking."
                 "personalWeather" -> "This build is online only for Weather, Translate (your own DeepL key), updates and language packs: no accounts, ads, analytics or tracking."
-                "family" -> "This build is online only for Weather and Translate (your own DeepL key): no accounts, ads, analytics or tracking."
+                "family" -> "This build is online only for Weather, Translate (your own DeepL key) and the update check (one request to GitHub, which you can turn off): no accounts, ads, analytics or tracking."
                 else -> "This build has no internet access: no accounts, ads, analytics or tracking."
             }
             BasicText(onlineLine,
@@ -651,8 +810,8 @@ private fun RegistryCustom(def: SettingDef, s: SettingsSnapshot, skin: Skin, ser
                 Spacer(Modifier.height(Metrics.rowGapDp.dp))
                 val context = LocalContext.current
                 SettingsCard(skin) {
-                    SettingRow("Support Parc", skin, SettingKind.Action,
-                        "Opens the donation page in your browser", icon = "↗", divider = false) {
+                    SettingRow(SupportLinks.rowTitle, skin, SettingKind.Action,
+                        SupportLinks.rowNote, icon = "↗", divider = false) {
                         SupportLinks.open(context, SupportLinks.donate)
                     }
                 }
@@ -662,17 +821,27 @@ private fun RegistryCustom(def: SettingDef, s: SettingsSnapshot, skin: Skin, ser
 }
 
 /**
- * The Settings root: exactly five groups and one search box over every setting. A result shows its
- * `Group · Sub-page` breadcrumb (and the full chain for a nested page) before jumping to the row.
+ * T373: the Settings root. Search on top, then "Most used" (six value tiles) and "All settings" (the six groups in one
+ * quiet card). A search result still shows its `Group · Sub-page` breadcrumb and jumps to the row. Coming back from
+ * a tile's page returns focus to that tile ([returnTo]).
  */
 @Composable
-internal fun RootPage(skin: Skin, snapshot: SettingsSnapshot, hubConfig: HubConfig?, onOpen: (SettingsGroup) -> Unit,
+internal fun RootPage(skin: Skin, glassSkin: Skin, snapshot: SettingsSnapshot, hubConfig: HubConfig?,
+    scroll: androidx.compose.foundation.ScrollState, focus: (SettingsShortcut) -> FocusRequester, returnTo: SettingsShortcut?,
+    onShortcut: (SettingsShortcut) -> Unit, onOpen: (SettingsGroup) -> Unit,
     onJump: (SettingDef) -> Unit, onHubPage: (String) -> Unit, onClose: () -> Unit) {
     var query by remember { mutableStateOf("") }
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    LaunchedEffect(Unit) {
+        if (returnTo != null) {
+            // The page being left fades out first and drops its own focus when it goes; ask after that.
+            kotlinx.coroutines.delay(Metrics.settingsFocusReturnDelayMs)
+            runCatching { focus(returnTo).requestFocus() }
+        }
+    }
     SettingsPageFrame(skin, onBack = onClose) {
-        ParcPage(safeTop = false, scrollState = rememberScrollState(), header = {
+        ParcPage(safeTop = false, scrollState = scroll, header = {
             BasicText("Parc Settings", style = style(skin, skin.colors.textPrimary, skin.typography.title))
             Spacer(Modifier.height(Metrics.rowGapDp.dp))
             SettingsSearch(query, skin) { query = it }
@@ -700,16 +869,40 @@ internal fun RootPage(skin: Skin, snapshot: SettingsSnapshot, hubConfig: HubConf
                         }
                     }
                 }
-            } else SettingsGroup.entries.forEach { group ->
+            } else {
+                // T396: the family build's second way in to an available update (nothing in other builds).
+                FamilyUpdate.RootRow(skin) { SettingsRegistry.byId["UpdateCheck"]?.let(onJump) }
+                SettingsSection("Most used", skin)
+                SettingsShortcutTiles(snapshot, skin, glassSkin, focus, onShortcut)
+                SettingsSection("All settings", skin)
                 SettingsCard(skin) {
-                    SettingRow(group.title, skin, SettingKind.Page, group.summary,
-                        value = if (group == SettingsGroup.DataAbout) BuildConfig.VERSION_NAME else "",
-                        leading = { SettingsGroupGlyph(group.icon, skin) }, divider = false) { onOpen(group) }
+                    SettingsGroup.entries.forEachIndexed { index, group ->
+                        SettingRow(group.title, skin, SettingKind.Page,
+                            leading = { SettingsGroupGlyph(group.icon, skin) }, divider = index < SettingsGroup.entries.lastIndex) { onOpen(group) }
+                    }
                 }
                 Spacer(Modifier.height(Metrics.rowGapDp.dp))
             }
         }
     }
+}
+
+/**
+ * T373: the wallpaper behind Settings. While Home publishes its glass stage this draws that stage under a dark veil, so
+ * the glass tiles and cards sit on the picture they frost; otherwise Settings keeps its plain skin background.
+ */
+@Composable
+private fun SettingsBackdrop(skin: Skin) {
+    val stage = com.brightblu.parc.ring.module.GlassWallpaperStage.current
+    val image = remember(stage) { stage?.bitmap?.asImageBitmap() }
+    val bg = Color(skin.colors.bg.toInt())
+    Spacer(Modifier.fillMaxSize().drawBehind {
+        drawRect(bg)
+        if (image != null) {
+            drawImage(image, dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()))
+            drawRect(bg.copy(alpha = Metrics.settingsBackdropScrimAlpha))
+        }
+    })
 }
 
 /**

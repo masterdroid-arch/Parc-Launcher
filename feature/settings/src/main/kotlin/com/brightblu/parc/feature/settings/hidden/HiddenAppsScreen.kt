@@ -10,7 +10,7 @@ import com.brightblu.parc.feature.settings.ui.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -94,13 +94,9 @@ fun HiddenAppsScreen(
         },
     )
     ParcPage(modifier.background(color(skin.colors.bg)).padding(top = topPaddingDp.dp), safeTop = false, scroll = false) {
-        EditorScaffold(EditorSpec.HiddenApps, skin, scroll = false, empty = state.rows.isEmpty() && state.hiddenCount == 0,
+        EditorScaffold(EditorSpec.HiddenApps, skin, title = "Hidden apps", instruction = "Switch an app to hide it.",
+            scroll = false, empty = state.rows.isEmpty() && state.hiddenCount == 0,
             undo = if (undo.action != null) ({ undo.run() }) else null) {
-        BasicText(
-            VisibilityCopy.Scope,
-            style = style(skin, skin.colors.textSecondary, skin.typography.caption),
-        )
-        Spacer(Modifier.height(Metrics.rowGapDp.dp))
         BasicText(
             if (state.hiddenCount == 1) "1 app hidden" else "${state.hiddenCount} apps hidden",
             style = style(skin, skin.colors.textSecondary, skin.typography.caption),
@@ -195,7 +191,7 @@ private fun QueryField(query: String, skin: Skin, onQuery: (String) -> Unit) {
         cursorBrush = SolidColor(color(skin.colors.accent)),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         modifier = Modifier
-            .fillMaxWidth()
+            .fillMaxWidth().heightIn(min = Metrics.minTouchDp.dp)
             .padding(vertical = Metrics.sectionHeaderGapDp.dp),
         decorationBox = { inner ->
             if (query.isEmpty()) {
@@ -209,8 +205,9 @@ private fun QueryField(query: String, skin: Skin, onQuery: (String) -> Unit) {
 @Composable
 private fun AppRow(row: HiddenAppRow, skin: Skin, onSetHidden: (AppId, Boolean) -> Unit) {
     SettingsCard(skin) {
-        SettingRow(row.label, skin, SettingKind.Toggle, description = "Hide this app", checked = row.hidden, divider = false) {
-            onSetHidden(row.appId, !row.hidden)
+        SettingsTwoTargetRow(row.label, "Hide throughout Parc.", skin, row.hidden,
+            onToggle = { onSetHidden(row.appId, it) }) {
+            SettingsInfo(row.label, VisibilityCopy.Scope, skin)
         }
     }
 }

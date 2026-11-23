@@ -14,7 +14,10 @@ import com.brightblu.parc.feature.settings.ui.SettingKind
 import com.brightblu.parc.feature.settings.ui.SettingRow
 import com.brightblu.parc.feature.settings.ui.SettingsChoice
 import com.brightblu.parc.feature.settings.ui.SettingsGroup
+import com.brightblu.parc.feature.settings.ui.SettingsDivider
 import com.brightblu.parc.feature.settings.ui.SettingsOptionChips
+import com.brightblu.parc.feature.settings.ui.SettingsSegmented
+import com.brightblu.parc.feature.settings.ui.SettingsStepper
 import com.brightblu.parc.feature.settings.ui.SettingsVisualChoice
 import com.brightblu.parc.feature.settings.ui.settingsText
 import com.brightblu.parc.model.HubColour
@@ -70,19 +73,30 @@ private fun RegistryRow(def: SettingDef, s: SettingsSnapshot, skin: Skin, divide
     val index = def.read?.invoke(s) ?: 0
     when (def.control) {
         SettingControl.Switch -> SettingRow(def.title, skin, SettingKind.Toggle, def.help, value = options.getOrElse(index) { "" },
-            checked = index == 1, divider = divider) { onValue(def, 1 - index) }
-        SettingControl.Choice -> if (options.size <= 4) SettingsOptionChips(def.title, skin, options, index, def.help, divider = divider) {
+            checked = index == 1, info = def.info, divider = divider) { onValue(def, 1 - index) }
+        SettingControl.Choice -> if (def.id == RegistryChoiceRules.StepperId) {
+            // T374: Auto and a count go one step at a time. The options are Auto, then each count, so the index is the position.
+            SettingsStepper(def.title, options.getOrElse(index) { "" }, skin,
+                canDecrease = RegistryChoiceRules.step(index, options.size, -1) != index,
+                canIncrease = RegistryChoiceRules.step(index, options.size, 1) != index,
+                onDecrease = { onValue(def, RegistryChoiceRules.step(index, options.size, -1)) },
+                onIncrease = { onValue(def, RegistryChoiceRules.step(index, options.size, 1)) }, description = def.help, info = def.info)
+            if (divider) SettingsDivider(skin)
+        } else if (RegistryChoiceRules.asSegments(options)) SettingsSegmented(def.title, skin, options, index, def.help, info = def.info, divider = divider) {
             onValue(def, it)
-        } else SettingsChoice(def.title, options.getOrElse(index) { "" }, options, skin, def.help) { onValue(def, it) }
-        SettingControl.Slider -> SettingsVisualChoice(def.title, index, options, skin, def.help, divider = divider) { onValue(def, it) }
+        } else if (options.size <= 4) SettingsOptionChips(def.title, skin, options, index, def.help, info = def.info, divider = divider) {
+            onValue(def, it)
+        } else SettingsChoice(def.title, options.getOrElse(index) { "" }, options, skin, def.help, info = def.info) { onValue(def, it) }
+        SettingControl.Slider -> SettingsVisualChoice(def.title, index, options, skin, def.help, divider = divider,
+            name = def.fullTitle, info = def.info) { onValue(def, it) }
         SettingControl.Colour -> {
             val arc = def.id == "ArcHubColour"
-            SettingsOptionChips(def.title, skin, options, index, def.help, divider = divider, sample = { i, _ ->
+            SettingsOptionChips(def.title, skin, options, index, def.help, info = def.info, divider = divider, sample = { i, _ ->
                 val colour = HubColour.entries[i].argb ?: if (arc) s.skin.colors.moduleSurface else s.skin.colors.surface
                 Box(Modifier.fillMaxSize().background(Color((colour or 0xFF000000).toInt()), CircleShape))
             }) { onValue(def, it) }
         }
-        SettingControl.Page -> SettingRow(def.title, skin, SettingKind.Page, def.help, value = def.value(s), divider = divider) { onOpen(def) }
+        SettingControl.Page -> SettingRow(def.title, skin, SettingKind.Page, def.help, value = def.value(s), info = def.info, divider = divider) { onOpen(def) }
         SettingControl.Action -> {
             val clearHistory = def.id == "CommsClearHistory"
             val storage = def.value(s)
@@ -92,8 +106,24 @@ private fun RegistryRow(def: SettingDef, s: SettingsSnapshot, skin: Skin, divide
                 enabled = !clearHistory || s.commsStoredCount > 0,
                 destructive = clearHistory && s.commsStoredCount > 0,
                 icon = when (def.id) { "AndroidSettings" -> "↗"; "CommsClearHistory" -> "−"; else -> "+" },
+                info = def.info,
                 divider = divider) { onOpen(def) }
         }
         SettingControl.Custom -> custom(def)
     }
+}
+
+/** T374: how a registry choice is drawn. Pure, so the rule is tested. */
+internal object RegistryChoiceRules {
+    /** The one choice that steps: Auto, then each count. */
+    const val StepperId = "IconsPerArc"
+    private const val MaxSegments = 4
+    private const val MaxSegmentLabel = 14
+
+    /** A short choice of at most four short words (a long one wraps inside its segment) is one row of labelled segments; anything longer keeps chips or a list. */
+    fun asSegments(options: List<String>): Boolean =
+        options.size in 1..MaxSegments && options.all { it.length <= MaxSegmentLabel }
+
+    /** The index one step from [index] in a list of [count], stopping at either end. */
+    fun step(index: Int, count: Int, delta: Int): Int = (index + delta).coerceIn(0, (count - 1).coerceAtLeast(0))
 }

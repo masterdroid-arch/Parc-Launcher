@@ -239,7 +239,7 @@ class T196TranslateTest {
         assertNull(store.load())
     }
 
-    @Test fun translationCredentialSurvivesPlainAndProtectedBackups() = runTest {
+    @Test fun translationCredentialTravelsOnlyInProtectedBackups() = runTest {
         val files = object : BackupFileStore {
             var document = ""
             override suspend fun read(uri: String) = document
@@ -263,7 +263,9 @@ class T196TranslateTest {
 
             source.save(fakeKey)
             assertTrue(exporter.exportTo("new", passphrase) is BackupOutcome.Exported)
-            assertEquals(passphrase == null, files.document.contains(fakeKey))
+            // T402: a plain-text export never carries the key; only the encrypted one does.
+            assertFalse(files.document.contains(fakeKey))
+            if (passphrase == null) assertFalse(files.document.contains("\"deepl\""))
             if (passphrase != null) {
                 val before = destinationBlob.value
                 assertEquals(BackupOutcome.NeedsPassphrase, importer.prepareRestore("new"))
@@ -272,6 +274,12 @@ class T196TranslateTest {
                 assertEquals(before, destinationBlob.value)
             }
             destination.clear()
+            if (passphrase == null) {
+                // T402: the plain file has no key, so restoring it leaves this phone without one.
+                assertTrue(importer.restoreFrom("new") is BackupOutcome.Restored)
+                assertFalse(destination.has())
+                continue
+            }
             val ready = importer.prepareRestore("new", passphrase) as BackupOutcome.Ready
             assertFalse(destination.has())
             assertTrue(importer.confirm(ready) is BackupOutcome.Restored)

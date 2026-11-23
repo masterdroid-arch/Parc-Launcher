@@ -378,6 +378,25 @@ private fun SegmentedBatteryBar(segments: List<Boolean>?, skin: Skin, accent: Lo
     }
 }
 
+/** T377: the battery as a ring with the percentage printed inside, so the ring and the number agree. */
+@Composable
+internal fun BatteryRing(percent: Int?, skin: Skin) {
+    val track = Color(skin.colors.lineBase.toInt())
+    val on = Color((if (PowerPage.isLow(percent)) skin.colors.accent else skin.colors.textPrimary).toInt())
+    val fraction = (percent?.coerceIn(0, 100) ?: 0) / 100f
+    Box(Modifier.size(Metrics.hudBatteryRingDp.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val stroke = Metrics.hudBatteryRingStrokeDp.dp.toPx()
+            val inset = stroke / 2f
+            val box = Size(size.width - stroke, size.height - stroke)
+            drawArc(track, 0f, 360f, false, Offset(inset, inset), box, style = Stroke(stroke))
+            if (fraction > 0f) drawArc(on, -90f, 360f * fraction, false, Offset(inset, inset), box,
+                style = Stroke(stroke, cap = StrokeCap.Round))
+        }
+        BasicText(StatsFormat.percent(percent), style = hudValueStyle(skin).copy(fontWeight = FontWeight.SemiBold), maxLines = 1)
+    }
+}
+
 @Composable
 private fun TemperatureText(t: TempGauge, skin: Skin) {
     Row(verticalAlignment = Alignment.CenterVertically) {

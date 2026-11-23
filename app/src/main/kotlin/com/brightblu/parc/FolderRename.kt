@@ -137,6 +137,6 @@ private fun SheetButton(label: String, tint: Long, skin: Skin, onClick: () -> Un
 private fun Modifier.sheetSurface(skin: Skin): Modifier {
     val corner = RoundedCornerShape(Metrics.menuCornerDp.dp)
     return this
-        .background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha), corner)
+        .background(skin.floatingSurface(), corner)
         .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), corner)
 }

@@ -32,11 +32,16 @@ class T262Test {
         assertTrue(graph.contains("appIndex.preload(seed.map { it.id }, Metrics.iconBitmapPx)"))
     }
 
-    @Test fun scrollHintFollowsTheBottomFade() {
-        assertTrue(HubPageScroll.scrollHintVisible(0, 100))
-        assertTrue(HubPageScroll.scrollHintVisible(99, 100))
-        assertFalse(HubPageScroll.scrollHintVisible(100, 100))
-        assertFalse(HubPageScroll.scrollHintVisible(0, 0))
+    @Test fun scrollSignFollowsTheBottomFade() {
+        // T378 replaced the chip with the edge thumb; the showing rule is the same: only while more is below.
+        assertTrue(HubPageScroll.fadeVisible(0, 100))
+        assertTrue(HubPageScroll.fadeVisible(99, 100))
+        assertFalse(HubPageScroll.fadeVisible(100, 100))
+        assertFalse(HubPageScroll.fadeVisible(0, 0))
+        assertTrue(HubScrollThumb.visible(canScrollForward = true, settling = false, canScrollBackward = false))
+        assertFalse(HubScrollThumb.visible(canScrollForward = false, settling = false, canScrollBackward = false))
+        assertTrue("settles at the end", HubScrollThumb.visible(canScrollForward = false, settling = true, canScrollBackward = true))
+        assertFalse("never on a page that fits", HubScrollThumb.visible(canScrollForward = false, settling = true, canScrollBackward = false))
     }
 
     @Test fun demoFilesListInventedFiles() {
@@ -64,7 +69,7 @@ class T262Test {
         assertTrue(home.contains("val sheetSkin = remember(hubCards.stats)"))
         val comms = source("CommsPage.kt")
         assertTrue(comms.contains("commsCardSurface(skin)"))
-        assertTrue(comms.contains("frostedBackground(skin, skin.shape.surfaceCornerDp)"))
+        assertTrue(comms.contains("frostedBackground(skin, skin.shape.surfaceCornerDp, floating = false)"))
     }
 
     @Test fun hubsSettingsScrollLivesBeyondThePageSwitch() {

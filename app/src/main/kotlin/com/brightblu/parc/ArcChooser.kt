@@ -151,4 +151,14 @@ internal object ArcChooser {
     fun fullMessage(name: String): String = "$name is full. Choose another arc or raise its maximum in Settings."
     const val AllFullMessage = "All arcs are full. Remove an app or raise a maximum in Settings."
     fun addedMessage(name: String): String = "Added to $name"
+
+    /**
+     * T376: the shared sheet's subtitle names how many arcs are full, so the full state is never hidden
+     * behind the rows. Empty when no arc is full, and when every arc is full (that case leads with
+     * [AllFullMessage] instead).
+     */
+    fun fullSubtitle(choices: List<ArcChoice>): String {
+        val full = choices.count { it.full }
+        return if (full > 0 && full < choices.size) "$full of ${choices.size} arcs full" else ""
+    }
 }

@@ -24,13 +24,28 @@ class SpacingSystemTest {
         assertEquals(48f, Metrics.minTouchDp, 0f)
         assertEquals(12f, Metrics.actionEdgeGapDp, 0f)
         assertEquals(56f, Metrics.touchTargetDp, 0f) // the module keeps 56
-        assertEquals(56f, Metrics.settingsRowMinHeightDp, 0f)
-        assertEquals(20f, Metrics.settingsRowInsetDp, 0f)
+        assertEquals(52f, Metrics.settingsRowMinHeightDp, 0f)
+        assertEquals(64f, Metrics.settingsHelperRowDp, 0f)
+        assertEquals(24f, Metrics.settingsIconDp, 0f)
+        assertEquals(1.5f, Metrics.glyphStrokeDp, 0f)
+        assertEquals(16f, Metrics.settingsRowInsetDp, 0f)
+        assertEquals(4f, Metrics.segmentInsetDp, 0f)
+        assertEquals(16f, Metrics.segmentCornerDp, 0f)
+        assertTrue(Metrics.segmentCornerDp < Metrics.menuCornerDp)
+        assertTrue(Metrics.settingsHelperRowDp > Metrics.settingsRowMinHeightDp)
+    }
+
+    @Test fun midnightSettingsInkMeetsTextContrast() {
+        val colors = com.brightblu.parc.model.Skin.Midnight.colors
+        for (ink in listOf(colors.textPrimary, colors.textSecondary)) {
+            assertTrue(com.brightblu.parc.model.contrastRatio(ink, colors.moduleSurface) >= 4.5)
+        }
+        assertTrue(com.brightblu.parc.model.contrastRatio(colors.bg, com.brightblu.parc.model.Skin.ParcOrange) >= 4.5)
     }
 
     @Test fun theGutterIsTheDesignTextGutter() {
         assertEquals(Metrics.textGutterDp, Metrics.screenGutterDp, 0f)
-        assertEquals(Metrics.screenGutterDp, Metrics.settingsRowInsetDp, 0f)
+        assertEquals(Metrics.cardInsetDp, Metrics.settingsRowInsetDp, 0f)
     }
 
     @Test fun everyTouchSizeIsAtLeastTheMinimum() {
@@ -55,18 +70,18 @@ class SpacingSystemTest {
         assertEquals(124f, ParcSpacing.pageBottomDp(100f), 0f)
     }
 
-    @Test fun pageSidesAreTheGutterPlusAnyCutoutAndTheRightBackStrip() {
-        // T230: the right side never enters gesturenav's Back strip (PROJECT.md keeps the right 40 dp;
-        // the 48 dp keep-out is the existing token), while the left keeps the text gutter.
+    @Test fun pageSidesAreTheGutterPlusAnyCutout() {
+        // T392: both sides are the text gutter plus any cutout (the right used to be held at the 48 dp keep-out).
         val plain = ParcSpacing.page(statusTopDp = 46.9f, navBottomDp = 24f)
         assertEquals(20f, plain.startDp, 0f)
-        assertEquals(48f, plain.endDp, 0f)
+        assertEquals(20f, plain.endDp, 0f)
         val cut = ParcSpacing.page(statusTopDp = 0f, navBottomDp = 0f, startInsetDp = 30f, endInsetDp = 12f)
         assertEquals(50f, cut.startDp, 0f)
-        assertEquals(48f, cut.endDp, 0f)
+        assertEquals(32f, cut.endDp, 0f)
         val wideCut = ParcSpacing.page(statusTopDp = 0f, navBottomDp = 0f, endInsetDp = 60f)
         assertEquals(80f, wideCut.endDp, 0f)
         assertEquals(20f, ParcSpacing.page(0f, 0f, -8f, -8f).startDp, 0f)
+        assertEquals(20f, ParcSpacing.page(0f, 0f, -8f, -8f).endDp, 0f)
     }
 
     @Test fun aPageLeavesRoomForContentOnEveryScreen() {
@@ -84,8 +99,8 @@ class SpacingSystemTest {
         assertEquals(72f, ParcSpacing.cardHeightDp(40f), 0f)
     }
 
-    @Test fun aSettingsRowIsAtLeast56AndTwelveAboveAndBelow() {
-        assertEquals(56f, ParcSpacing.settingsRowHeightDp(20f), 0f)  // one line of text
+    @Test fun aSettingsRowIsAtLeast52AndTwelveAboveAndBelow() {
+        assertEquals(52f, ParcSpacing.settingsRowHeightDp(20f), 0f)  // one line of text
         assertEquals(56f, ParcSpacing.settingsRowHeightDp(32f), 0f)  // a switch
         assertEquals(64f, ParcSpacing.settingsRowHeightDp(40f), 0f)  // a 40 dp sample: 12 + 40 + 12
         assertEquals(100f, ParcSpacing.settingsRowHeightDp(76f), 0f)
@@ -96,12 +111,12 @@ class SpacingSystemTest {
         assertEquals(Metrics.cardInsetDp, Metrics.rowGapDp + ParcSpacing.rowCardVerticalPaddingDp(), 0f)
     }
 
-    @Test fun aRowKeepsTwentyAtBothEndsAndAGapBetweenItsParts() {
+    @Test fun aRowKeepsSixteenAtBothEndsAndAGapBetweenItsParts() {
         // The page gutter takes 20 dp each side of a 384 dp screen, so a card is 344 dp wide.
         val card = 384f - 2 * Metrics.screenGutterDp
-        assertEquals(304f, ParcSpacing.settingsTextWidthDp(card), 0f)                        // title only
-        assertEquals(304f - 52f - 12f, ParcSpacing.settingsTextWidthDp(card, trailingDp = 52f), 0f) // a switch
-        assertEquals(304f - 40f - 12f - 52f - 12f, ParcSpacing.settingsTextWidthDp(card, 40f, 52f), 0f)
+        assertEquals(312f, ParcSpacing.settingsTextWidthDp(card), 0f)                        // title only
+        assertEquals(312f - 52f - 8f, ParcSpacing.settingsTextWidthDp(card, trailingDp = 52f), 0f) // a switch
+        assertEquals(312f - 40f - 8f - 52f - 8f, ParcSpacing.settingsTextWidthDp(card, 40f, 52f), 0f)
         assertEquals(0f, ParcSpacing.settingsTextWidthDp(60f, 40f, 52f), 0f)
     }
 

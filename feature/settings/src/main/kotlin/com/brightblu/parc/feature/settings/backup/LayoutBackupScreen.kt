@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.sp
 import com.brightblu.parc.model.Metrics
 import com.brightblu.parc.model.Skin
 import com.brightblu.parc.model.TypeToken
+import com.brightblu.parc.model.parcIgnoreObscuredTouches
+import androidx.compose.foundation.layout.Box
 
 /**
  * Backup screen (T17, F-15): export the layout JSON to a document the user picks, or restore one.
@@ -81,6 +83,7 @@ fun LayoutBackupScreen(
         onDispose { controller.cancelPassphrase() }
     }
     val warnAboutKey = !state.encrypted && hasBackupKey()
+    val weeklyNow by androidx.compose.runtime.rememberUpdatedState(weekly)
     LayoutBackupContent(
         state = state,
         warnAboutKey = warnAboutKey,
@@ -94,10 +97,12 @@ fun LayoutBackupScreen(
         onCancelRestore = controller::cancelRestore,
         weekly = weekly,
         onToggleWeekly = {
-            when {
-                weekly.enabled -> onWeeklyEnabled(false)
-                !weekly.folderName.isNullOrBlank() -> onWeeklyEnabled(true)
-                else -> {
+            // T402: the weekly file is always encrypted, so turning it on asks for a passphrase first.
+            // Cancelling that set-up leaves the switch off.
+            if (weeklyNow.enabled) onWeeklyEnabled(false)
+            else controller.requirePassphrase {
+                if (!weeklyNow.folderName.isNullOrBlank()) onWeeklyEnabled(true)
+                else {
                     enableAfterPick = true
                     folder.launch(null)
                 }
@@ -112,9 +117,77 @@ fun LayoutBackupScreen(
     )
 }
 
-private const val KeyWarning = "This backup contains your DeepL key and anyone with the file can read it. Set a passphrase to protect it."
+/**
+ * T373: starts an export from anywhere (the Data & help group) with exactly the Backup page's steps: the plain-key
+ * warning, the passphrase dialog, Android's file picker and [BackupController.exportTo]. [content] draws the button;
+ * cancelling the picker changes nothing, so the button stays where it was.
+ */
+@Composable
+fun BackupExportHost(
+    controller: BackupController,
+    skin: Skin,
+    hasBackupKey: () -> Boolean,
+    content: @Composable (start: () -> Unit, busy: Boolean, message: String?, status: List<String>) -> Unit,
+) {
+    val state by controller.state.collectAsState()
+    val export = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(BackupFileName.MimeType),
+    ) { uri -> uri?.let { controller.exportTo(it.toString()) } }
+    var warn by remember { mutableStateOf(false) }
+    state.passphrasePurpose?.let { purpose ->
+        PassphraseDialog(purpose, state.message, skin, controller::submitPassphrase, controller::cancelPassphrase)
+    }
+    androidx.compose.runtime.DisposableEffect(controller) {
+        onDispose { controller.cancelPassphrase() }
+    }
+    if (warn) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { warn = false },
+        containerColor = color(skin.colors.surface),
+        title = { BasicText("Back up without a passphrase?", style = style(skin, skin.colors.textPrimary, skin.typography.menu)) },
+        text = { BasicText(KeyLeftOut, style = style(skin, skin.colors.textPrimary, skin.typography.menu)) },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = { warn = false; controller.toggleEncryption() }) {
+                BasicText("Set a passphrase", style = style(skin, skin.colors.accent, skin.typography.menu))
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { warn = false; export.launch(state.suggestedFileName) }) {
+                BasicText("Continue without the key", style = style(skin, skin.colors.textPrimary, skin.typography.menu))
+            }
+        },
+    )
+    content({ if (!state.encrypted && hasBackupKey()) warn = true else export.launch(state.suggestedFileName) },
+        state.busy, state.message, BackupExportCopy.lines(state.encrypted, hasBackupKey()))
+}
 
-private enum class PlainBackupAction { Export, EnableWeekly }
+private const val KeyLeftOut = BackupExportCopy.KeyLeftOut
+
+/**
+ * T402: the plain words about what an export contains. [Encrypted] and [NotEncrypted] are the one clear
+ * line on the export screen; a plain-text file never carries the DeepL key, so when one is saved on this
+ * phone and backups are not encrypted the screen says it is left out.
+ */
+object BackupExportCopy {
+    const val Encrypted = "Encrypted"
+    const val NotEncrypted = "Not encrypted"
+    const val KeyLeftOut = "This backup is not encrypted, so your DeepL key is left out. Set a passphrase to include it."
+
+    fun lines(encrypted: Boolean, hasKey: Boolean): List<String> =
+        if (encrypted) listOf(Encrypted)
+        else if (hasKey) listOf(NotEncrypted, KeyLeftOut)
+        else listOf(NotEncrypted)
+}
+
+/**
+ * T379: the restore confirmation names both sides of the replacement and keeps Cancel beside the
+ * destructive action, whatever the page's scroll position.
+ */
+internal object RestoreCopy {
+    const val Title = "Restore this backup?"
+    fun consequence(summary: String) = "This replaces your current layout and settings with $summary."
+    const val Confirm = "Restore"
+    const val Cancel = "Cancel"
+}
 
 /** Stateless surface; a preview or a host can drive it without the controller. */
 @Composable
@@ -135,23 +208,20 @@ fun LayoutBackupContent(
     warnAboutKey: Boolean = false,
     showUpdateTokenNote: Boolean = false,
 ) {
-    var plainAction by remember { mutableStateOf<PlainBackupAction?>(null) }
-    plainAction?.let { action ->
-        androidx.compose.ui.window.Dialog(onDismissRequest = { plainAction = null }) {
+    var confirmPlainExport by remember { mutableStateOf(false) }
+    if (confirmPlainExport) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { confirmPlainExport = false }) {
             Column(Modifier.fillMaxWidth().background(color(skin.colors.bg))
                 .padding(Metrics.rowGapDp.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
-                BasicText(KeyWarning, style = style(skin, skin.colors.textPrimary, skin.typography.menu))
+                BasicText(KeyLeftOut, style = style(skin, skin.colors.textPrimary, skin.typography.menu))
                 ActionRow("Set a passphrase", "", true, skin) {
-                    plainAction = null
+                    confirmPlainExport = false
                     onToggleEncryption()
                 }
-                ActionRow("Continue without a passphrase", "", true, skin) {
-                    plainAction = null
-                    when (action) {
-                        PlainBackupAction.Export -> onExport()
-                        PlainBackupAction.EnableWeekly -> onToggleWeekly()
-                    }
+                ActionRow("Continue without the key", "", true, skin) {
+                    confirmPlainExport = false
+                    onExport()
                 }
             }
         }
@@ -187,11 +257,11 @@ fun LayoutBackupContent(
                 "Back up every week",
                 skin,
                 SettingKind.Toggle,
-                description = (if (warnAboutKey) "Anyone with the weekly file can read your DeepL key. " else "") + "While charging and idle, save the same backup into a folder you choose. Keeps the last 4 weekly files (named parc-weekly-date).",
-                descriptionMaxLines = Int.MAX_VALUE,
+                description = "Saves weekly while charging and idle. Always encrypted.",
+                info = "Adds the same encrypted backup to a folder you choose and keeps the last 4 weekly files. Turning it on asks for a passphrase first.",
                 checked = weekly.enabled,
                 divider = true,
-                onClick = { if (warnAboutKey && !weekly.enabled) plainAction = PlainBackupAction.EnableWeekly else onToggleWeekly() },
+                onClick = onToggleWeekly,
             )
             SettingRow(
                 "Backup folder",
@@ -211,7 +281,7 @@ fun LayoutBackupContent(
                 onClick = {},
             )
         }
-        val failure = weekly.failureLabel
+        val failure = WeeklyBackupUiState.statusLine(weekly, state.encrypted)
         if (failure != null) {
             BasicText(
                 failure,
@@ -221,11 +291,12 @@ fun LayoutBackupContent(
         }
         ActionRow(
             label = "Export backup",
-            detail = state.suggestedFileName,
+            detail = (listOf(state.suggestedFileName) + BackupExportCopy.lines(state.encrypted, warnAboutKey)).joinToString("\n"),
             enabled = !state.busy,
             skin = skin,
-            onClick = { if (warnAboutKey) plainAction = PlainBackupAction.Export else onExport() },
+            onClick = { if (warnAboutKey) confirmPlainExport = true else onExport() },
         )
+
         ActionRow(
             label = "Restore backup",
             detail = "",
@@ -235,12 +306,15 @@ fun LayoutBackupContent(
         )
         val pending = state.pendingRestore
         if (pending != null) {
-            BasicText(
-                "Replace your current layout and settings with " + pending.describe() + "?",
-                style = style(skin, skin.colors.textPrimary, skin.typography.caption),
+            SettingsConfirmation(
+                RestoreCopy.Title,
+                RestoreCopy.consequence(pending.describe()),
+                RestoreCopy.Confirm,
+                skin,
+                onCancel = onCancelRestore,
+                onConfirm = onConfirmRestore,
+                protectConfirm = true,
             )
-            ActionRow("Replace", "", true, skin, onConfirmRestore)
-            ActionRow("Cancel", "", true, skin, onCancelRestore)
         }
         val message = state.message
         if (message != null) {
@@ -296,7 +370,8 @@ private fun PassphraseDialog(
             PassphraseField("Passphrase", first, { first = it }, skin)
             if (purpose == PassphrasePurpose.Enable) PassphraseField("Repeat passphrase", second, { second = it }, skin)
             if (message != null) BasicText(message, style = style(skin, skin.colors.warn, skin.typography.caption))
-            ActionRow("Continue", "", true, skin) { submit(first, second) }
+            // T403: Continue confirms the passphrase, so it ignores touches while another app's window covers it.
+            Box(Modifier.parcIgnoreObscuredTouches()) { ActionRow("Continue", "", true, skin) { submit(first, second) } }
             ActionRow("Cancel", "", true, skin, cancel)
         }
     }

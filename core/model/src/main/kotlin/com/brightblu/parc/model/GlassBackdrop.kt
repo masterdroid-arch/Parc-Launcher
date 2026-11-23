@@ -52,6 +52,16 @@ object GlassBackdrop {
         return 255
     }
 
+    /** T391: the fill alpha (0..1) of a panel that floats over content: whatever the skin asks, never below [Metrics.floatingPanelMinAlpha]. */
+    fun floatingAlpha(requested: Float): Float =
+        if (requested.isNaN()) 1f else maxOf(requested.coerceIn(0f, 1f), Metrics.floatingPanelMinAlpha)
+
+    /** T391: the same floor for a frost tint alpha (0..255). */
+    fun floatingTintAlpha(requested: Int): Int = maxOf(requested.coerceIn(0, 255), Metrics.floatingPanelMinTintAlpha)
+
+    /** T391: an ARGB tint with its alpha raised to the floating-panel floor; the colour is untouched. */
+    fun floatingTint(argb: Int): Int = (floatingTintAlpha(argb ushr 24) shl 24) or (argb and 0xFFFFFF)
+
     /** Deterministic noise tile: [size] squared ARGB pixels, white or black dots at [Metrics.glassGrainAlpha]. */
     fun grainTile(size: Int = Metrics.glassGrainTilePx, seed: Int = Metrics.glassGrainSeed): IntArray {
         val alpha = (Metrics.glassGrainAlpha * 255f).toInt() // rounds down, so it stays at or below 4 percent

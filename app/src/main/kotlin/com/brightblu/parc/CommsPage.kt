@@ -18,7 +18,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.text.BasicText
@@ -30,6 +29,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.FocusRequester
@@ -48,6 +48,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -62,6 +64,7 @@ import com.brightblu.parc.model.ParcBlocks
 import com.brightblu.parc.model.parcBottomInset
 import com.brightblu.parc.model.parcCardPadding
 import com.brightblu.parc.model.Skin
+import com.brightblu.parc.model.WritingRules
 import com.brightblu.parc.ring.module.frostedBackground
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -166,7 +169,11 @@ internal fun CommsPage(repository: CommsExtrasRepository, skin: Skin, modifier: 
             try {
                 val result = repository.reply(conversation, body)
                 notice = CommsPresentation.notice(result) to conversation.app
-                if (result == ReplyResult.Sent) draft = ""
+                if (result == ReplyResult.Sent) {
+                    draft = ""
+                    // T386: a sent reply closes the composer; the page keeps the "sent" notice.
+                    selected = null
+                }
             } finally {
                 sending = false
             }
@@ -190,10 +197,8 @@ internal fun CommsPage(repository: CommsExtrasRepository, skin: Skin, modifier: 
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    val list = rememberLazyListState()
-    RegisterHubScroll(list)
-    val historyList = rememberLazyListState()
-    RegisterHubScroll(historyList)
+    val list = rememberHubListState()
+    val historyList = rememberHubListState()
     val ordered = remember(conversations) { CommsPresentation.cards(conversations) }
     val accessOn = reviewAccess ?: granted
     // Access off chooses History and keeps it reachable; when access returns, the user's chosen
@@ -244,6 +249,7 @@ internal fun CommsPage(repository: CommsExtrasRepository, skin: Skin, modifier: 
     }
     BoxWithConstraints(modifier.fillMaxSize()
         .pointerInput(Unit) { detectTapGestures(onTap = { focus.clearFocus(); keyboard?.hide() }) }) {
+        RegisterHubScroll(if (segment == CommsSegment.Live) list else historyList)
         LazyColumn(
             Modifier.fillMaxSize(),
             state = if (segment == CommsSegment.Live) list else historyList,
@@ -281,17 +287,9 @@ internal fun CommsPage(repository: CommsExtrasRepository, skin: Skin, modifier: 
                     LiveConversationCard(
                         conversation = conversation,
                         selected = chosen,
-                        cannedReplies = cannedReplies,
                         skin = skin,
                         notice = notice?.takeIf { noticePlacement == CommsNoticePlacement.Card && it.second == conversation.app }?.first,
-                        draft = draft,
-                        onDraft = { draft = it },
-                        sending = sending,
-                        replyFocus = replyFocus,
-                        focusRequest = focusRequest,
                         onBeginReply = { beginReply(conversation) },
-                        onCancelReply = ::cancelReply,
-                        onSend = { send(conversation, it) },
                         onMarkRead = { markRead(conversation) },
                         onDismiss = { scope.launch { repository.dismiss(conversation) } },
                         onOpenApp = { openApp(conversation.app) },
@@ -360,6 +358,24 @@ internal fun CommsPage(repository: CommsExtrasRepository, skin: Skin, modifier: 
                 )
             }
         }
+    }
+    // T386: the reply composer is one sheet above the keyboard, carrying the draft, Cancel and Send
+    // together, instead of a field buried inside a scrolling card.
+    val replying = conversations.firstOrNull { it.id == selection }
+    if (replying != null && WritingRules.replyComposerVisible(selected != null, replying.canReply)) {
+        CommsReplySheet(
+            conversation = replying,
+            cannedReplies = cannedReplies,
+            draft = draft,
+            onDraft = { draft = it },
+            sending = sending,
+            notice = notice?.takeIf { it.second == replying.app }?.first,
+            skin = skin,
+            replyFocus = replyFocus,
+            focusRequest = focusRequest,
+            onCancel = ::cancelReply,
+            onSend = { send(replying, it) },
+        )
     }
     if (whyOpen) CommsWhyDialog(whyRows, skin) { whyOpen = false }
     historyMenu?.let { message ->
@@ -456,7 +472,7 @@ private fun MessagesHeader(
                 DropdownMenu(
                     expanded = menuOpen,
                     onDismissRequest = { onMenuOpenChange(false) },
-                    modifier = Modifier.background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha)),
+                    modifier = Modifier.background(skin.floatingSurface()),
                 ) {
                     DropdownMenuItem(
                         text = {
@@ -545,23 +561,13 @@ private fun CommsCardHeader(app: String, sender: String, time: String, skin: Ski
 private fun LiveConversationCard(
     conversation: CommsConversation,
     selected: Boolean,
-    cannedReplies: List<String>,
     skin: Skin,
     notice: String?,
-    draft: String,
-    onDraft: (String) -> Unit,
-    sending: Boolean,
-    replyFocus: FocusRequester,
-    focusRequest: Int,
     onBeginReply: () -> Unit,
-    onCancelReply: () -> Unit,
-    onSend: (String) -> Unit,
     onMarkRead: () -> Unit,
     onDismiss: () -> Unit,
     onOpenApp: () -> Unit,
 ) {
-    val card = CommsExtrasPresentation.cardState(selected, cannedReplies, conversation.canReply)
-    val keyboard = LocalSoftwareKeyboardController.current
     Column(Modifier.fillMaxWidth().commsCardSurface(skin).commsFrame(skin, selected).parcCardPadding()) {
         CommsCardHeader(
             app = conversation.app,
@@ -596,43 +602,123 @@ private fun LiveConversationCard(
             }
             ConsoleAction("Mark read", skin) { onMarkRead() }
             ConsoleAction("Dismiss", skin) { onDismiss() }
-            if (selected) ConsoleAction("Cancel", skin) { onCancelReply() }
         }
         if (selected && !conversation.canReply) {
             BasicText("This app does not allow replies here.",
                 style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary))
         }
-        if (card.showField) {
-            LaunchedEffect(focusRequest) {
-                if (focusRequest > 0) {
-                    // The card can leave while the effect is starting; a detached requester must
-                    // never crash the page.
-                    runCatching { replyFocus.requestFocus() }
-                    keyboard?.show()
+    }
+}
+
+/**
+ * T386: the reply composer. It is one sheet above the keyboard with the sender header and Cancel on
+ * the first 48 dp row and the draft, Send and the saved quick replies together below it, so the
+ * keyboard never covers the draft or the action the user came to press.
+ */
+@Composable
+private fun CommsReplySheet(
+    conversation: CommsConversation,
+    cannedReplies: List<String>,
+    draft: String,
+    onDraft: (String) -> Unit,
+    sending: Boolean,
+    notice: String?,
+    skin: Skin,
+    replyFocus: FocusRequester,
+    focusRequest: Int,
+    onCancel: () -> Unit,
+    onSend: (String) -> Unit,
+) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    val sender = CommsPresentation.sender(conversation)
+    val sheetShape = RoundedCornerShape(topStart = Metrics.menuCornerDp.dp, topEnd = Metrics.menuCornerDp.dp)
+    Dialog(
+        onDismissRequest = onCancel,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Box(
+            Modifier.fillMaxSize()
+                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Column(
+                Modifier.fillMaxWidth().clip(sheetShape)
+                    .background(Color(skin.colors.moduleSurface.toInt()))
+                    .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), sheetShape)
+                    .padding(horizontal = Metrics.commsReplySheetInsetDp.dp, vertical = Metrics.itemGapDp.dp),
+            ) {
+                LaunchedEffect(focusRequest) {
+                    if (focusRequest > 0) {
+                        // The sheet can leave while the effect is starting; a detached requester must
+                        // never crash the page.
+                        runCatching { replyFocus.requestFocus() }
+                        keyboard?.show()
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = Metrics.commsActionDp.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BasicText(
+                        "Reply to $sender",
+                        Modifier.weight(1f),
+                        style = commsStyle(skin, CommsType.section(skin), skin.colors.textPrimary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    ConsoleAction("Cancel", skin, action = onCancel)
+                }
+                notice?.let { line ->
+                    BasicText(
+                        line,
+                        Modifier.padding(bottom = Metrics.commsReplyNoticeGapDp.dp),
+                        style = commsStyle(skin, CommsType.caption(skin), skin.colors.textSecondary),
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = Metrics.commsReplyRowMinDp.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (skin.style.terminalStats) BasicText("> ", style = commsStyle(skin))
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = onDraft,
+                        modifier = Modifier.weight(1f).focusRequester(replyFocus)
+                            .heightIn(min = Metrics.commsReplyRowMinDp.dp).wrapContentHeight()
+                            .semantics { contentDescription = "Reply to $sender" },
+                        enabled = !sending,
+                        maxLines = 3,
+                        textStyle = commsStyle(skin),
+                        cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = {
+                            if (WritingRules.sendEnabled(draft, sending)) onSend(draft)
+                        }),
+                    )
+                    Spacer(Modifier.width(Metrics.itemGapDp.dp))
+                    CommsSendAction(skin, WritingRules.sendEnabled(draft, sending)) { onSend(draft) }
+                }
+                if (cannedReplies.isNotEmpty()) {
+                    ReplyChips(cannedReplies, skin, !sending) { reply -> onSend(reply) }
                 }
             }
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = Metrics.commsActionDp.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (skin.style.terminalStats) BasicText("> ", style = commsStyle(skin))
-                BasicTextField(
-                    value = draft,
-                    onValueChange = onDraft,
-                    modifier = Modifier.weight(1f).focusRequester(replyFocus)
-                        .heightIn(min = Metrics.commsActionDp.dp).wrapContentHeight(),
-                    enabled = !sending,
-                    singleLine = true,
-                    textStyle = commsStyle(skin),
-                    cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { onSend(draft) }),
-                )
-            }
         }
-        if (card.showQuickReplies) {
-            ReplyChips(card.quickReplies, skin, !sending) { reply -> onSend(reply) }
-        }
+    }
+}
+
+/** T386: the filled Send pill; 48 dp tall and at least 48 dp wide, with the skin's own accent. */
+@Composable
+private fun CommsSendAction(skin: Skin, enabled: Boolean, onClick: () -> Unit) {
+    val fill = Color((if (enabled) skin.colors.accent else skin.colors.lineActive).toInt())
+    val ink = if (enabled) skin.colors.bg else skin.colors.textSecondary
+    Box(
+        Modifier.heightIn(min = Metrics.commsActionDp.dp).widthIn(min = Metrics.commsActionDp.dp)
+            .clip(RoundedCornerShape(percent = 50)).background(fill)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = Metrics.rowGapDp.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        BasicText("Send", style = commsStyle(skin, CommsType.body(skin), ink))
     }
 }
 
@@ -897,7 +983,7 @@ private fun CommsConfirmDialog(
 /** T262: the card surface follows glass exactly like the hub and the search sheet. */
 private fun Modifier.commsCardSurface(skin: Skin): Modifier =
     if (skin.shape.moduleStyle == ModuleStyle.frosted) {
-        frostedBackground(skin, skin.shape.surfaceCornerDp)
+        frostedBackground(skin, skin.shape.surfaceCornerDp, floating = false)
     } else {
         background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha),
             RoundedCornerShape(skin.shape.surfaceCornerDp.dp))

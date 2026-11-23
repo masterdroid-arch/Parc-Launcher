@@ -1,22 +1,22 @@
 # Privacy policy: Parc Launcher
 
-Last updated: 2026-11-17
+Last updated: 2026-11-23
 
 Parc is a home screen for Android. This policy describes the build in this
-repository. It is written to be checked against the source, not to make legal
-promises the code does not keep.
+repository, mainly the public `family` build on the GitHub releases page. It is
+written to be checked against the source, not to make legal promises the code
+does not keep.
 
 ## The short version
 
-- Parc is **free on every channel**, the same app, with no locked features and no
-  Play Billing. Donations are the only money; see "Free and donations" below.
+- Parc is **free**, with no locked features and no Play Billing. Donations are
+  the only money; see "Free and donations" below.
 - The public GitHub release is the **family internet build**. It uses the
-  internet only for Weather and Translate (your own DeepL key), and never for
-  accounts, ads, analytics or tracking. The `personal` and `personalWeather`
-  builds also declare the `INTERNET` permission, for the private auto update
-  and the language data packs described below. The `play` build leaves Weather,
-  Translate, updates and packs out and does not declare the `INTERNET`
-  permission. Replies and web searches can hand data to another app when you ask.
+  internet for three things only: Weather, Translate (your own DeepL key) and a
+  once-a-day check for a newer Parc version. It never uses it for accounts, ads,
+  analytics or tracking. The `play` build leaves all three out and does not
+  declare the `INTERNET` permission. Replies and web searches can hand data to
+  another app when you ask.
 - There are **no accounts, no advertising, no analytics, no tracking and no
   crash upload**.
 - Everything Parc reads (apps, notifications, contacts, calendar, media names,
@@ -33,11 +33,11 @@ the phone.
 
 ## Free and donations
 
-Parc is not sold on any channel. There is no Play Billing and no locked feature.
-The only money is optional donations, through a link in About. If the owner has
-not set a link, that row is hidden. Opening a donation link leaves Parc only when
-you tap it; the browser or donation service then handles the request under its
-own policy. Parc stores no payment or donation data.
+Parc is not sold. There is no Play Billing and no locked feature. The only money
+is optional donations. Settings > Data & help > This build has one row, "Support
+Parc on Ko-fi". Tapping it opens ko-fi.com in your browser; nothing is sent before
+you tap, and Parc sends nothing itself. The browser or Ko-fi then handles the
+request under its own policy. Parc stores no payment or donation data.
 
 ## What Parc reads, and why
 
@@ -56,19 +56,47 @@ feature set.
 | Screen lock or biometric (normal permission) | The system's own unlock result | Open a folder you chose to lock | The result stays with Android; Parc only learns yes or no |
 | Notifications (runtime permission) | Nothing; it lets Parc post a notification | Tell you when a timer finishes or a note reminder is due, and keep the read-aloud controls in the shade | On the phone |
 | Physical activity (runtime permission, off by default) | The phone's step counter | Steps and daily records | On the phone |
-| All-files access (special access, optional in normal and weather builds; absent in Play) | Names, paths and metadata of supported books on shared storage; selected book contents | Find books, Files search and the reader | On the phone; the system document picker works without this access |
+| All-files access (special access, optional; absent in the `play` build) | Names, paths and metadata of supported books on shared storage; selected book contents | Find books, Files search and the reader | On the phone; the system document picker works without this access |
 | Wi-Fi state (normal permission) | Signal strength and link speed | The Device page | Memory only |
 
-The `personal` build also declares a permission related to uninstalling an app.
-Parc only opens Android's own uninstall screen for an app you selected; it never
-removes an app silently. The `play` flavour removes that permission and several
-others from its manifest.
+## Every permission
+
+This is the full list of permissions the `family` release declares in its
+manifest, read from the merged manifest. The build checks that this list does
+not change. Ones marked "asked" are requested from a button, never at launch.
+
+| Permission | In plain words |
+|---|---|
+| `INTERNET` | Reach Open-Meteo (Weather), DeepL (Translate) and GitHub (update check). Nothing else. |
+| `REQUEST_INSTALL_PACKAGES` | Hand an update you tapped to Android's installer. Parc never installs by itself. |
+| `MANAGE_EXTERNAL_STORAGE` | Optional all-files access, asked only from Find books, to find your books. The document picker works without it. |
+| `REQUEST_DELETE_PACKAGES` | Open Android's own uninstall screen for an app you chose. |
+| `READ_CONTACTS` (asked) | Contact search results, only to match what you type. |
+| `READ_CALENDAR` (asked) | The Agenda page and calendar results in search. |
+| `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_MEDIA_AUDIO` (asked) | File names in search and the media picker. Only names, types and dates are read. |
+| `ACTIVITY_RECOGNITION` (asked) | The phone's step counter, for the Steps page. |
+| `POST_NOTIFICATIONS` (asked) | Tell you when a timer finishes or a note reminder is due, and show the read-aloud controls. |
+| `USE_EXACT_ALARM` | Make timers ring on time. |
+| `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | Keep reading aloud going when the screen is off. No microphone, no network. |
+| `USE_BIOMETRIC` | Open a folder you locked with your screen lock or fingerprint. Parc only learns yes or no. |
+| `ACCESS_NOTIFICATION_POLICY` | Optional Do Not Disturb access, so a Focus mode can silence interruptions while it is active. |
+| `PACKAGE_USAGE_STATS` | Optional usage access, for screen time and data figures. Granted only in Android's Usage access screen. |
+| `ACCESS_WIFI_STATE` | Read Wi-Fi signal strength and link speed for the Device page. |
+| `VIBRATE` | Small haptic taps on Home. The haptics setting has an Off choice. |
+| `DUMP` | Not grantable from Settings; held only if you give it by hand with a computer. Without it Parc reads nothing through it. |
+| `com.brightblu.parc.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` | Added by an Android library so only Parc itself can receive Parc's own internal broadcasts. |
+
+Notification access is not a manifest permission: it is a special access you give
+in Android's settings, and Parc's listener can only be bound by Android itself.
+
+Parc does not use `QUERY_ALL_PACKAGES`; it asks the system only for launchable
+apps, a fixed list of Settings pages, and installed icon packs. The `play` build
+leaves out `INTERNET`, `REQUEST_INSTALL_PACKAGES`, `MANAGE_EXTERNAL_STORAGE`,
+`REQUEST_DELETE_PACKAGES`, `USE_EXACT_ALARM` and `DUMP`.
 
 Parc does not read location, SMS, call logs, the phone state, the microphone,
 the camera or health sensors. The Steps page reads the step counter only with
-your permission. Book access is explained below; media search reads file names. It does
-not use `QUERY_ALL_PACKAGES`; it asks the system only for launchable apps, a
-fixed list of Settings pages, and installed icon packs.
+your permission. Book access is explained below; media search reads file names.
 
 ## Home layout
 
@@ -87,9 +115,9 @@ and is never sent anywhere.
 
 ## Library and reader
 
-Find books in the normal and weather builds offers all-files access after an
+Find books offers all-files access after an
 explanation. It is optional, requested from Find books, and never granted by
-Parc itself. Play uses the system document picker; refusing all-files access
+Parc itself. The `play` build uses the system document picker; refusing all-files access
 also falls back to that picker. Scanning starts when you ask, never automatically.
 With access, Files search can find supported books by name on shared storage.
 
@@ -136,15 +164,13 @@ you may already have given Focus. Wi-Fi, Bluetooth, airplane mode, auto-rotate,
 battery saver and screen timeout are read as on/off or a time, on the phone, to
 label the tiles; nothing is stored.
 
-## Weather build
+## Weather and Translate
 
-This section applies to the `personalWeather` and `family` builds. The public
-GitHub release is the `family` build; it has the same internet features. The
-`play` build has no Weather page and does not declare the `INTERNET` permission.
-The `personal` build has no Weather page but does declare `INTERNET`, for the
-auto update and the language packs. Weather and Translate are the online
-features of the `personalWeather` and `family` builds; there are no accounts,
-ads, analytics or tracking.
+This section applies to the `family` build, the public GitHub release. The `play`
+build has no Weather page, no Translate and does not declare the `INTERNET`
+permission. Weather and Translate are two of the three online features of the
+`family` build; the third is the update check below. There are no accounts, ads,
+analytics or tracking.
 
 - **Who receives data:** Open-Meteo (open-meteo.com), over https, at
   `geocoding-api.open-meteo.com` and `api.open-meteo.com` for Weather.
@@ -165,7 +191,7 @@ ads, analytics or tracking.
   cached forecasts are not.
 - **No location permission.** Parc never reads your position.
 
-- **Translate (search mode, weather build only):** in Translate mode, and only
+- **Translate (search mode):** in Translate mode, and only
   there, Parc sends the text you type in search, or the text you select in the
   reader when you tap Translate, the target language (English or Portuguese of
   Portugal) and your own DeepL API key to DeepL, over https, at
@@ -175,41 +201,39 @@ ads, analytics or tracking.
   or selected in any other mode. No device identifier or other data is sent.
   DeepL's free plan may store the texts it receives; DeepL's own terms and
   privacy policy apply. Parc encrypts your pasted key on the phone with Android
-  Keystore. Manual and weekly backups include it, readable unless you set a
-  backup passphrase. Restore encrypts it again with the destination phone’s
+  Keystore. Only a passphrase-encrypted backup includes it; an unencrypted
+  export leaves it out. Restore encrypts it again with the destination phone’s
   Keystore. Logs and diagnostics exclude it. Your last 20 translations stay
   on the phone. You can clear them on the key screen.
 
-## Updates and language packs (personal builds)
+## Update check (family build)
 
-The `personal` and `personalWeather` builds can check a private GitHub repo
-(`masterdroid-arch/parc-builds`) for a newer personal build, and can download
-two language data packs (a Portuguese voice pack and an English–Portuguese
-dictionary) for the Palavra learning feature.
+Only the `family` build (the public GitHub release) checks for a newer Parc. The
+`play` build has no update check and no `INTERNET` permission.
 
-- **Who receives data:** GitHub, over https (`api.github.com` and GitHub's
-  download hosts). GitHub's own terms and privacy policy apply to what its
-  servers receive, including your IP address, as with any web request. The repo
-  is private and read-only; Parc only reads release metadata and downloads the
-  APK and pack files.
-- **The token:** checking for updates and downloading packs needs a read-only
-  GitHub token you paste once in Settings. The token is stored only on this
-  phone, encrypted with an Android Keystore key, and is never part of a backup,
-  a log or a diagnostic file. It gives access to private builds and is easy to recreate
-  after a reinstall. Removing it in Settings deletes it.
-- **When:** the update check runs only when you tap **Check for updates**, or,
-  if you turn on **Check automatically**, at most once a day when Parc starts.
-  It never sends anything else about the phone, your apps or your use.
-- **Installing an update:** when a newer version exists, tapping the update
-  downloads the APK to Parc's own cache, checks its SHA-256 and that its signing
-  certificate matches the installed app, then hands the file to Android's
-  installer. You still tap **Install**; Parc cannot install silently.
-- **Data packs:** the voice pack and dictionary are stored in Parc's own files
-  (`packs/`), outside backups, and are re-downloaded when a new version appears.
-  Their download has a **Wi-Fi only** switch (on by default). Removing a pack
-  deletes its files.
-- **No pack, no problem:** without a pack, Palavra falls back to the phone's own
-  text-to-speech voice and offers a hand-off for dictionary lookups.
+- **What is sent:** one HTTPS request to `api.github.com` (the latest release of
+  the Parc GitHub repository) with the plain name `Parc` as the program name.
+  There is no account, token, cookie, identifier or phone detail in it. GitHub,
+  like any web server, sees your IP address and handles it under its own policy.
+- **When:** about once a day, in the background, while the switch **Check for
+  updates** (Settings > Data & help > This build) is on. It is on by default and
+  you can turn it off; then Parc asks only when you tap **Check now**. A check
+  that fails (for example when you are offline) can be tried again after an hour.
+  Nothing else is sent.
+- **What you see:** when a newer version exists, a slim "Update available" row
+  appears at the top of the Today page and at the top of Settings. **Later** hides
+  the Today row until the next day or the next version. There is no notification.
+- **Installing:** only when you tap **Update**. Parc asks GitHub for the latest
+  release again, downloads the APK and its checksum file from that release into
+  its own cache (only https addresses on GitHub and its file hosts are accepted),
+  checks the SHA-256, and hands the file to Android's installer. If the checksum
+  does not match, the file is deleted and nothing is installed. Android asks you
+  once to allow installs from Parc and asks you to confirm each update; it
+  refuses an APK signed with a different key. Parc never installs anything on
+  its own. The `REQUEST_INSTALL_PACKAGES` permission is only for this hand-off.
+- **Stored:** the switch, the time of the last check, the newest version found
+  and your Later choice, in Parc's private preferences. They are not part of
+  backups.
 
 ## Messages page
 
@@ -263,9 +287,7 @@ saved as local settings. Those settings contain no message content.
 - An optional wallpaper image you picked, if the wallpaper skin is used.
 - The weekly backup switch, the folder you picked for it and the folder's Android grant, the
   last backup time and the last failure line. This belongs to one phone and is not in backups.
-- In the personal and weather builds: the read-only update token (encrypted,
-  not in backups) and the downloaded language packs (outside backups and
-  re-downloadable).
+- The update check's switch, last check time and newest version found. This is not in backups.
 
 This data stays in Parc's private app storage. Android backup is disabled with
 `allowBackup="false"`, so it is not uploaded to Google's backup service.
@@ -277,27 +299,29 @@ picker. The file is written where you choose. Once it exists, that file is
 yours to keep or delete; Parc does not upload it and cannot reach it again unless
 you import it.
 
-Backups are readable files by default. If you turn on **Encrypt backups**, manual
-and weekly backups are protected with your passphrase. Nobody can recover it:
+Manual backups are readable files unless you turn on **Encrypt backups**, which
+protects them with your passphrase; the export screen says "Encrypted" or "Not
+encrypted". The weekly backup is never written as readable text: it needs a passphrase. Nobody can recover it:
 forget it and the backup cannot be opened. A backup contains layout, settings,
 notes, quotes, daily records, the chosen book list and its reading positions,
 bookmarks and highlights, shelves and their rules, finished marks, reader
-choices, saved Weather places in the weather build, the search aliases you set,
+choices, saved Weather places, the search aliases you set,
 and an optional wallpaper image. It contains neither book files nor cached
 covers or forecasts.
-Anyone with an unencrypted backup can read the saved DeepL key. Translation history stays
+An unencrypted backup never contains the saved DeepL key; only an encrypted one does. Translation history stays
 on the phone. The Messages history stays in its own `comms-history.db` and is never copied into a backup or a diagnostics
 file. Restoring a backup does not restore message history.
 
-If you turn on **Back up every week** and pick a folder, Parc writes the same
-backup file there once a week while the phone is charging and idle. It keeps the
+If you turn on **Back up every week** (it asks for a passphrase first) and pick a
+folder, Parc writes the same backup file there, encrypted, once a week while the phone is charging and idle. It keeps the
 newest four dated files and needs no internet and no account. The switch, folder,
 last time and last failure stay on the phone and are not themselves copied into a
 backup. With encryption on, the passphrase is stored on this phone encrypted with
 an Android Keystore key, separately from backups. It is never logged, included in
 diagnostics or copied into a backup. After uninstalling Parc, you must remember
-the passphrase. If the stored passphrase is missing or cannot be opened, the weekly
-job writes nothing and asks you to enter it again. Old readable backups still restore.
+the passphrase. If no passphrase is set or the stored one cannot be opened, the weekly
+job writes nothing, leaves older files in the folder untouched and the Backup page
+says "Weekly backup paused: add a passphrase". Old readable backups still restore.
 
 Diagnostics contain Parc's own log and facts about the phone. Parc's log helper
 redacts URLs, addresses, quoted text, package names and long numbers before a
@@ -314,10 +338,10 @@ Only because you asked:
 - Sending a reply through another app's notification action.
 - Saving or sharing a backup or diagnostics file.
 - Searching for a Weather place or viewing its forecast, or typing in Translate
-  in the internet build, as described above.
-- Checking for updates or downloading a language pack in the personal or
-  weather build, as described above.
-- Opening the donation page from Support Parc in About: the row opens ko-fi.com in the browser only when you tap it.
+  as described above.
+- The update check described above (about once a day, can be turned off), and downloading an update only when you tap Update.
+- Opening the donation page from Support Parc on Ko-fi (Settings > Data & help > This build): the row opens ko-fi.com in the browser only when you tap it.
+- Report a problem (Settings > Data & help > This build): it shows the text first, and only when you tap Open GitHub does your browser open Parc's GitHub issues page with that text. It holds only the Parc version, Android version and phone model, plus the last crash note if you turn it on. Parc sends nothing itself.
 
 In those cases the other app or service handles the data under its own policy.
 For example, a web search opens your browser with the text you typed.

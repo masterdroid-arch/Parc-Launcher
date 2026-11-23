@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.feature.settings.ui.SettingsStepper
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -22,12 +23,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.brightblu.parc.feature.settings.ui.*
 import com.brightblu.parc.model.Metrics
 import com.brightblu.parc.model.ParcBlocks
-import com.brightblu.parc.model.ParcDialogArea
 import com.brightblu.parc.model.Skin
 import com.brightblu.parc.model.Springs
 import com.brightblu.parc.model.parcBottomInset
@@ -92,19 +90,31 @@ internal fun HubConfig.moveVisiblePage(page: String, delta: Int): HubConfig {
     return copy(pageOrder = order)
 }
 
+/** T376: the one page sheet's fixed subtitle, shared with the emulator wording and tests. */
+internal object HubPageSheet {
+    const val Subtitle = "Page settings"
+}
+
+/**
+ * T376: the one combined page sheet. Holding a page name, holding the page body or tapping "…" all open
+ * this same sheet, so the tab menu and the page options no longer repeat each other. It keeps Show page,
+ * the inherited-or-local size, move, the page's own options, Undo and Done in one place, on the shared
+ * [SettingsSheet] (handle, fixed Done action and safe space above the gesture bar), like Wallpaper and
+ * Add to arc.
+ */
 @Composable
 internal fun HubPageOptionsSheet(page: String, skin: Skin, config: HubConfig,
     update: ((HubConfig) -> HubConfig) -> Unit, onDismiss: () -> Unit,
     onFullSettings: (SettingsPage) -> Unit,
 ) {
-    Dialog(onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        ParcDialogArea {
-            Column(Modifier.fillMaxSize().padding(Metrics.itemGapDp.dp)
-                .background(Color(skin.colors.bg.toInt()), RoundedCornerShape(Metrics.menuCornerDp.dp))
-                .padding(start = Metrics.cardInsetDp.dp, end = Metrics.cardInsetDp.dp, bottom = Metrics.cardInsetDp.dp)) {
-                SettingRow("Back", skin, SettingKind.Action, icon = "‹", onClick = onDismiss)
-                HubPageOptionsContent(page, skin, config, update, onFullSettings, Modifier.weight(1f))
+    val canonical = HubCatalog.canonicalPage(page)
+    ScreenSheet {
+        SettingsTheme(skin) {
+            SettingsSheet(hubPageName(canonical), skin, onDismiss, subtitle = HubPageSheet.Subtitle) {
+                ParcBlocks(Metrics.rowGapDp) {
+                    // T393: the sheet's cards sit the same 16 dp from the screen edge as its header and Done button.
+                    HubPageOptionsBody(canonical, skin, config, update, onFullSettings, showEditPages = true, sheet = true)
+                }
             }
         }
     }
@@ -115,6 +125,9 @@ internal fun HubPageOptionsSheet(page: String, skin: Skin, config: HubConfig,
  * carries the Show switch, the compact position pair and the hub size segmented control; the page's
  * own settings follow under a small label; tiles (when there are any) come next; "More" keeps the three
  * quiet one-line destinations at the bottom. No repeated instruction, no "Shows" list of other pages.
+ *
+ * T376: the content is the same [HubPageOptionsBody] as the Home sheet; the Settings page keeps its own
+ * settle spring and full-height scroll wrapper.
  */
 @Composable
 internal fun HubPageOptionsContent(rawPage: String, skin: Skin, config: HubConfig,
@@ -124,6 +137,30 @@ internal fun HubPageOptionsContent(rawPage: String, skin: Skin, config: HubConfi
     showEditPages: Boolean = true,
 ) {
     val page = HubCatalog.canonicalPage(rawPage)
+    val settle = remember(page) { Animatable(0f) }
+    LaunchedEffect(page) { settle.animateTo(1f, spring(Springs.sheet.damping, Springs.sheet.stiffness)) }
+    Column(modifier.fillMaxSize()) {
+        ParcBlocks(Metrics.rowGapDp, Modifier.weight(1f)
+            .graphicsLayer {
+                val scale = Metrics.pageOptionsSettleScale + (1f - Metrics.pageOptionsSettleScale) * settle.value
+                scaleX = scale
+                scaleY = scale
+            }
+            .verticalScroll(rememberScrollState()).parcBottomInset()) {
+            HubPageOptionsBody(page, skin, config, update, onFullSettings, showEditPages, sheet = false)
+        }
+    }
+}
+
+/**
+ * The page sheet's body, shared by the Home sheet ([sheet] = true, the sheet supplies the title) and the
+ * Settings page ([sheet] = false, it draws the header card with the page summary).
+ */
+@Composable
+private fun HubPageOptionsBody(page: String, skin: Skin, config: HubConfig,
+    update: ((HubConfig) -> HubConfig) -> Unit, onFullSettings: (SettingsPage) -> Unit,
+    showEditPages: Boolean, sheet: Boolean,
+) {
     val spec = hubPageOptions.getValue(page)
     val name = hubPageName(page)
     val undo = rememberEditorUndo()
@@ -139,86 +176,85 @@ internal fun HubPageOptionsContent(rawPage: String, skin: Skin, config: HubConfi
     val hintId = "HubPageOptions.$page"
     var hint by remember(page) { mutableStateOf(hints.firstUse(hintId)) }
     fun hideHint() { hint = false }
-    val settle = remember(page) { Animatable(0f) }
-    LaunchedEffect(page) { settle.animateTo(1f, spring(Springs.sheet.damping, Springs.sheet.stiffness)) }
-    Column(modifier.fillMaxSize()) {
-        ParcBlocks(Metrics.rowGapDp, Modifier.weight(1f)
-            .graphicsLayer {
-                val scale = Metrics.pageOptionsSettleScale + (1f - Metrics.pageOptionsSettleScale) * settle.value
-                scaleX = scale
-                scaleY = scale
-            }
-            .verticalScroll(rememberScrollState()).parcBottomInset()) {
-            SettingsPanel(skin) {
-                BasicText(name, style = settingsText(skin).copy(fontSize = skin.typography.title.sizeSp.sp))
-                BasicText(layout.summary, style = settingsText(skin, skin.colors.textSecondary, true),
-                    modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
-            }
-            if (hint) HubOptionHint(skin, "Changes save automatically.", ::hideHint)
-            SettingsSection(HubOptionSection.ThisPage.title, skin)
-            SettingsCard(skin) {
-                SettingRow("Show on Home", skin, SettingKind.Toggle, checked = shown) {
-                    update { it.showPage(page, !shown) }
-                    if (shown) undo.offer { update { it.showPage(page, true) } }
-                }
-                if (undo.action != null) {
-                    SettingRow("Undo", skin, SettingKind.Action, description = "Undo the last change") { undo.run() }
-                }
-                HubOptionMovePair(skin, "Show $name before the previous visible page", "Show $name after the next visible page",
-                    canEarlier = shown && index > 0, canLater = shown && index < visible.lastIndex,
-                    onEarlier = { update { it.moveVisiblePage(page, -1) } },
-                    onLater = { update { it.moveVisiblePage(page, 1) } })
-                HubPageSizeChoices(page, skin, config, update)
-                if (!shown) BasicText("Page hidden from Home. Undo brings it back.", Modifier.parcRowPadding(),
-                    style = settingsText(skin, skin.colors.textSecondary, true))
-            }
-            layout.ownSection?.let { section ->
-                SettingsSection(section.title, skin)
-                when (page) {
-                    WeatherVariant.PageId -> WeatherVariant.Options(skin)
-                    TodayPage.Id -> TodayOptionChoices(skin, config, update)
-                    StepsPage.Id -> StepsOptionChoices(skin)
-                    RhythmPage.Id -> RhythmOptionChoices(skin)
-                    SkyPage.Id -> SkyOptionChoices(skin)
-                    YearPage.Id -> YearOptionChoices(skin)
-                    CommonplacePage.Id -> QuotesOptionChoices(skin)
-                    LibraryPage.Id -> LibraryOptionChoices(skin)
-                    else -> extraPage(page)?.optionChoices?.invoke(skin)
-                }
-            }
-            if (tiles.isNotEmpty()) {
-                SettingsSection(HubOptionSection.Tiles.title, skin)
-                tiles.forEachIndexed { tileIndex, tile ->
-                    val tileShown = tile !in config.hiddenTiles[page].orEmpty()
-                    SettingsCard(skin) {
-                        SettingRow(hubTileLabel(page, tile), skin, SettingKind.Toggle,
-                            description = "Show this on $name", checked = tileShown) {
-                            update { it.showTile(page, tile, !tileShown) }
-                            if (tileShown) undo.offer { update { it.showTile(page, tile, true) } }
-                        }
-                        HubOptionMovePair(skin, "Show $tile before the previous tile", "Show $tile after the next tile",
-                            canEarlier = tileIndex > 0, canLater = tileIndex < tiles.lastIndex,
-                            onEarlier = { update { it.move(page, tile, -1) } },
-                            onLater = { update { it.move(page, tile, 1) } })
-                    }
-                }
-            }
-            SettingsSection(HubOptionSection.More.title, skin)
-            SettingsCard(skin) {
-                layout.moreRows.forEachIndexed { rowIndex, row ->
-                    val last = rowIndex == layout.moreRows.lastIndex
-                    when (row) {
-                        HubOptionMoreRow.WhatATapDoes -> SettingRow("What a tap does", skin, SettingKind.Page,
-                            divider = !last) { onFullSettings(spec.fullSettings) }
-                        HubOptionMoreRow.EditPages -> SettingRow("Edit pages", skin, SettingKind.Page,
-                            divider = !last) { onFullSettings(SettingsPage.HubPages) }
-                        HubOptionMoreRow.FullSettings -> SettingRow("Full settings", skin, SettingKind.Page,
-                            divider = !last) { onFullSettings(spec.fullSettings) }
-                    }
-                }
-            }
+    if (!sheet) {
+        SettingsPanel(skin) {
+            BasicText(name, style = settingsText(skin).copy(fontSize = skin.typography.title.sizeSp.sp))
+            BasicText(layout.summary, style = settingsText(skin, skin.colors.textSecondary, true),
+                modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
         }
     }
+    if (hint) HubOptionHint(skin, "Changes save automatically.", ::hideHint)
+    SettingsSection(HubOptionSection.ThisPage.title, skin)
+    CardInset(sheet) { SettingsCard(skin) {
+        SettingRow("Show on Home", skin, SettingKind.Toggle, checked = shown) {
+            update { it.showPage(page, !shown) }
+            if (shown) undo.offer { update { it.showPage(page, true) } }
+        }
+        if (undo.action != null) {
+            SettingRow("Undo", skin, SettingKind.Action, description = "Undo the last change") { undo.run() }
+        }
+        HubOptionMovePair(skin, "Show $name before the previous visible page", "Show $name after the next visible page",
+            canEarlier = shown && index > 0, canLater = shown && index < visible.lastIndex,
+            onEarlier = { update { it.moveVisiblePage(page, -1) } },
+            onLater = { update { it.moveVisiblePage(page, 1) } })
+        HubPageSizeChoices(page, skin, config, update)
+        if (!shown) BasicText("Page hidden from Home. Undo brings it back.", Modifier.parcRowPadding(),
+            style = settingsText(skin, skin.colors.textSecondary, true))
+    } }
+    layout.ownSection?.let { section ->
+        SettingsSection(section.title, skin)
+        CardInset(sheet) { when (page) {
+            WeatherVariant.PageId -> WeatherVariant.Options(skin)
+            TodayPage.Id -> TodayOptionChoices(skin, config, update)
+            StepsPage.Id -> StepsOptionChoices(skin)
+            RhythmPage.Id -> RhythmOptionChoices(skin)
+            SkyPage.Id -> SkyOptionChoices(skin)
+            YearPage.Id -> YearOptionChoices(skin)
+            CommonplacePage.Id -> QuotesOptionChoices(skin)
+            LibraryPage.Id -> LibraryOptionChoices(skin)
+            else -> extraPage(page)?.optionChoices?.invoke(skin)
+        } }
+    }
+    if (tiles.isNotEmpty()) {
+        SettingsSection(HubOptionSection.Tiles.title, skin)
+        tiles.forEachIndexed { tileIndex, tile ->
+            val tileShown = tile !in config.hiddenTiles[page].orEmpty()
+            CardInset(sheet) { SettingsCard(skin) {
+                SettingRow(hubTileLabel(page, tile), skin, SettingKind.Toggle,
+                    description = "Show this on $name", checked = tileShown) {
+                    update { it.showTile(page, tile, !tileShown) }
+                    if (tileShown) undo.offer { update { it.showTile(page, tile, true) } }
+                }
+                HubOptionMovePair(skin, "Show $tile before the previous tile", "Show $tile after the next tile",
+                    canEarlier = tileIndex > 0, canLater = tileIndex < tiles.lastIndex,
+                    onEarlier = { update { it.move(page, tile, -1) } },
+                    onLater = { update { it.move(page, tile, 1) } })
+            } }
+        }
+    }
+    SettingsSection(HubOptionSection.More.title, skin)
+    CardInset(sheet) { SettingsCard(skin) {
+        layout.moreRows.forEachIndexed { rowIndex, row ->
+            val last = rowIndex == layout.moreRows.lastIndex
+            when (row) {
+                HubOptionMoreRow.WhatATapDoes -> SettingRow("What a tap does", skin, SettingKind.Page,
+                    divider = !last) { onFullSettings(spec.fullSettings) }
+                HubOptionMoreRow.EditPages -> SettingRow("Edit pages", skin, SettingKind.Page,
+                    divider = !last) { onFullSettings(SettingsPage.HubPages) }
+                HubOptionMoreRow.FullSettings -> SettingRow("Full settings", skin, SettingKind.Page,
+                    divider = !last) { onFullSettings(spec.fullSettings) }
+            }
+        }
+    } }
+}
+
+/**
+ * T393: in the page sheet the cards sit [Metrics.settingsRowInsetDp] from each screen edge, the same as the header,
+ * section labels and Done button, so no card corner is cut by the screen. The Settings page has its own gutter.
+ */
+@Composable
+private fun CardInset(sheet: Boolean, content: @Composable ColumnScope.() -> Unit) {
+    ParcBlocks(Metrics.rowGapDp, if (sheet) Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp) else Modifier, content)
 }
 
 /** A small, dismissible one-time line; it is not a card and never repeats the page description. */
@@ -240,20 +276,7 @@ internal fun HubOptionStepper(label: String, value: String, skin: Skin,
     canDecrease: Boolean, canIncrease: Boolean, onDecrease: () -> Unit, onIncrease: () -> Unit,
     description: String = "", divider: Boolean = true,
 ) {
-    Row(Modifier.fillMaxWidth().parcRowPadding(), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
-        Column(Modifier.weight(1f)) {
-            BasicText(label, style = settingsText(skin))
-            if (description.isNotBlank()) BasicText(description,
-                style = settingsText(skin, skin.colors.textSecondary, true),
-                modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
-        }
-        HubOptionButton("−", skin, "Decrease $label", canDecrease, onDecrease)
-        BasicText(value, Modifier.widthIn(min = Metrics.menuRowHeightDp.dp).padding(horizontal = Metrics.lineGapDp.dp)
-            .semantics { contentDescription = "$label, $value" },
-            style = settingsText(skin, skin.colors.readableAccent, true).copy(textAlign = TextAlign.Center), maxLines = 2)
-        HubOptionButton("+", skin, "Increase $label", canIncrease, onIncrease)
-    }
+    SettingsStepper(label, value, skin, canDecrease, canIncrease, onDecrease, onIncrease, description)
     if (divider) SettingsDivider(skin)
 }
 

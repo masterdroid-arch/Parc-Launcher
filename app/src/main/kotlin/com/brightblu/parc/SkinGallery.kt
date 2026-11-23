@@ -12,13 +12,23 @@ import androidx.compose.foundation.pager.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -29,71 +39,121 @@ import com.brightblu.parc.ring.rasterHome
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * T374 (mockup 11): the skin page. One live Home sample shows the skin you have picked but not applied; the tiles pick,
+ * the button names what it applies, and Back or Cancel leaves the saved skin alone. Tapping the sample opens the full-screen
+ * preview that was there before. The bar stays below the list so Apply is always reachable.
+ */
 @Composable
-internal fun SkinGallery(state: SettingsUiState, skin: Skin, services: LauncherServices,
-    look: LookSettings, onPreview: (Skin) -> Unit, onEdit: () -> Unit) {
-    val cards = remember(state.skins, state.selectedSkinId) { skinCards(state.skins, state.selectedSkinId) }
-    val pager = rememberPagerState(initialPage = cards.indexOfFirst { it.selected }.coerceAtLeast(0)) { cards.size }
-    LaunchedEffect(state.selectedSkinId) {
-        pager.scrollToPage(cards.indexOfFirst { it.selected }.coerceAtLeast(0))
+internal fun SkinPicker(title: String, state: SettingsUiState, skin: Skin, glassSkin: Skin, activeSkin: Skin,
+    services: LauncherServices, look: LookSettings, counts: LayoutCounts, aligned: Boolean, mirrored: Boolean,
+    target: String?, onApply: (Skin) -> Unit, onFullPreview: (Skin) -> Unit, onEdit: () -> Unit) {
+    val cards = remember(state.skins, state.selectedSkinId) { skinCards(state.skins, state.selectedSkinId).filter { it.skin != null } }
+    val applied = cards.firstOrNull { it.selected }?.skin ?: activeSkin
+    var pendingId by rememberSaveable { mutableStateOf<String?>(null) }
+    val pending = cards.firstOrNull { it.skin?.id == pendingId }?.skin ?: applied
+    val status = SkinPickerRules.apply(pending, applied, SkinSafety.readable(pending))
+    Column(Modifier.fillMaxSize()) {
+        ParcPage(Modifier.weight(1f), safeTop = false, padBottom = false) {
+            BasicText(title, style = settingsTitle(skin))
+            HomeSample(services, pending, glassSkin, look, HomeSampleFocus.Arcs, counts, aligned, mirrored,
+                label = "Preview: ${pending.name}", onClick = { onFullPreview(pending) })
+            // The page opens at its top whatever opened it: the sample is the first thing to read, the tiles sit right under it.
+            Column {
+                val cache = remember { mutableMapOf<Skin, ImageBitmap>() }
+                val appearance = rememberHubAppearance()
+                val scene = rememberTileScene(services, counts, aligned, mirrored)
+                val phoneColour = rememberPhoneWallpaperColour()
+                val hubSize = rememberHubSize()
+                val statusInset = rememberStatusInsetDp()
+                remember(scene, look, appearance, hubSize) { cache.clear(); true }
+                val columns = SettingsLayoutRules.tileColumns(LocalDensity.current.fontScale)
+                SkinTileSection("Built-in skins", cards.filter { !it.editable }, columns, pending, skin, services, scene, look,
+                    cache, appearance, phoneColour, hubSize, statusInset) { pendingId = it.id }
+                if (cards.any { it.editable }) SkinTileSection("Your skins", cards.filter { it.editable }, columns, pending, skin,
+                    services, scene, look, cache, appearance, phoneColour, hubSize, statusInset) { pendingId = it.id }
+            }
+            SettingsSection("Customise", skin)
+            SettingsCard(skin) { SettingRow("Skin editor", skin, SettingKind.Page, divider = false, onClick = onEdit) }
+        }
+        Row(Modifier.fillMaxWidth().parcGutter().padding(top = Metrics.itemGapDp.dp)
+            .padding(bottom = rememberPageInsets().bottomDp.dp),
+            horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (SkinPickerRules.showCancel(pending, applied)) Box(Modifier.heightIn(min = Metrics.settingsApplyButtonMinDp.dp)
+                .clip(RoundedCornerShape(percent = 50)).clickable(role = Role.Button) { pendingId = null }
+                .padding(horizontal = Metrics.cardInsetDp.dp), contentAlignment = Alignment.Center) {
+                BasicText("Cancel", style = settingsText(skin, skin.colors.accent))
+            }
+            Column(Modifier.weight(1f)) {
+                Box(Modifier.fillMaxWidth().heightIn(min = Metrics.settingsApplyButtonMinDp.dp)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(Color((if (status.enabled) Skin.ParcOrange else skin.colors.surface).toInt()))
+                    .border(Dp.Hairline, Color((if (status.enabled) Skin.ParcOrange else skin.colors.lineActive).toInt()), RoundedCornerShape(percent = 50))
+                    .clickable(enabled = status.enabled, role = Role.Button) { onApply(pending); pendingId = null }
+                    .padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.itemGapDp.dp), contentAlignment = Alignment.Center) {
+                    BasicText(status.label, maxLines = 2, style = settingsText(skin, if (status.enabled) Skin.Midnight.colors.bg else skin.colors.textSecondary)
+                        .copy(fontWeight = FontWeight.Medium, textAlign = TextAlign.Center))
+                }
+                status.note?.let { BasicText(it, style = settingsText(skin, skin.colors.textSecondary, true),
+                    modifier = Modifier.padding(top = Metrics.lineGapDp.dp)) }
+            }
+        }
     }
-    val cache = remember { mutableMapOf<Skin, ImageBitmap>() }
+}
+
+/** The tiles of one section, [columns] across; a short last row keeps its tiles the same width. */
+@Composable
+private fun SkinTileSection(heading: String, cards: List<SkinCardModel>, columns: Int, pending: Skin, skin: Skin,
+    services: LauncherServices, scene: RingState, look: LookSettings, cache: MutableMap<Skin, ImageBitmap>,
+    appearance: HubAppearance, phoneColour: Int?, hubSize: HubSize, statusInset: Float, onPick: (Skin) -> Unit) {
+    SettingsSection(heading, skin)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Metrics.settingsTileGapDp.dp)) {
+        tileRows(cards, columns).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Metrics.settingsTileGapDp.dp)) {
+                row.forEach { card ->
+                    val tileSkin = card.skin ?: return@forEach
+                    val picked = tileSkin.id == pending.id
+                    val shape = RoundedCornerShape(Metrics.settingsSkinTileCornerDp.dp)
+                    Column(Modifier.weight(1f).clip(shape).background(Color(skin.colors.moduleSurface.toInt()).copy(alpha = 1f))
+                        .border(if (picked) Metrics.settingsSelectedStrokeDp.dp else Dp.Hairline,
+                            Color((if (picked) Skin.ParcOrange else skin.colors.lineBase).toInt()), shape)
+                        .selectable(picked, role = Role.RadioButton) { onPick(tileSkin) }
+                        .semantics { contentDescription = tileSkin.name; stateDescription = if (card.selected) "In use" else if (picked) "Picked" else "" },
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.fillMaxWidth().height(Metrics.settingsSkinTileImageHeightDp.dp)) {
+                            CachedSkinHome(tileSkin, services, scene, look, cache, appearance, phoneColour, hubSize, statusInset, HomeCrop.Arcs)
+                        }
+                        BasicText(tileSkin.name, style = settingsText(skin, if (picked) skin.colors.readableAccent else skin.colors.textPrimary)
+                            .copy(fontWeight = FontWeight.Medium, textAlign = TextAlign.Center), maxLines = 2,
+                            modifier = Modifier.padding(horizontal = Metrics.itemGapDp.dp, vertical = Metrics.itemGapDp.dp))
+                        if (card.selected) BasicText("In use", style = settingsText(skin, skin.colors.textSecondary, true),
+                            modifier = Modifier.padding(bottom = Metrics.itemGapDp.dp))
+                    }
+                }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+/** The tile pictures use the arc count, alignment and side Home uses now. */
+@Composable
+private fun rememberTileScene(services: LauncherServices, counts: LayoutCounts, aligned: Boolean, mirrored: Boolean): RingState {
+    val context = LocalContext.current
     val layout by services.layout.layout.collectAsState()
     val liveApps by services.unlockedApps.collectAsState()
-    // T130: the gallery preview is the demo home in demo mode, so it needs the sample entries.
     val apps = if (DemoMode.enabled) DemoHomeLayout.appsIfDemo(true) else liveApps
     val revision by services.iconRevision.collectAsState()
-    val context = LocalContext.current
-    val scene = remember(layout, apps, revision) { skinPreviewScene(services, layout, apps, ParcUiPrefs(context)) }
-    // A changed layout, icon set or look invalidates the bounded, picker-local raster cache.
-    val appearance = rememberHubAppearance()
-    val phoneColour = rememberPhoneWallpaperColour()
-    val hubSize = rememberHubSize()
-    val statusInset = rememberStatusInsetDp()
-    remember(scene, look, appearance, hubSize) { cache.clear(); true }
-    val density = LocalDensity.current.density
-    val reduceMotion = (rememberCoroutineScope().coroutineContext[androidx.compose.ui.MotionDurationScale]?.scaleFactor ?: 1f) == 0f
-    HorizontalPager(state = pager, pageSize = PageSize.Fixed(Metrics.settingsCardWidthDp.dp),
-        beyondViewportPageCount = cards.size,
-        flingBehavior = PagerDefaults.flingBehavior(pager,
-            snapAnimationSpec = if (reduceMotion) androidx.compose.animation.core.snap<Float>()
-                else spring<Float>(dampingRatio = Metrics.settingsSpringDamping, stiffness = Metrics.settingsSpringStiffness)),
-        pageSpacing = Metrics.cardInsetDp.dp,
-        contentPadding = PaddingValues(vertical = Metrics.cardInsetDp.dp)) { index ->
-            val card = cards[index]
-            val shape = RoundedCornerShape(Metrics.menuCornerDp.dp)
-            Column(Modifier.width(Metrics.settingsCardWidthDp.dp).clip(shape)
-                .background(Color(skin.colors.surface.toInt()))
-                .border(skin.shape.surfaceBorderDp.dp, Color((if (card.selected) skin.colors.accent else skin.colors.lineBase).toInt()), shape)
-                .clickable { card.skin?.let(onPreview) ?: onEdit() }) {
-                Column(Modifier.parcSettingsPadding()) {
-                if (card.skin != null) {
-                    Box(Modifier.fillMaxWidth().height(Metrics.settingsCardHeightDp.dp).clip(shape)
-                        .graphicsLayer {
-                            if (!reduceMotion) {
-                                translationX = ((pager.currentPage - index) + pager.currentPageOffsetFraction) * Metrics.settingsParallaxDp * density
-                            }
-                        }) {
-                        CachedSkinHome(card.skin, services, scene, look, cache, appearance, phoneColour, hubSize, statusInset)
-                        Box(Modifier.fillMaxSize().clickable { onPreview(card.skin) })
-                    }
-                } else Box(Modifier.fillMaxWidth().height(Metrics.settingsCardHeightDp.dp), contentAlignment = Alignment.Center) {
-                    BasicText("+\nMake your own", style = settingsText(skin))
-                }
-                BasicText((if (card.selected) "✓  " else "") + card.name,
-                    style = settingsText(skin, if (card.selected) skin.colors.accent else skin.colors.textPrimary),
-                    modifier = Modifier.padding(top = Metrics.rowGapDp.dp))
-                }
-                if (card.editable) SettingRow("Edit", skin, SettingKind.Action, icon = "✎", divider = false, onClick = onEdit)
-            }
+    return remember(layout, apps, revision, counts, aligned, mirrored) {
+        skinPreviewScene(services, layout, apps, ParcUiPrefs(context), counts, aligned, mirrored)
     }
-    BasicText("Swipe to explore · tap to preview", style = settingsText(skin, skin.colors.textSecondary, true))
 }
 
 /** The complete miniature is recorded once; scrolling draws only the cached image. */
 @Composable
 private fun CachedSkinHome(skin: Skin, services: LauncherServices, scene: RingState, look: LookSettings,
-    cache: MutableMap<Skin, ImageBitmap>, appearance: HubAppearance, phoneColour: Int?, hubSize: HubSize, statusInset: Float) {
+    cache: MutableMap<Skin, ImageBitmap>, appearance: HubAppearance, phoneColour: Int?, hubSize: HubSize, statusInset: Float,
+    crop: HomeCrop? = null) {
     var cached by remember(skin, scene, look, appearance) { mutableStateOf(cache[skin]) }
     if (cached != null) Image(cached!!, "${skin.name} home preview", Modifier.fillMaxSize())
     else {
@@ -112,7 +172,7 @@ private fun CachedSkinHome(skin: Skin, services: LauncherServices, scene: RingSt
             Box(Modifier.fillMaxSize().drawWithContent {
                 layer.record { this@drawWithContent.drawContent() }
                 drawLayer(layer)
-            }) { SkinHome(skin, services, scene, ring!!, look, appearance) }
+            }) { SkinHome(skin, services, scene, ring!!, look, appearance, crop) }
             LaunchedEffect(ring) {
                 kotlinx.coroutines.delay(skin.motion.durShort.toLong())
                 withFrameNanos { }; withFrameNanos { }
@@ -126,7 +186,7 @@ private fun CachedSkinHome(skin: Skin, services: LauncherServices, scene: RingSt
 /** Uses the production ring raster, panel shell, skin fonts and clock page at home dimensions. */
 @Composable
 internal fun SkinHome(skin: Skin, services: LauncherServices, scene: RingState, ring: ImageBitmap, look: LookSettings,
-    appearance: HubAppearance = HubAppearance()) {
+    appearance: HubAppearance = HubAppearance(), crop: HomeCrop? = null) {
     val width = services.geometry.widthDp
     val height = services.geometry.heightDp
     val hubSize = rememberHubSize()
@@ -134,12 +194,21 @@ internal fun SkinHome(skin: Skin, services: LauncherServices, scene: RingState, 
     val panel = remember(scene, skin, look, hubSize, statusInset) { previewHubPanel(scene, skin, look, statusInset, hubSize) }
     // T173: the stats card shows what Home shows: its colour, opacity and glass. A frosted one is already in the raster.
     val hubs = remember(skin, look, appearance) { HubCards.of(skin, look, appearance) }
-    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        val scale = minOf(maxWidth.value / width, maxHeight.value / height)
-        Box(Modifier.layout { measurable, _ ->
+    BoxWithConstraints(Modifier.fillMaxSize().clipToBounds(), contentAlignment = Alignment.Center) {
+        // T374: a crop fills the pane with one part of Home at a larger scale; no crop fits the whole Home in the pane.
+        val rect = crop?.let {
+            HomeSampleRules.crop(it, width, height, panel.first, scene.arcs.firstOrNull()?.originXDp ?: width,
+                maxWidth.value, maxHeight.value)
+        }
+        val scale = if (rect != null) maxWidth.value / rect.width else minOf(maxWidth.value / width, maxHeight.value / height)
+        Box(Modifier.layout { measurable, constraints ->
             val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed((width * density).toInt(), (height * density).toInt()))
-            layout((width * density * scale).toInt(), (height * density * scale).toInt()) {
+            if (rect == null) layout((width * density * scale).toInt(), (height * density * scale).toInt()) {
                 placeable.placeWithLayer(0, 0) { scaleX = scale; scaleY = scale; transformOrigin = TransformOrigin(0f, 0f) }
+            } else layout(constraints.maxWidth, constraints.maxHeight) {
+                placeable.placeWithLayer((-rect.left * density * scale).toInt(), (-rect.top * density * scale).toInt()) {
+                    scaleX = scale; scaleY = scale; transformOrigin = TransformOrigin(0f, 0f)
+                }
             }
         }.background(Color(skin.colors.bg.toInt()))) {
             Image(ring, null, Modifier.fillMaxSize())
@@ -279,12 +348,13 @@ internal fun rememberHubSize(): HubSize {
 }
 
 internal fun skinPreviewScene(services: LauncherServices, layout: ParcLayout, apps: List<AppEntry>, prefs: ParcUiPrefs,
-    countsOverride: LayoutCounts? = null, alignedOverride: Boolean? = null): RingState {
+    countsOverride: LayoutCounts? = null, alignedOverride: Boolean? = null, mirroredOverride: Boolean? = null): RingState {
     val counts = countsOverride ?: prefs.layoutCounts()
     val base = services.geometry
     val geometry = com.brightblu.parc.ring.RingLayout(base.widthDp, base.heightDp, base.insets,
         base.options.copy(arcsShown = counts.arcs, iconsPerArc = counts.icons,
-            alignAcrossArcs = alignedOverride ?: prefs.alignAcrossArcs()))
+            alignAcrossArcs = alignedOverride ?: prefs.alignAcrossArcs(),
+            mirrored = mirroredOverride ?: base.options.mirrored))
     return LauncherScenes.build(geometry, layout, apps, ShellState(), "", rotations = prefs.rotations(),
         lockedFolders = layout.folders.filter { it.locked }.map { it.id }.toSet(), hideLockedName = prefs.lockHideName(),
         icon = { id ->

@@ -193,9 +193,10 @@ data class Skin(
     }
 
     companion object {
+        const val ParcOrange = 0xFFEF8C32L
         val FocusPalette = listOf(
             "Teal" to 0xFF008577L, "Blue" to 0xFF2979FFL, "Violet" to 0xFF9575CDL,
-            "Pink" to 0xFFE86AACL, "Red" to 0xFFE45353L, "Orange" to 0xFFEF8C32L,
+            "Pink" to 0xFFE86AACL, "Red" to 0xFFE45353L, "Orange" to ParcOrange,
             "Yellow" to 0xFFE0BE30L, "Green" to 0xFF4B9E5CL)
 
         val Midnight = Skin("midnight", "Midnight", SkinColors(

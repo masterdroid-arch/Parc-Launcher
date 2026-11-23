@@ -32,7 +32,7 @@ internal fun NewAppPromptBar(label: String, skin: Skin, onAdd: () -> Unit, modif
             NewAppPrompt.question(label),
             modifier = Modifier
                 .background(
-                    Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha),
+                    skin.floatingSurface(),
                     RoundedCornerShape(Metrics.snackbarCornerDp.dp),
                 )
                 .clickable(role = Role.Button, onClick = onAdd)

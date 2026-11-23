@@ -81,4 +81,29 @@ class GlassBackdropTest {
             }
         }
     }
+
+    // T391: panels that float over content are solid enough to read.
+    @Test fun floatingPanelsAreAtLeastNinetyTwoPercentSolid() {
+        assertTrue(Metrics.floatingPanelMinAlpha >= 0.92f)
+        assertTrue(Metrics.floatingPanelMinTintAlpha / 255f >= 0.92f)
+    }
+
+    @Test fun floatingAlphaRaisesALowAlphaAndKeepsAHighOne() {
+        assertEquals(Metrics.floatingPanelMinAlpha, GlassBackdrop.floatingAlpha(0.92f), 0f)
+        assertEquals(Metrics.floatingPanelMinAlpha, GlassBackdrop.floatingAlpha(0.2f), 0f)
+        assertEquals(Metrics.floatingPanelMinAlpha, GlassBackdrop.floatingAlpha(-1f), 0f)
+        assertEquals(1f, GlassBackdrop.floatingAlpha(1f), 0f)
+        assertEquals(1f, GlassBackdrop.floatingAlpha(7f), 0f)
+        assertEquals(1f, GlassBackdrop.floatingAlpha(Float.NaN), 0f)
+    }
+
+    @Test fun floatingTintRaisesOnlyTheAlpha() {
+        val low = 0x40123456
+        val raised = GlassBackdrop.floatingTint(low)
+        assertEquals(Metrics.floatingPanelMinTintAlpha, raised ushr 24)
+        assertEquals(0x123456, raised and 0xFFFFFF)
+        assertEquals(0xFF123456.toInt(), GlassBackdrop.floatingTint(0xFF123456.toInt()))
+        assertEquals(Metrics.floatingPanelMinTintAlpha, GlassBackdrop.floatingTintAlpha(179))
+        assertEquals(255, GlassBackdrop.floatingTintAlpha(999))
+    }
 }

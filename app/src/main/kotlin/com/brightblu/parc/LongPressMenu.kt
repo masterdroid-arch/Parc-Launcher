@@ -103,6 +103,8 @@ data class MenuModel(
     val nameIssue: String = "",
     /** T97: this app's current notifications (at most three, newest first); empty hides the section. */
     val notifications: List<PeekLine> = emptyList(),
+    /** T382: pause state for the personal build; null hides the row in every other build. */
+    val pauseBeforeOpening: Boolean? = null,
 )
 
 /** One app with notifications inside a folder (T97). */
@@ -145,6 +147,8 @@ enum class MenuAction {
     OpenNotification, DismissNotification, ClearNotifications, LaunchApp,
     LockFolder, UnlockFolder, LockNow,
     HideFolder, UnhideFolder,
+    /** T382: the personal-build pause row. */
+    PauseBeforeOpening,
 }
 
 /** A tappable row model. [detail] carries a payload id; [showDetail] hides it from the label row. */
@@ -201,6 +205,10 @@ fun appMenuRootItems(menu: MenuModel): List<MenuItem> {
         items += MenuItem.Row(MenuRowModel("Remove from arc", MenuAction.RemoveFromArc))
     }
     items += MenuItem.Row(MenuRowModel("Hide from Parc", MenuAction.Hide))
+    // T382: only a build with the personal pause feature supplies this state.
+    menu.pauseBeforeOpening?.let { on ->
+        items += MenuItem.Row(MenuRowModel(if (on) "Stop pausing this app" else "Pause before opening", MenuAction.PauseBeforeOpening))
+    }
     items += MenuItem.Row(MenuRowModel("App info", MenuAction.AppInfo))
     // A system app that has never been updated cannot be uninstalled, so the row would fail.
     if (menu.canUninstall) items += MenuItem.Row(MenuRowModel("Uninstall", MenuAction.OpenUninstall))
@@ -270,11 +278,11 @@ fun folderMenuAddItems(menu: FolderMenuModel): List<MenuItem> =
 
 /** The delete confirmation page. Copy is deliberate: a Pinned app stays where it is. */
 fun folderMenuConfirmItems(menu: FolderMenuModel): List<MenuItem> = listOf(
-    MenuItem.Row(MenuRowModel("Delete ${menu.name}?", MenuAction.Dismiss)),
-    MenuItem.Row(MenuRowModel("Its apps go to New.", MenuAction.Dismiss)),
+    MenuItem.Row(MenuRowModel(FolderRemovalCopy.title(menu.name), MenuAction.Dismiss)),
+    MenuItem.Row(MenuRowModel(FolderRemovalCopy.Consequence, MenuAction.Dismiss)),
     MenuItem.Divider,
-    MenuItem.Row(MenuRowModel("Delete", MenuAction.Delete)),
-    MenuItem.Row(MenuRowModel("Cancel", MenuAction.Back)),
+    MenuItem.Row(MenuRowModel(FolderRemovalCopy.Confirm, MenuAction.Delete)),
+    MenuItem.Row(MenuRowModel(FolderRemovalCopy.Cancel, MenuAction.Back)),
 )
 
 /**
@@ -710,7 +718,7 @@ private fun Modifier.menuSurface(skin: Skin): Modifier {
     }
     return this
         .background(
-            Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha),
+            skin.floatingSurface(),
             corner,
         )
         .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), corner)

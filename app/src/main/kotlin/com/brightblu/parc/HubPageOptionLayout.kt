@@ -54,7 +54,7 @@ internal data class HubPageOptionLayout(
     }
 }
 
-/** Which page-specific section a page gets; [extraPage] is true for the personal build's own pages. */
+/** Which page-specific section a page gets (none when the page has no options of its own); [extraPage] is true for the personal build's own pages. */
 internal fun hubPageOptionLayout(
     page: String,
     tileCount: Int,
@@ -66,8 +66,8 @@ internal fun hubPageOptionLayout(
     val own = when (page) {
         WeatherVariant.PageId -> HubOptionSection.Weather
         TodayPage.Id -> HubOptionSection.Today
-        DevicePage.Id -> HubOptionSection.Device
-        ControlsPage.Id -> HubOptionSection.Controls
+        // T393: Device and Controls have no options of their own (their readouts and toggles are on the page),
+        // so they get no section label: a heading with nothing under it reads as a bug.
         CommonplacePage.Id -> HubOptionSection.Commonplace
         StepsPage.Id -> HubOptionSection.Steps
         RhythmPage.Id -> HubOptionSection.Rhythm

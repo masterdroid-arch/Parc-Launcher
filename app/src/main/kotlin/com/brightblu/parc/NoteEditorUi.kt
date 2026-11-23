@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.catch
 import com.brightblu.parc.model.Metrics
 import com.brightblu.parc.model.ParcPage
 import com.brightblu.parc.model.Skin
+import com.brightblu.parc.model.WritingRules
 
 private fun spanFor(run: StyledRun, kind: LineKind, skin: Skin): SpanStyle = SpanStyle(
     color = if (run.mark) Color(skin.colors.textSecondary.toInt()) else Color.Unspecified,
@@ -244,13 +245,16 @@ private fun NoteEditBody(initialText: String, caret: Int, skin: Skin, modifier: 
     }
     fun set(edit: NoteEdit) = set(TextFieldValue(edit.text, TextRange(edit.selStart, edit.selEnd)))
     Column(modifier) {
-        // The field fills the space above the toolbar and scrolls by itself, so the caret is always followed.
+        // T386: the field takes the remaining height and scrolls by itself, with 8 dp kept under the
+        // caret so the last line never touches the 52 dp formatting strip below it.
         Box(Modifier.weight(1f).fillMaxWidth()) {
             BasicTextField(field, { new ->
                 val enter = if (new.selection.collapsed) NoteEditing.onEnter(field.text, new.text, new.selection.start) else null
                 set(if (enter != null) TextFieldValue(enter.text, TextRange(enter.selStart, enter.selEnd)) else new)
             },
-                modifier = Modifier.fillMaxSize().focusRequester(focus).padding(vertical = Metrics.itemGapDp.dp)
+                modifier = Modifier.fillMaxSize()
+                    .padding(top = Metrics.itemGapDp.dp, bottom = Metrics.noteCaretGapDp.dp)
+                    .focusRequester(focus)
                     .semantics { contentDescription = "Note text" },
                 textStyle = noteStyle(skin), cursorBrush = SolidColor(Color(skin.colors.accent.toInt())),
                 visualTransformation = transformation,
@@ -259,8 +263,14 @@ private fun NoteEditBody(initialText: String, caret: Int, skin: Skin, modifier: 
                     inner()
                 })
         }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = Metrics.noteToolbarGapDp.dp),
-            verticalAlignment = Alignment.CenterVertically) {
+        // T386: one 52 dp strip. The seven 48 dp tools (416 dp with gaps and insets) are wider than
+        // the phone, so the strip scrolls sideways and the last tool stays reachable.
+        Row(Modifier.height(Metrics.noteToolStripDp.dp)
+            .horizontalScroll(rememberScrollState())
+            .width(WritingRules.noteStripContentWidthDp().dp)
+            .padding(horizontal = Metrics.noteToolStripInsetDp.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Metrics.noteToolGapDp.dp)) {
             val s = field.selection.min; val e = field.selection.max
             ToolButton("☐", "Checkbox list", skin) { set(NoteEditing.toggleLine(field.text, s, e, LineKind.Checkbox)) }
             ToolButton("•", "Bullet list", skin) { set(NoteEditing.toggleLine(field.text, s, e, LineKind.Bullet)) }
@@ -275,9 +285,9 @@ private fun NoteEditBody(initialText: String, caret: Int, skin: Skin, modifier: 
 
 @Composable
 private fun ToolButton(label: String, description: String, skin: Skin, style: SpanStyle = SpanStyle(), action: () -> Unit) {
-    Box(Modifier.heightIn(min = Metrics.menuRowHeightDp.dp).widthIn(min = Metrics.menuRowHeightDp.dp)
-        .semantics { contentDescription = description }.clickable(onClick = action)
-        .padding(horizontal = Metrics.lineGapDp.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(Metrics.noteToolTargetDp.dp)
+        .semantics { contentDescription = description }.clickable(onClick = action),
+        contentAlignment = Alignment.Center) {
         BasicText(AnnotatedString(label, style), style = noteStyle(skin).copy(color = Color(skin.colors.accent.toInt())))
     }
 }

@@ -27,12 +27,7 @@ held in the right hand, in portrait, at about 384 x 853 dp.
 
 ## What it does
 
-Version 1.5.11. The 1.5 line makes Home easier to arrange, merges related hub
-pages, makes search find more, and takes the reader through search, comfort,
-define, translate and read aloud. It also adds library shelves and shelf rules,
-comic (CBZ) reading, weekly automatic backups, and demo content for every page.
-Local builds and unit tests pass, but a full pass on a real phone has not been
-recorded yet.
+This is the public build on the GitHub releases page. Everything below is in it.
 
 ### The home screen
 
@@ -71,7 +66,7 @@ you allow them. Pick a mode under the search box:
   Actions. Latin typing finds Cyrillic names and back, and an app can have a
   second name you set. Long-press an app row for Add to arc, Add to folder, App
   info, Uninstall, Hide or Set alias.
-- **Translate**: needs the internet build and your own DeepL key.
+- **Translate**: needs your own DeepL key.
 - **Note**: type and save a quick note. A "Saved to Notes" card stays for a few
   seconds with an Undo.
 - **Calculate**: sums and percentages.
@@ -110,8 +105,8 @@ Standard or Tall size.
 - **Rhythm.** The day as a 24-hour ring: when the screen was on, first pickup,
   pickups, and the longest phone-free stretch. Look at earlier days too.
 - **Sky.** Sunrise, sunset, golden hour, day length and the moon phase, all
-  calculated on the phone. The place comes from the Weather page in the weather
-  build, or from a latitude and longitude you type.
+  calculated on the phone. The place comes from the Weather page, or from a
+  latitude and longitude you type.
 - **Year.** One dot per day of the year, shaded by steps, screen time, data used
   or pickups, with countdowns to dates you add.
 - **Records.** Your own personal bests from the daily record.
@@ -129,7 +124,7 @@ Standard or Tall size.
 - **Library.** Your chosen books on shelves, the last one marked Continue. Shelves
   can sort themselves by file type, folder or name, and comics read page by page.
 - **Timers, Agenda, Media.** Timers, calendar events and the playing track.
-- **Weather** (weather build only). Seven days, an hour-by-hour view for each
+- **Weather.** Seven days, an hour-by-hour view for each
   day, up to six saved places and a place search.
 
 ### Library and reader
@@ -137,9 +132,8 @@ Standard or Tall size.
 - **Find books.** Choose the folders Parc may look in, pick the file types,
   search by name and tick the files to show on the shelf. Parc remembers what it
   found, so the screen opens fast and refreshes in the background; reopen it any
-  time and use Scan again. The normal and weather builds offer optional all-files
-  access; without it, and in the Play build, use Android's folder and document
-  pickers. A "+" tile after the last book opens Find books.
+  time and use Scan again. Find books can offer optional all-files access; without
+  it, use Android's folder and document pickers. A "+" tile after the last book opens Find books.
 - **Shelves.** All, Reading, Finished and your own shelves across the top. A
   shelf can have rules (file type, folder, name contains) and sort itself; a book
   can sit on several shelves, and a finished book can be marked in one tap.
@@ -147,29 +141,39 @@ Standard or Tall size.
   place you left off. Text size, spacing, font, page light, night mode and
   brightness are yours; volume keys can turn pages. Search inside a book and
   jump; bookmark pages; highlight a passage and send it to Commonplace. Select a
-  word to Define it through a dictionary app or Translate it in the internet
-  build. The text reader can read aloud with the phone's own voice, with
+  word to Define it through a dictionary app or Translate it. The text reader can read aloud with the phone's own voice, with
   play/pause, speed and stop-at-chapter-end. PDFs have pages and pinch or
   double-tap zoom, and comics swipe and zoom. A file opened from another app
   reads in Parc without joining the library.
 
 ### Settings, backup and the rest
 
-- **Settings in five groups.** Home, Appearance, Gestures & search,
-  Notifications & Focus, and Data & about. Search finds each setting.
+- **Settings in six groups.** Appearance, Home layout, Hub pages, Gestures &
+  search, Notifications & focus, and Data & help. At the top, a search box finds
+  each setting, and six tiles (Skin, Wallpaper, Arcs, Glass, Left hand, Lock
+  layout) jump to the most used ones; the last three switch in place.
 - **Backup and restore.** Save your layout, settings, notes, shelves and quotes
   to a file you choose, and restore it later. It also keeps your day records,
   chosen book list, reading places, bookmarks and highlights; message and
-  translation histories stay out.
+  translation histories stay out. The export screen says "Encrypted" or "Not
+  encrypted". A backup without a passphrase leaves your DeepL key out.
 - **Back up every week.** Pick a folder and Parc writes the same backup there
   about once a week, while the phone is charging and idle. It keeps the newest
-  four files and needs no account or internet.
+  four files and needs no account or internet. The weekly backup is always
+  encrypted, so turning it on asks for a passphrase first. If the passphrase is
+  missing, Parc writes nothing and says "Weekly backup paused: add a
+  passphrase". Nobody can recover a forgotten passphrase.
+- **Update check.** See "Updates" below.
+- **Report a problem.** Settings > Data & help > This build. It shows a short
+  report you can edit, then opens a pre-filled new issue on GitHub in your
+  browser (you need a free GitHub account), or copies the text. Only the Parc
+  version, Android version and phone model are added, plus the last crash note
+  if you turn that on. Parc sends nothing itself.
 - **What's new.** After an update Parc shows short release notes in plain words.
 
-Everything above is free, on every channel, with no locked features and no Play
-Billing. Donations are the only money; there is no paid version, and the public
-build stays open source. The `play` build is a separate flavour for a possible
-store release.
+Everything above is free, with no locked features and no Play Billing.
+Donations are the only money; there is no paid version, and the build stays
+open source.
 
 ### Something hidden
 
@@ -180,7 +184,7 @@ Parc keeps a small secret in the hub. Nothing in Settings mentions it, and it is
 
 ### Screenshots
 
-All of these use Parc's built-in sample data (invented titles, places and messages), so none of it is real. Both hubs are set to the Glass effect at 35 percent opacity over a picture, each in its own colour. Taken on Parc 1.5.0.
+All of these use Parc's built-in sample data (invented titles, places and messages), so none of it is real. Both hubs are set to the Glass effect at 35 percent opacity over a picture, each in its own colour. Taken on an earlier version, before Settings was redesigned.
 
 <table>
 <tr>
@@ -226,7 +230,6 @@ All of these use Parc's built-in sample data (invented titles, places and messag
 <td align="center"><img src="docs/media/screenshots/search-calculate.png" alt="Search, with a sum" width="240"><br>Search, with a sum</td>
 <td align="center"><img src="docs/media/screenshots/search-note.png" alt="Search, Note mode" width="240"><br>Search, Note</td>
 <td align="center"><img src="docs/media/screenshots/search-files.png" alt="Search, Files mode" width="240"><br>Search, Files</td>
-<td align="center"><img src="docs/media/screenshots/settings-root.png" alt="Settings, five groups" width="240"><br>Settings, five groups</td>
 </tr>
 </table>
 
@@ -234,14 +237,13 @@ Wallpapers in the screenshots: photos by Bharath Kumar, Micke Lindström, Pebri 
 
 ## Privacy
 
-<img src="docs/media/privacy.svg" alt="Weather and Translate are the only online features; no accounts, ads, analytics or tracking" width="100%">
-
 The public GitHub release is the **family internet build**. It uses the internet
-only for Weather and Translate (your own DeepL key), never for accounts, ads,
-analytics or tracking. The `personal` and `play` builds leave Weather and
-Translate out and have no `INTERNET` permission; the build fails if that
-permission or any network class appears in their compiled code. Actions such as
-replying or opening a web search can hand data to another app at your request.
+for three things only: Weather, Translate (your own DeepL key) and a once-a-day
+check for a newer Parc. It never uses it for accounts, ads, analytics or
+tracking. The `play` build leaves all three out and has no `INTERNET`
+permission; the build fails if that permission or any network class appears in
+its compiled code. Actions such as replying or opening a web search can hand data
+to another app at your request.
 
 Weather uses Open-Meteo over https, with no account, key or location permission.
 A city search sends the name you type. Forecasts send only rounded coordinates
@@ -250,9 +252,8 @@ forecasts for offline use. Refresh normally runs every 30 minutes per place
 while Weather is on screen; a failed first fetch can retry after five minutes.
 Nothing is fetched in the background. Saved places are in Parc backups;
 cached forecasts are not. Translate sends text only in Translate mode, after a
-short pause or Enter. The key is in Parc backups, readable unless you set a
-backup passphrase; saved translations stay out of backups.
-The builds use the same package; updates require the same signing key.
+short pause or Enter. The key is in Parc backups only when the backup is
+encrypted with a passphrase; saved translations stay out of backups.
 There are no Parc accounts, ads, analytics, tracking or crash uploads.
 
 Notes, quotes, daily records, your chosen book list, shelves and their rules,
@@ -272,7 +273,26 @@ A backup or diagnostics file leaves Parc only when you pick a destination
 yourself. Translation history stays on the phone only and is not included in a
 backup.
 
-`PRIVACY.md` has the full list of what is read, why, and what is stored.
+`PRIVACY.md` has the full list of what is read, why, what is stored, every
+permission, and how the update check works.
+
+## Updates
+
+Parc can tell you when a newer version is on GitHub. It is switched on by
+default and you can turn it off in Settings > Data & help > This build >
+**Check for updates**.
+
+- About once a day Parc makes one request to `api.github.com` for the latest
+  release. GitHub sees your IP address; the request carries no account or
+  identifier. If you turn the switch off, Parc asks only when you tap **Check
+  now**.
+- A newer version shows a quiet "Update available" row on the Today page and at
+  the top of Settings. Nothing is downloaded until you tap **Update**.
+- Parc then downloads the APK and its checksum file from the project's GitHub
+  release, checks the SHA-256, and hands the file to Android's installer. Android
+  asks you to confirm, and only accepts an update signed with the same key as
+  the Parc you have. Parc never installs anything silently.
+- The `play` build has no update check.
 
 ## Requirements
 
@@ -280,6 +300,24 @@ backup.
 - A portrait phone. There is no tablet or landscape layout.
 - To build: JDK 21, Android SDK platform 36, and Gradle through the included
   wrapper (8.11.1).
+
+## Install and update
+
+1. Open the latest release on the GitHub releases page and download the APK.
+2. Open it. Android asks once to allow installs from your browser or files app.
+3. Set Parc as your default home app in Android's default apps settings.
+
+The first install of 1.6.0 is manual. From 1.6.0 on, Parc can offer updates
+itself (see "Updates" above), and you only tap Update.
+
+**Coming from 1.1.1?** The signing key changed, and Android refuses to update an
+app over a copy signed with a different key. Uninstall 1.1.1 first, then install
+1.6.0. If you want to keep your layout, export a Parc backup before you
+uninstall and restore it after.
+
+[Obtainium](https://github.com/ImranR98/Obtainium) can also install and update
+Parc from the release page, if you prefer it. The same rule applies: an update
+must be signed with the same key as the installed copy.
 
 ## Build from source
 
@@ -290,19 +328,19 @@ Install JDK 21 and the Android SDK, then point Gradle at the SDK with the
 ```sh
 git clone https://github.com/masterdroid-arch/Parc-Launcher
 cd Parc-Launcher
-./gradlew assemblePersonalDebug
+./gradlew assembleFamilyDebug
 ```
 
 The debug APK is written to:
 
 ```
-app/build/outputs/apk/personal/debug/app-personal-debug.apk
+app/build/outputs/apk/family/debug/app-family-debug.apk
 ```
 
 Install it on a connected phone or emulator:
 
 ```sh
-adb install -r app/build/outputs/apk/personal/debug/app-personal-debug.apk
+adb install -r app/build/outputs/apk/family/debug/app-family-debug.apk
 ```
 
 Run the unit tests with:
@@ -311,42 +349,18 @@ Run the unit tests with:
 ./gradlew testDebugUnitTest
 ```
 
-The `personal` flavour is the full-feature build described above, without
-Weather, Translate or `INTERNET`. The `personalWeather` and `family` flavours add
-Weather, DeepL translation and `INTERNET`; their code lives only in
-`app/src/personalWeather`, and the builds without Weather compile a stub from
-`app/src/noWeather` instead. `family` is the public GitHub release: the same app
-with no personal-only pages and no signing set up. A `play` flavour also exists
-for a possible store version; it removes a few permissions from its manifest and
-never gets Weather. All use the package name `com.brightblu.parc`.
+`family` is the public release: Weather, Translate, the update check and
+`INTERNET`. A `play` flavour also exists for a possible store version; it removes
+several permissions from its manifest and has no internet access. Both use the
+package name `com.brightblu.parc`.
 
 A release build is unsigned on purpose, because the distribution key is kept
 out of the source tree. `./gradlew :app:copyFamilyReleaseApk` writes
-`Parc-<version>-family-unsigned.apk`; that is the public GitHub build.
-`./gradlew :app:copyReleaseApk` writes the personal build
-(`Parc-<version>-personal-unsigned.apk`), and
-`./gradlew :app:copyWeatherReleaseApk` writes the weather build
-(`Parc-<version>-weather-unsigned.apk`). Sign it with your own
-key before installing or sharing it; `scripts/create-release-key.sh` and
+`Parc-<version>-family-unsigned.apk`. Sign it with your own key before
+installing or sharing it; `scripts/create-release-key.sh` and
 `scripts/sign-release.sh` do that in a terminal. A build signed with a different
 key will not update over an install signed with another key; uninstall the old
 copy first, and keep a Parc backup if you want to restore your layout.
-
-## Install and update with Obtainium
-
-[Obtainium](https://github.com/ImranR98/Obtainium) installs Android apps from
-their release pages, so Parc can update without an app store.
-
-1. Install Obtainium from its own releases page, then open it.
-2. Tap **Add App** and paste the Parc repository address: `https://github.com/masterdroid-arch/Parc-Launcher`.
-   Choose the latest published release and install its `family` APK.
-3. Let Obtainium check that repository for new releases. When a new Parc
-   release appears, install the update from Obtainium.
-
-Parc can only update over an existing copy when the new APK is signed with the
-same key. If the signing key changes or is lost, Android refuses the update and
-Obtainium cannot override that. Export a Parc backup, uninstall Parc, install
-the newly signed APK, then restore the backup.
 
 ## Licence
 
@@ -368,9 +382,12 @@ way. If it helps you, you can leave a tip on Ko-fi:
 
 https://ko-fi.com/parcapp
 
-Nothing is locked behind it. Tapping the link leaves Parc and opens Ko-fi in
-your browser; Parc shares nothing.
+Nothing is locked behind it. The same link is in Settings > Data & help > This
+build (Support Parc on Ko-fi). Tapping it leaves Parc and opens Ko-fi in your
+browser; Parc shares nothing.
 
 ## Contact
+
+Found a problem? Use Report a problem in Settings, or open an issue:
 
 https://github.com/masterdroid-arch/Parc-Launcher/issues

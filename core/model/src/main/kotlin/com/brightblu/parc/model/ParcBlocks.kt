@@ -183,7 +183,7 @@ fun ParcSettingsRow(
 ) {
     Row(modifier.fillMaxWidth().heightIn(min = Metrics.settingsRowMinHeightDp.dp).parcRowPadding(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+        horizontalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
         leading?.invoke()
         Column(Modifier.weight(1f), content = content)
         trailing?.invoke()

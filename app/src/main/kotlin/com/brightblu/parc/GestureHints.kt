@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,11 +58,6 @@ internal object GestureHintRules {
     const val AutoHideMs = 9_000L
 }
 
-/** One start of Parc shows at most one Home hint. Held in memory only, so a new start offers the next. */
-internal object GestureHintSession {
-    @Volatile var shown: Boolean = false
-}
-
 /**
  * A quiet one-line pill with a drawn symbol: it never covers the arcs and never blocks a touch outside
  * itself. "Got it" closes this hint; "Skip" closes every remaining hint. It closes itself after a few
@@ -71,9 +67,16 @@ internal object GestureHintSession {
 internal fun GestureHintChip(hint: GestureHint, skin: Skin, modifier: Modifier = Modifier,
     onGotIt: () -> Unit, onSkipAll: () -> Unit) {
     LaunchedEffect(hint) { delay(GestureHintRules.AutoHideMs); onGotIt() }
+    // T391: never float over an open sheet; the hint timer above keeps running, so it is simply gone when the sheet closes.
+    if (SheetHost.content != null) return
+    // T411: tell the queue a tip is on screen, so the new-app bar and other tips wait.
+    DisposableEffect(hint) {
+        TipSession.latch.setShowing(if (hint == GestureHint.PageName) TipKind.PageName else TipKind.HomeGesture, true)
+        onDispose { TipSession.latch.setShowing(if (hint == GestureHint.PageName) TipKind.PageName else TipKind.HomeGesture, false) }
+    }
     val shape = RoundedCornerShape(Metrics.hintCornerDp.dp)
     Row(modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp)
-        .background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha), shape)
+        .background(skin.floatingSurface(), shape)
         .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), shape)
         .padding(start = Metrics.cardInsetDp.dp)
         .semantics { contentDescription = "Hint. ${hint.text}" },

@@ -33,13 +33,24 @@ import com.brightblu.parc.ring.SoundTheme
  * stays exactly as it was.
  */
 
-/** T220: the five root cards. Each group page lists its three or four sub-page cards. */
-internal enum class SettingsGroup(val title: String, val summary: String, val intro: String, val icon: SettingsIcon) {
-    Home("Home", "What is on the screen", "The arcs, the apps and folders on them, and what is hidden or locked.", SettingsIcon.Home),
+/**
+ * T373: the six root groups, in the order the root draws them. The enum names are the stable search keys
+ * (`group:Home`), so a rename only changes [title]; [aliases] keep every old group name searchable.
+ */
+internal enum class SettingsGroup(
+    val title: String, val summary: String, val intro: String, val icon: SettingsIcon,
+    val aliases: List<String> = emptyList(),
+) {
     Appearance("Appearance", "How Parc looks", "The skin, the wallpaper, the icons and clock, and both hub cards.", SettingsIcon.Appearance),
+    Home("Home layout", "Arrange your apps", "The arcs, the apps and folders on them, and what is hidden or locked.", SettingsIcon.Home,
+        aliases = listOf("Home")),
+    HubPages("Hub pages", "Choose what the hub shows", "Every hub page, its visibility and order, and the stats hub's size and full-screen view.",
+        SettingsIcon.HubPages, aliases = listOf("Stats hub pages")),
     GesturesSearch("Gestures & search", "What your hands do", "Swipes, hub taps, the way Parc feels, and what search finds.", SettingsIcon.GesturesSearch),
-    NotificationsFocus("Notifications & Focus", "What gets through", "Notification access and badges, Messages, and Focus modes.", SettingsIcon.NotificationsFocus),
-    DataAbout("Data & about", "What is stored and this build", "Backups, the version, phone access and diagnostics.", SettingsIcon.DataAbout),
+    NotificationsFocus("Notifications & focus", "What gets through", "Notification access and badges, Messages, and Focus modes.", SettingsIcon.NotificationsFocus,
+        aliases = listOf("Notifications & Focus")),
+    DataAbout("Data & help", "Export, phone access and this build", "Backups, the version, phone access and diagnostics.", SettingsIcon.DataAbout,
+        aliases = listOf("Data & about", "Backup and about")),
 }
 
 /** What a row is on screen. Every value kind stores an index into [SettingDef.options]. */
@@ -88,11 +99,9 @@ internal enum class SettingsPage(
         "What your thumb does: swipes, hub taps, and how the joystick aims.", aliases = listOf("Gestures and feel")),
     Feel(SettingsGroup.GesturesSearch, "Feel", "Vibration, sound and arc feel",
         "How Parc feels when you touch it: vibration, click sounds, spin, bounce and magnification.", aliases = listOf("Gestures and feel")),
-    Search(SettingsGroup.GesturesSearch, "Search", "Search sources and phone settings",
-        "What search finds, and whether it can open phone settings, files and calendar events.", aliases = listOf("Search and notifications", "Search")),
-
-    SearchPreferences(SettingsGroup.GesturesSearch, "Search preferences", "Web engine and recent searches",
-        "The web engine search uses and the recent searches it remembers.", parent = Search, aliases = listOf("Search", "Search and notifications")),
+    Search(SettingsGroup.GesturesSearch, "Search settings", "Sources, access, web engine and recent searches",
+        "What search finds, the access each source needs, the web engine and the recent searches it remembers.",
+        aliases = listOf("Search and notifications", "Search", "Search preferences")),
 
     // Notifications & Focus
     Notifications(SettingsGroup.NotificationsFocus, "Notifications", "Access, badges and notification menus",
@@ -101,6 +110,9 @@ internal enum class SettingsPage(
         "Messages, its on-phone history, the apps that may post, and saved reply text.", aliases = listOf("Search and notifications", "Comms", "Messages")),
     Focus(SettingsGroup.NotificationsFocus, "Focus", "Modes, apps, schedules and strictness",
         "Choose a mode, its apps, times and how strict to be.", aliases = listOf("Search and notifications", "Focus")),
+    LaunchPause(SettingsGroup.NotificationsFocus, "Launch pause", "Pause before opening, daily limits and downtime",
+        "Choose the apps that pause before opening, an optional daily limit and one downtime schedule.",
+        aliases = listOf("pause", "limit", "downtime", "opening")),
 
     // Data & about
     DataBackup(SettingsGroup.DataAbout, "Backup", "Save or restore your setup",
@@ -113,14 +125,14 @@ internal enum class SettingsPage(
         "Scene details and the latest error, for bug reports.", aliases = listOf("Backup and about", "Help")),
 
     // Nested pages and editors (parent chains below)
-    HubPages(SettingsGroup.Appearance, "Pages & alerts", "Hub pages, their order, size, Agenda and alerts",
-        "Every hub page, its visibility and order, and the stats hub's size and full-screen view.", parent = Hubs,
-        aliases = listOf("Stats hub pages", "Hub pages", "Pages")),
-    HubOptions(SettingsGroup.Appearance, "Hub page options", "One page's tiles and behaviour",
+    HubPages(SettingsGroup.HubPages, "Hub pages", "Hub pages, their order, size, Agenda and alerts",
+        "Every hub page, its visibility and order, and the stats hub's size and full-screen view.",
+        aliases = listOf("Stats hub pages", "Hub pages", "Pages", "Pages & alerts")),
+    HubOptions(SettingsGroup.HubPages, "Hub page options", "One page's tiles and behaviour",
         "The tiles, order and behaviour of one hub page.", parent = HubPages),
-    Agenda(SettingsGroup.Appearance, "Agenda", "Calendars and days ahead",
+    Agenda(SettingsGroup.HubPages, "Agenda", "Calendars and days ahead",
         "Choose calendars and how many days to show.", parent = HubPages, aliases = listOf("Stats hub pages")),
-    StatsAlerts(SettingsGroup.Appearance, "Stats alerts and history", "Warning levels and history graphs",
+    StatsAlerts(SettingsGroup.HubPages, "Stats alerts and history", "Warning levels and history graphs",
         "Set warning levels and show history graphs.", parent = HubPages, aliases = listOf("Stats hub pages")),
     SkinStudio(SettingsGroup.Appearance, "Skin editor", "Make, import and export skin files",
         "Make your own skin, import or export skin files.", parent = AppearanceSkin, aliases = listOf("Look")),
@@ -147,11 +159,13 @@ internal enum class SettingsPage(
     Onboarding(SettingsGroup.DataAbout, "Show setup again", "Review the first-run steps",
         "Review home app, usage, contacts and notification access.", parent = DataPermissions, aliases = listOf("Backup and about")),
     Diagnostics(SettingsGroup.DataAbout, "Diagnostics", "Scene details and the latest error",
-        "Scene details and the latest error, for bug reports.", parent = DataHelp, aliases = listOf("Backup and about")),
+        "Scene details and the latest error, for bug reports.", aliases = listOf("Backup and about", "Help")),
     WhatsNew(SettingsGroup.DataAbout, "What's new", "What changed in this version",
         "What changed in this version.", parent = DataBuild, aliases = listOf("Backup and about")),
     VersionHistory(SettingsGroup.DataAbout, "Version history", "Every version and what it changed",
         "Every version and what it changed.", parent = DataBuild, aliases = listOf("Backup and about")),
+    ReportProblem(SettingsGroup.DataAbout, "Report a problem", "Send a bug report through GitHub or copy the details",
+        "Read the text, change it, then open a GitHub issue or copy it for email or Reddit.", parent = DataBuild, aliases = listOf("Backup and about")),
     SwipeUp(SettingsGroup.GesturesSearch, "Swipe up", "What a swipe up on Home opens",
         "Choose what a swipe up on Home opens.", parent = Gestures, aliases = listOf("Gestures and feel")),
     HubLongPress(SettingsGroup.GesturesSearch, "Hub long-press", "What holding the hub opens",
@@ -256,10 +270,17 @@ internal class SettingDef(
     val shown: (SettingsSnapshot) -> Boolean = { true },
     val opens: SettingsPage? = null,
     val detail: ((SettingsSnapshot) -> String)? = null,
+    /** T379: the longer explanation behind the row's Info target. Empty when the helper says everything. */
+    val info: String = "",
 ) {
     val hasValue: Boolean get() = read != null && write != null
     /** The title with its card where the title alone is shared ("Colour" becomes "Arc hub colour"), for search results. */
-    val fullTitle: String get() = if (title == "Colour" || title == "Opacity") "$card ${title.lowercase()}" else title
+    val fullTitle: String get() = when {
+        title == "Colour" -> "$card ${title.lowercase()}"
+        id == "ArcHubOpacity" -> "Arc hub opacity"
+        id == "StatsHubOpacity" -> "Stats hub opacity"
+        else -> title
+    }
     fun value(s: SettingsSnapshot): String = detail?.invoke(s)
         ?: read?.let { r -> options(s).getOrNull(r(s)) }.orEmpty()
 }
@@ -269,53 +290,59 @@ private fun Boolean.index() = if (this) 1 else 0
 
 internal object SettingsRegistry {
     private fun switch(id: String, title: String, help: String, page: SettingsPage, card: String, effect: SettingEffect,
-        words: List<String> = emptyList(), shown: (SettingsSnapshot) -> Boolean = { true },
+        words: List<String> = emptyList(), shown: (SettingsSnapshot) -> Boolean = { true }, info: String = "",
         get: (SettingsSnapshot) -> Boolean, set: (SettingsSnapshot, Boolean) -> SettingsSnapshot) =
         SettingDef(id, title, help, page, card, SettingControl.Switch, effect, words, { OffOn }, { get(it).index() },
-            { s, i -> set(s, i == 1) }, shown)
+            { s, i -> set(s, i == 1) }, shown, info = info)
 
     private fun page(id: String, title: String, help: String, page: SettingsPage, card: String, opens: SettingsPage,
-        words: List<String> = emptyList(), shown: (SettingsSnapshot) -> Boolean = { true }, detail: ((SettingsSnapshot) -> String)? = null) =
-        SettingDef(id, title, help, page, card, SettingControl.Page, SettingEffect.None, words, shown = shown, opens = opens, detail = detail)
+        words: List<String> = emptyList(), shown: (SettingsSnapshot) -> Boolean = { true }, detail: ((SettingsSnapshot) -> String)? = null,
+        info: String = "") =
+        SettingDef(id, title, help, page, card, SettingControl.Page, SettingEffect.None, words, shown = shown, opens = opens, detail = detail, info = info)
 
     private fun action(id: String, title: String, help: String, page: SettingsPage, card: String,
-        words: List<String> = emptyList(), detail: ((SettingsSnapshot) -> String)? = null) =
-        SettingDef(id, title, help, page, card, SettingControl.Action, SettingEffect.None, words, detail = detail)
+        words: List<String> = emptyList(), detail: ((SettingsSnapshot) -> String)? = null, info: String = "") =
+        SettingDef(id, title, help, page, card, SettingControl.Action, SettingEffect.None, words, detail = detail, info = info)
 
     private fun <T> choice(id: String, title: String, help: String, page: SettingsPage, card: String, effect: SettingEffect,
         values: (SettingsSnapshot) -> List<T>, label: (T) -> String, get: (SettingsSnapshot) -> T,
         set: (SettingsSnapshot, T) -> SettingsSnapshot, control: SettingControl = SettingControl.Choice,
         words: List<String> = emptyList(), shown: (SettingsSnapshot) -> Boolean = { true },
-        detail: ((SettingsSnapshot) -> String)? = null) =
+        detail: ((SettingsSnapshot) -> String)? = null, info: String = "") =
         SettingDef(id, title, help, page, card, control, effect, words, { s -> values(s).map(label) },
             { s -> values(s).indexOf(get(s)).coerceAtLeast(0) }, { s, i -> set(s, values(s)[i.coerceIn(values(s).indices)]) }, shown,
-            detail = detail)
+            detail = detail, info = info)
 
     private fun hubOpacityLabel(p: Int) = "$p %"
 
     val all: List<SettingDef> = listOf(
         // ---------------- Home > Arcs ----------------
-        choice("ArcsShown", "Arcs shown", "How many rings of apps and folders. Items on a removed arc move to the next ring",
+        choice("ArcsShown", "Arcs shown", "Removing a ring moves its apps one ring.",
             SettingsPage.HomeArcs, "Arcs", SettingEffect.Visual, { listOf(3, 4) }, { it.toString() }, { it.counts.arcs },
-            { s, v -> s.copy(counts = s.counts.copy(arcs = v)) }, words = listOf("rings", "arcs")),
-        choice("IconsPerArc", "Icons per arc", "Auto fits as many as the screen allows. Turn an arc to reach the rest",
+            { s, v -> s.copy(counts = s.counts.copy(arcs = v)) }, words = listOf("rings", "arcs", "items")),
+        choice("IconsPerArc", "Apps per arc", "Auto fits your screen.",
             SettingsPage.HomeArcs, "Arcs", SettingEffect.Visual, { s -> listOf(0) + (3..s.maxIconsPerArc.coerceAtLeast(3)).toList() },
             { if (it == 0) "Auto" else it.toString() }, { it.counts.icons }, { s, v -> s.copy(counts = s.counts.copy(icons = v)) },
-            words = listOf("slots", "apps per ring")),
-        // T312: one "Maximum apps" row per shown arc, rendered inline by the Settings host. Auto keeps
+            words = listOf("slots", "apps per ring", "Icons per arc"),
+            info = "Auto fits as many as the screen allows. Turn an arc to reach the rest."),
+        // T312: one "Arc capacities" row per shown arc, rendered inline by the Settings host. Auto keeps
         // the screen's visible count; a number is the arc's own ceiling, so an arc can rotate to hold
         // more than it shows.
-        SettingDef("ArcMaximums", "Maximum apps", "How many apps each arc can hold. Auto keeps as many as the screen shows",
-            SettingsPage.HomeArcs, "Maximum apps", SettingControl.Custom, SettingEffect.Logic,
-            words = listOf("apps", "maximum", "capacity", "inner", "outer")),
-        choice("ArcLayout", "Arc layout", "Line up icons across arcs or stagger them between arcs", SettingsPage.HomeArcs, "Arcs",
+        SettingDef("ArcMaximums", "Arc capacities", "Limit how many apps each ring holds.",
+            SettingsPage.HomeArcs, "Arc capacities", SettingControl.Custom, SettingEffect.Logic,
+            words = listOf("apps", "maximum", "capacity", "inner", "outer", "Maximum apps"),
+            info = "Auto keeps as many as the screen shows."),
+        choice("ArcLayout", "Icon alignment", "Line up icons or stagger them.", SettingsPage.HomeArcs, "Arcs",
             SettingEffect.Visual, { listOf(false, true) }, { if (it) "Aligned" else "Staggered" }, { it.aligned },
-            { s, v -> s.copy(aligned = v) }, words = listOf("align", "stagger")),
-        switch("LockLayout", "Lock layout", "Stop apps and folders on the arcs from being moved, added or removed",
+            { s, v -> s.copy(aligned = v) }, words = listOf("align", "stagger", "Arc layout"),
+            info = "Line up icons across arcs or stagger them between arcs."),
+        switch("LockLayout", "Lock layout", "Prevent moves, additions and removals.",
             SettingsPage.HomeArcs, "Arcs", SettingEffect.Logic, listOf("freeze", "arrange", "move", "remove"),
+            info = "Stop apps and folders on the arcs from being moved, added or removed.",
             get = { it.layoutLocked }) { s, on -> s.copy(layoutLocked = on) },
-        switch("LeftHand", "Left hand", "Move the hub to the bottom left and mirror every arc. Your layout is not changed",
+        switch("LeftHand", "Left hand", "Mirror the hub and rings.",
             SettingsPage.HomeArcs, "Arcs", SettingEffect.Logic, listOf("left-handed", "mirror", "side", "lefty"),
+            info = "Move the hub to the bottom left and mirror every arc. Your layout is not changed.",
             get = { it.leftHand }) { s, on -> s.copy(leftHand = on) },
         page("Rotation", "Arc rotation", "How each arc is turned and positioned", SettingsPage.HomeArcs, "Arcs", SettingsPage.Rotation,
             listOf("turn", "rotate")),
@@ -328,40 +355,51 @@ internal object SettingsRegistry {
             SettingEffect.Visual, listOf("work profile", "briefcase"), get = { it.markWorkApps }) { s, on -> s.copy(markWorkApps = on) },
 
         // ---------------- Home > Hidden & locked ----------------
-        page("HiddenApps", "Hidden apps", "Hide apps or bring them back", SettingsPage.HiddenLocked, "Hidden apps", SettingsPage.Hidden,
-            listOf("hide")),
-        page("HiddenFolders", "Hidden folders", "Folders you hide leave Home with their apps",
-            SettingsPage.HiddenLocked, "Hidden folders", SettingsPage.HiddenFolders, listOf("hide", "folder"), detail = { it.hiddenFoldersSummary }),
-        page("LockedFolders", "Locked folders", "Hide the apps in chosen folders until you confirm it is you",
-            SettingsPage.HiddenLocked, "Locked", SettingsPage.LockedFolders, listOf("private", "fingerprint", "lock"), detail = { it.lockedFoldersSummary }),
+        page("HiddenApps", "Hidden apps", "Hide throughout Parc.", SettingsPage.HiddenLocked, "Hidden apps", SettingsPage.Hidden,
+            listOf("hide"),
+            info = "Hidden apps leave the arcs, search, All apps, folders, Messages and Media. The Android shade and other apps are not affected."),
+        page("HiddenFolders", "Hidden folders", "Apps leave Home too.",
+            SettingsPage.HiddenLocked, "Hidden folders", SettingsPage.HiddenFolders, listOf("hide", "folder"),
+            detail = { it.hiddenFoldersSummary },
+            info = "Folders you hide leave Home with their apps. Unhiding brings both back."),
+        page("LockedFolders", "Locked folders", "Unlock with your confirmation.",
+            SettingsPage.HiddenLocked, "Locked", SettingsPage.LockedFolders, listOf("private", "fingerprint", "lock"),
+            detail = { it.lockedFoldersSummary },
+            info = "Hide the apps in chosen folders until you confirm it is you. Nothing is encrypted."),
 
         // ---------------- Appearance > Skin ----------------
-        SettingDef("Appearance", "Skin", "The colours and shapes of Parc. Swipe the cards and tap one to try it",
+        SettingDef("Appearance", "Skin", "Colours, shapes and saved skins.",
             SettingsPage.AppearanceSkin, "Skin", SettingControl.Custom, SettingEffect.Visual, listOf("theme", "colours", "style"),
             options = { s -> s.skins.map { it.name } }, read = { s -> s.skins.indexOfFirst { it.id == s.skinId }.coerceAtLeast(0) },
-            write = { s, i -> s.copy(skinId = s.skins[i.coerceIn(s.skins.indices)].id) }),
-        page("SkinStudio", "Skin editor", "Make your own skin, import or export skin files", SettingsPage.AppearanceSkin, "Skin",
-            SettingsPage.SkinStudio, listOf("custom skin", "import", "export")),
+            write = { s, i -> s.copy(skinId = s.skins[i.coerceIn(s.skins.indices)].id) },
+            info = "The colours and shapes of Parc. Swipe the cards and tap one to try it."),
+        page("SkinStudio", "Skin editor", "Import, export or make skins.", SettingsPage.AppearanceSkin, "Skin",
+            SettingsPage.SkinStudio, listOf("custom skin", "import", "export"),
+            info = "Make your own skin, import or export skin files."),
 
         // ---------------- Appearance > Wallpaper ----------------
-        choice("WallpaperSkinMode", "Wallpaper skin colours", "Dark or light colours taken from your wallpaper",
+        choice("WallpaperSkinMode", "Wallpaper skin colours", "Dark or light colours from your wallpaper",
             SettingsPage.AppearanceWallpaper, "Wallpaper skin", SettingEffect.Visual, { WallpaperMode.entries }, { it.label }, { it.wallpaperMode },
             { s, v -> s.copy(wallpaperMode = v) }, shown = { it.wallpaperSkinSupported && it.skinId == "wallpaper" }),
-        choice("WallpaperSkinLook", "Wallpaper skin based on", "Which skin's frames and shapes the Wallpaper skin uses",
+        choice("WallpaperSkinLook", "Wallpaper skin based on", "Frames and shapes it borrows",
             SettingsPage.AppearanceWallpaper, "Wallpaper skin", SettingEffect.Visual, { WallpaperLook.entries }, { it.label }, { it.wallpaperLook },
-            { s, v -> s.copy(wallpaperLook = v) }, shown = { it.wallpaperSkinSupported && it.skinId == "wallpaper" }),
-        SettingDef("WallpaperImage", "What sits behind Parc", "Your phone's wallpaper, a picture you choose, or just the skin's colour",
+            { s, v -> s.copy(wallpaperLook = v) }, shown = { it.wallpaperSkinSupported && it.skinId == "wallpaper" },
+            info = "Which skin's frames and shapes the Wallpaper skin uses."),
+        SettingDef("WallpaperImage", "Wallpaper", "Phone wallpaper, picture or skin colour.",
             SettingsPage.AppearanceWallpaper, "Wallpaper", SettingControl.Custom, SettingEffect.Visual,
-            listOf("wallpaper", "background", "picture", "photo", "image"),
+            listOf("wallpaper", "background", "picture", "photo", "image", "What sits behind Parc"),
             options = { WallpaperChoices.map(::wallpaperChoiceLabel) }, read = { s -> wallpaperChoiceIndex(s.look.wallpaper) },
-            write = { s, i -> s.copy(look = s.look.copy(wallpaper = WallpaperChoices[i.coerceIn(WallpaperChoices.indices)])) }),
-        choice("WallpaperDim", "Dim", "Darkens the wallpaper or picture so icons stand out. Glass cards darken with it",
+            write = { s, i -> s.copy(look = s.look.copy(wallpaper = WallpaperChoices[i.coerceIn(WallpaperChoices.indices)])) },
+            info = "Your phone's wallpaper, a picture you choose, or just the skin's colour."),
+        choice("WallpaperDim", "Wallpaper dim", "Darken the wallpaper and glass.",
             SettingsPage.AppearanceWallpaper, "Wallpaper", SettingEffect.Visual, { LookRules.DimSteps }, { "$it %" }, { it.look.wallpaperDimPercent },
-            { s, v -> s.copy(look = s.look.copy(wallpaperDimPercent = v)) }, SettingControl.Slider, listOf("darken", "dark", "wallpaper"),
-            shown = { it.hasWallpaper }),
-        switch("WallpaperReadability", "Keep text readable", "Shades the picture behind text and keeps the hub cards readable",
-            SettingsPage.AppearanceWallpaper, "Wallpaper", SettingEffect.Visual, listOf("readability", "scrim", "contrast", "shade"),
-            shown = { it.hasWallpaper }, get = { it.look.wallpaperReadability }) { s, on ->
+            { s, v -> s.copy(look = s.look.copy(wallpaperDimPercent = v)) }, SettingControl.Slider, listOf("darken", "dark", "wallpaper", "Dim"),
+            shown = { it.hasWallpaper },
+            info = "Darkens the wallpaper or picture so icons stand out. Glass cards darken with it."),
+        switch("WallpaperReadability", "Text shading", "Shade the background behind words.",
+            SettingsPage.AppearanceWallpaper, "Wallpaper", SettingEffect.Visual, listOf("readability", "scrim", "contrast", "shade", "Keep text readable"),
+            shown = { it.hasWallpaper }, get = { it.look.wallpaperReadability },
+            info = "Shades the picture behind text and keeps the hub cards readable.") { s, on ->
             s.copy(look = s.look.copy(keepTextReadable = on, wallpaperReadability = on, imageReadabilityScrim = on))
         },
 
@@ -369,9 +407,10 @@ internal object SettingsRegistry {
         choice("IconShape", "Icon shape", "The outline every app icon is cut to", SettingsPage.AppearanceIcons, "Icons",
             SettingEffect.Visual, { IconShape.entries }, LookRules::iconShapeLabel, { it.look.iconShape },
             { s, v -> s.copy(look = s.look.copy(iconShape = v)) }, words = listOf("icons", "round", "square")),
-        choice("IconSize", "Icon size", "Larger icons are easier to hit; arcs keep their spacing", SettingsPage.AppearanceIcons, "Icons",
+        choice("IconSize", "Icon size", "Bigger icons are easier to tap.", SettingsPage.AppearanceIcons, "Icons",
             SettingEffect.Visual, { LookRules.IconSizeSteps }, { "$it dp" }, { it.look.iconSizeDp },
-            { s, v -> s.copy(look = s.look.copy(iconSizeDp = v)) }, SettingControl.Slider, listOf("icons", "bigger", "smaller")),
+            { s, v -> s.copy(look = s.look.copy(iconSizeDp = v)) }, SettingControl.Slider, listOf("icons", "bigger", "smaller"),
+            info = "Larger icons are easier to hit; arcs keep their spacing."),
         choice("IconPack", "Icon pack", "Use icons from an installed icon pack", SettingsPage.AppearanceIcons, "Icons",
             SettingEffect.Visual, { s -> listOf<String?>(null) + s.iconPacks.map { it.first } },
             { pkg -> pkg ?: "None" }, { it.iconPack }, { s, v -> s.copy(iconPack = v) }, words = listOf("icons", "theme"),
@@ -381,52 +420,63 @@ internal object SettingsRegistry {
         choice("ClockStyle", "Clock style", "How the time is drawn", SettingsPage.AppearanceIcons, "Clock", SettingEffect.Visual,
             { ClockStyle.entries }, LookRules::clockStyleLabel, { it.look.clockStyle }, { s, v -> s.copy(look = s.look.copy(clockStyle = v)) },
             words = listOf("time", "font"), shown = { it.clockVisible }),
-        switch("ShowDate", "Date line", "Today's date under the small clock shown when the stats hub is off", SettingsPage.AppearanceIcons,
+        switch("ShowDate", "Date line", "Date under the small clock.", SettingsPage.AppearanceIcons,
             "Clock", SettingEffect.Visual, listOf("date", "clock"), shown = { it.clockVisible && !it.statsVisible },
+            info = "Today's date under the small clock shown when the stats hub is off.",
             get = { it.look.showDate }) { s, on -> s.copy(look = s.look.copy(showDate = on)) },
-        switch("ShowAlarm", "Next alarm", "Your next alarm under the small clock shown when the stats hub is off", SettingsPage.AppearanceIcons,
+        switch("ShowAlarm", "Next alarm", "Next alarm under the small clock.", SettingsPage.AppearanceIcons,
             "Clock", SettingEffect.Visual, listOf("alarm", "clock"), shown = { it.clockVisible && !it.statsVisible },
+            info = "Your next alarm under the small clock shown when the stats hub is off.",
             get = { it.look.showAlarm }) { s, on -> s.copy(look = s.look.copy(showAlarm = on)) },
 
         // ---------------- Appearance > Hubs ----------------
-        switch("GlassEffect", "Glass effect", "Both hub cards become frosted glass over your wallpaper or picture",
-            SettingsPage.Hubs, "Both hubs", SettingEffect.Visual, listOf("frosted", "blur", "transparent"),
+        switch("GlassEffect", "Glass", "Frost both hub cards.",
+            SettingsPage.Hubs, "Both hubs", SettingEffect.Visual, listOf("frosted", "blur", "transparent", "Glass effect"),
+            info = "Both hub cards become frosted glass over your wallpaper or picture.",
             get = { it.glass }) { s, on -> s.copy(hub = s.hub.copy(glass = on)) },
-        switch("GlassRefraction", "Glass refraction", "Bends the picture at the glass card edge, like a thick rim",
-            SettingsPage.Hubs, "Both hubs", SettingEffect.Visual, listOf("lens", "edge", "glass"), shown = { it.glass },
+        switch("GlassRefraction", "Glass edge", "Bend the picture at card edges.",
+            SettingsPage.Hubs, "Both hubs", SettingEffect.Visual, listOf("lens", "edge", "glass", "Glass refraction"), shown = { it.glass },
+            info = "Bends the picture at the glass card edge, like a thick rim.",
             get = { it.hub.refraction }) { s, on -> s.copy(hub = s.hub.copy(refraction = on)) },
         choice("ArcHubColour", "Colour", "The colour of the arc hub card", SettingsPage.Hubs, "Arc hub", SettingEffect.Visual,
             { HubColour.entries }, { it.label }, { it.hub.arc }, { s, v -> s.copy(hub = s.hub.copy(arc = v)) }, SettingControl.Colour,
             listOf("arc hub colour", "card colour")),
-        choice("ArcHubOpacity", "Opacity", "How solid the arc hub card is. Lower lets more of the wallpaper show",
+        choice("ArcHubOpacity", "Arc opacity", "Lower values reveal more wallpaper.",
             SettingsPage.Hubs, "Arc hub", SettingEffect.Visual, { s -> HubOpacity.stepsFor(s.glass) }, ::hubOpacityLabel,
             { s -> s.hub.arcOpacityPercent(glass = s.glass) }, { s, v -> s.copy(hub = s.hub.copy(arcOpacity = v)) },
-            SettingControl.Slider, listOf("arc hub opacity", "transparent", "see-through", "panel")),
+            SettingControl.Slider, listOf("arc hub opacity", "transparent", "see-through", "panel"),
+            info = "How solid the arc hub card is. Lower lets more of the wallpaper show."),
         choice("StatsHubColour", "Colour", "The colour of the stats hub card", SettingsPage.Hubs, "Stats hub", SettingEffect.Visual,
             { HubColour.entries }, { it.label }, { it.hub.stats }, { s, v -> s.copy(hub = s.hub.copy(stats = v)) }, SettingControl.Colour,
             listOf("stats hub colour", "card colour"), shown = { it.statsVisible }),
-        choice("StatsHubOpacity", "Opacity", "How solid the stats hub card is. Lower lets more of the wallpaper show",
+        choice("StatsHubOpacity", "Stats opacity", "Lower values reveal more wallpaper.",
             SettingsPage.Hubs, "Stats hub", SettingEffect.Visual, { s -> HubOpacity.stepsFor(s.glass) }, ::hubOpacityLabel,
             { s -> s.hub.statsOpacityPercent(glass = s.glass) }, { s, v -> s.copy(hub = s.hub.copy(statsOpacity = v)) },
-            SettingControl.Slider, listOf("stats hub opacity", "transparent", "see-through", "panel"), shown = { it.statsVisible }),
-        switch("StatsVisible", "Show stats hub", "Show the stats hub card above the arcs", SettingsPage.Hubs, "Stats hub",
-            SettingEffect.Visual, listOf("stats", "panel", "hide hub"), get = { it.statsVisible }) { s, on -> s.copy(statsVisible = on) },
-        page("HubPages", "Pages & alerts", "Add, remove or move pages; each page has its own options", SettingsPage.Hubs, "Pages & alerts",
-            SettingsPage.HubPages, listOf("pages", "order", "24-hour", "seconds", "time zone"), shown = { it.statsVisible }),
-
-        // ---------------- Appearance > Hubs > Pages & alerts ----------------
-        choice("HubSize", "Stats hub size", "Compact is short. Standard and Tall are the same height; Tall shows every tile of a page",
+            SettingControl.Slider, listOf("stats hub opacity", "transparent", "see-through", "panel"), shown = { it.statsVisible },
+            info = "How solid the stats hub card is. Lower lets more of the wallpaper show."),
+        // T375: Show stats hub and the page list live on Hub pages now; the ids and writes are unchanged.
+        // ---------------- Hub pages ----------------
+        switch("StatsVisible", "Show stats hub", "Show the stats hub card above the arcs", SettingsPage.HubPages, "Stats hub",
+            SettingEffect.Visual, listOf("stats", "panel", "hide hub", "show stats"), get = { it.statsVisible }) { s, on -> s.copy(statsVisible = on) },
+        choice("HubSize", "Default hub size", "Tall shows every tile.",
             SettingsPage.HubPages, "Stats hub", SettingEffect.Visual, { HubSize.entries }, { it.name }, { it.hubSize },
-            { s, v -> s.copy(hubSize = v) }, words = listOf("hub height", "tall", "compact"), shown = { it.statsVisible }),
+            { s, v -> s.copy(hubSize = v) }, words = listOf("hub height", "tall", "compact", "stats hub size"), shown = { it.statsVisible },
+            info = "Compact is short. Standard and Tall are the same height; Tall shows every tile of a page."),
         // T330: the way to the full-screen hub. Named the same words the view uses for its Expand control.
-        switch("HubFullScreen", "Full-screen hub",
-            "Pull the hub up or tap Expand to use the whole screen. Swipe down or press Back to close",
+        switch("HubFullScreen", "Full-screen hub", "Pull up or tap Expand.",
             SettingsPage.HubPages, "Stats hub", SettingEffect.Visual,
             listOf("full screen", "fullscreen", "expand", "whole screen"), shown = { it.statsVisible },
+            info = "Swipe down or press Back to close.",
             get = { it.hubFullScreen }) { s, on -> s.copy(hubFullScreen = on) },
+        // T375: the page switches are drawn by the Hub pages page itself, so this row is a search entry and a link target.
+        page("HubPages", "Page visibility", "Show, hide or reorder pages.",
+            SettingsPage.HubPages, "Page visibility",
+            SettingsPage.HubPages, listOf("pages", "order", "24-hour", "seconds", "time zone", "pages & alerts", "gear", "options"),
+            shown = { it.statsVisible },
+            info = "The gear beside each switch opens that page's options."),
         page("Agenda", "Agenda", "Choose calendars and how many days to show", SettingsPage.HubPages, "Pages", SettingsPage.Agenda,
             listOf("calendar", "events"), shown = { it.statsVisible }, detail = { it.agendaSummary }),
-        page("StatsAlerts", "Stats alerts and history", "Set warning levels and show history graphs", SettingsPage.HubPages, "Alerts",
+        page("StatsAlerts", "Stats alerts and history", "Set warning levels and history graphs", SettingsPage.HubPages, "Alerts",
             SettingsPage.StatsAlerts, listOf("battery", "temperature", "warning", "graph"), shown = { it.statsVisible }),
 
         // ---------------- Gestures & search > Gestures ----------------
@@ -434,12 +484,14 @@ internal object SettingsRegistry {
             listOf("gesture"), detail = { it.swipeUpLabel }),
         page("HubLongPress", "Hub long-press", "Choose what holding the hub opens", SettingsPage.Gestures, "Gestures",
             SettingsPage.HubLongPress, listOf("gesture", "hold"), detail = { it.hubLongPressLabel }),
-        action("ShowHintsAgain", "Show hints again", "Replay the short tips for turning arcs, search, the hub, editing and page names",
-            SettingsPage.Gestures, "Gestures", listOf("tips", "help", "first run")),
+        action("ShowHintsAgain", "Replay tips", "See the Home gestures again.",
+            SettingsPage.Gestures, "Gestures", listOf("tips", "help", "first run", "Show hints again"),
+            info = "Replay the short tips for turning arcs, search, the hub, editing and page names."),
         switch("HubDoubleTap", "Hub double-tap", "Open the last app with two hub taps", SettingsPage.Gestures, "Gestures",
             SettingEffect.Logic, listOf("last app"), get = { it.hubDoubleTap }) { s, on -> s.copy(hubDoubleTap = on) },
-        switch("Joystick", "Joystick aim", "Drag from the hub to aim at an app", SettingsPage.Gestures, "Gestures",
-            SettingEffect.Logic, listOf("aim", "drag"), get = { it.joystick }) { s, on -> s.copy(joystick = on) },
+        switch("Joystick", "Aim from hub", "Drag to point at an app.", SettingsPage.Gestures, "Gestures",
+            SettingEffect.Logic, listOf("aim", "drag", "Joystick aim"), info = "Drag from the hub to aim at an app.",
+            get = { it.joystick }) { s, on -> s.copy(joystick = on) },
 
         // ---------------- Gestures & search > Feel ----------------
         switch("Haptics", "Vibration", "Vibrate for taps and gestures", SettingsPage.Feel, "Feel",
@@ -449,9 +501,10 @@ internal object SettingsRegistry {
         choice("HapticPreset", "Vibration style", "How the vibration feels", SettingsPage.Feel, "Feel",
             SettingEffect.Logic, { HapticPreset.entries.filter { it != HapticPreset.Off } }, { it.label }, { it.feel.haptic },
             { s, v -> s.copy(feel = s.feel.copy(haptic = v)) }, words = listOf("haptics"), shown = { it.haptics != HapticsLevel.Off }),
-        choice("SoundTheme", "Click sounds", "A short sound for taps. Silent when the phone is on silent or vibrate",
+        choice("SoundTheme", "Click sounds", "A short sound for taps.",
             SettingsPage.Feel, "Feel", SettingEffect.Logic, { SoundTheme.entries }, { it.label }, { it.feel.sound },
-            { s, v -> s.copy(feel = s.feel.copy(sound = v)) }, words = listOf("sound", "click", "tick")),
+            { s, v -> s.copy(feel = s.feel.copy(sound = v)) }, words = listOf("sound", "click", "tick"),
+            info = "Silent when the phone is on silent or vibrate."),
         choice("SoundVolume", "Sound volume", "How loud the click sounds are", SettingsPage.Feel, "Feel",
             SettingEffect.Logic, { FeelUi.VolumeSteps }, { "$it %" }, { it.feel.volumePercent },
             { s, v -> s.copy(feel = s.feel.copy(volumePercent = v)) }, SettingControl.Slider, shown = { it.feel.sound != SoundTheme.Off }),
@@ -467,79 +520,98 @@ internal object SettingsRegistry {
 
         // ---------------- Gestures & search > Search ----------------
         page("Search", "Search preferences", "Web engine and recent searches", SettingsPage.Search, "Search",
-            SettingsPage.SearchPreferences, listOf("web", "google", "recent")),
-        switch("SearchPhoneSettings", "Search phone settings", "Let search open phone settings pages such as Wi-Fi or Battery",
-            SettingsPage.Search, "Search", SettingEffect.Logic, get = { it.searchPhoneSettings }) { s, on -> s.copy(searchPhoneSettings = on) },
-        switch("SearchFiles", "Search files", "Let search find photos, videos and music by name. Needs permission",
-            SettingsPage.Search, "Search", SettingEffect.Logic, listOf("photos", "music"), shown = { it.fileSearchAvailable },
+            SettingsPage.Search, listOf("web", "google", "recent", "engine", "sources")),
+        switch("SearchPhoneSettings", "Search phone settings", "Find phone settings pages.",
+            SettingsPage.Search, "Search", SettingEffect.Logic, get = { it.searchPhoneSettings },
+            info = "Let search open phone settings pages such as Wi-Fi or Battery.") { s, on -> s.copy(searchPhoneSettings = on) },
+        switch("SearchFiles", "Search files", "Find photos, videos and music.", SettingsPage.Search, "Search", SettingEffect.Logic,
+            listOf("photos", "music"), shown = { it.fileSearchAvailable },
+            info = "Needs files access. Add it from the row below.",
             get = { it.searchFiles }) { s, on -> s.copy(searchFiles = on) },
-        switch("SearchEvents", "Search calendar events", "Let search find calendar events in the next 60 days. Needs calendar permission",
-            SettingsPage.Search, "Search", SettingEffect.Logic, listOf("calendar"), get = { it.searchEvents }) { s, on -> s.copy(searchEvents = on) },
+        switch("SearchEvents", "Calendar results", "Find events in the next 60 days.", SettingsPage.Search, "Search", SettingEffect.Logic,
+            listOf("calendar", "Search calendar events"), info = "Needs calendar access. Add it from the row below.",
+            get = { it.searchEvents }) { s, on -> s.copy(searchEvents = on) },
 
         // ---------------- Notifications & Focus > Notifications ----------------
-        action("NotificationAccess", "Notification access", "Allow access for badges, Messages and notifications in menus",
-            SettingsPage.Notifications, "Access", listOf("permission"), detail = { if (it.notificationAccess) "Allowed" else "Not allowed" }),
+        action("NotificationAccess", "Notification access", "Allow badges and message previews.",
+            SettingsPage.Notifications, "Access", listOf("permission"), detail = { if (it.notificationAccess) "Allowed" else "Not allowed" },
+            info = "Allow access for badges, Messages and notifications in menus."),
 
         switch("NotificationBadges", "Notification badges", "Mark apps that have unread notifications", SettingsPage.Notifications,
             "Badges", SettingEffect.Visual, listOf("dots", "unread"), get = { it.badges }) { s, on -> s.copy(badges = on) },
         switch("BadgesInAllApps", "Badges in All apps", "Also show unread marks in All apps", SettingsPage.Notifications,
             "Badges", SettingEffect.Logic, listOf("dots"), shown = { it.badges }, get = { it.badgesInAllApps }) { s, on -> s.copy(badgesInAllApps = on) },
-        switch("MenuNotifications", "Notifications in menus", "Show an app's current notifications when you hold its icon",
-            SettingsPage.Notifications, "Menus", SettingEffect.Logic, listOf("long-press"), get = { it.menuNotifications }) { s, on ->
+        switch("MenuNotifications", "Notifications in menus", "Show notifications when you hold an icon.",
+            SettingsPage.Notifications, "Menus", SettingEffect.Logic, listOf("long-press"),
+            info = "Show an app's current notifications when you hold its icon.",
+            get = { it.menuNotifications }) { s, on ->
             s.copy(menuNotifications = on)
         },
-        switch("MenuNotificationText", "Show message text", "Show the message line under each title; off shows titles only",
-            SettingsPage.Notifications, "Menus", SettingEffect.Logic, shown = { it.menuNotifications },
+        switch("MenuNotificationText", "Show message text", "Show the message line.", SettingsPage.Notifications,
+            "Menus", SettingEffect.Logic, shown = { it.menuNotifications }, info = "Off shows titles only.",
             get = { it.menuNotificationText }) { s, on -> s.copy(menuNotificationText = on) },
         // ---------------- Notifications & Focus > Messages ----------------
         page("Comms", "Messages", "Messages, on-phone history and quick replies", SettingsPage.Messages, "Messages",
             SettingsPage.Messages, listOf("comms", "messages and quick replies", "whatsapp", "telegram", "reply")),
-        switch("CommsEnabled", "Messages on/off", "Live cards and recording; turning this off keeps stored history",
-            SettingsPage.Messages, "Messages", SettingEffect.Logic, listOf("comms", "live"), get = { it.commsEnabled }) { s, on ->
+        switch("CommsEnabled", "Live messages", "Turning off keeps saved messages.",
+            SettingsPage.Messages, "Messages", SettingEffect.Logic, listOf("comms", "live", "Messages on/off"),
+            info = "Live cards and recording; turning this off keeps stored history.",
+            get = { it.commsEnabled }) { s, on ->
             s.copy(commsEnabled = on)
         },
-        switch("CommsRecordHistory", "Record message history",
-            "Store messages from WhatsApp, Telegram and Instagram on this phone: text and links only, no images, not in backups",
+        switch("CommsRecordHistory", "Record message history", "Stored on this phone, never in backups.",
             SettingsPage.Messages, "History", SettingEffect.Logic, listOf("comms", "keep history", "storage"),
+            info = "Text and links only, no images. Messages from WhatsApp, Telegram and Instagram stay on this phone.",
             get = { it.commsRecordHistory }) { s, on -> s.copy(commsRecordHistory = on) },
         page("CommsApps", "Messages apps", "Choose which apps can show messages", SettingsPage.Messages, "Apps",
             SettingsPage.CommsApps, listOf("comms", "whatsapp", "telegram", "instagram")),
         page("QuickReplies", "Quick replies", "Add or remove saved reply text", SettingsPage.Messages, "Replies",
             SettingsPage.QuickReplies, listOf("comms", "canned")),
-        action("CommsClearHistory", "Clear message history", "Delete every stored message; this cannot be undone",
+        action("CommsClearHistory", "Clear message history", "Delete every message. Cannot be undone.",
             SettingsPage.Messages, "History", listOf("comms", "delete", "storage"), detail = { it.commsStorageLine }),
 
         // ---------------- Notifications & Focus > Focus ----------------
-        page("Focus", "Focus modes", "Choose a mode, its apps, times and how strict to be", SettingsPage.Focus, "Focus",
-            SettingsPage.Focus, listOf("work", "sleep", "do not disturb"), detail = { it.focusSummary }),
+        page("Focus", "Focus modes", "Choose a mode and how strict.", SettingsPage.Focus, "Focus",
+            SettingsPage.Focus, listOf("work", "sleep", "do not disturb"), detail = { it.focusSummary },
+            info = "Choose a mode, its apps, times and how strict to be."),
 
         // ---------------- Data & about > Backup ----------------
-        page("Backup", "Backup and restore", "Export or restore your layout and settings in one file", SettingsPage.DataBackup, "Backup",
-            SettingsPage.Backup, listOf("export", "import", "restore", "save", "weekly", "automatic", "folder")),
-        switch("WallpaperImageBackup", "Include wallpaper in backups", "Add the private picture to exported backups, maximum 2 MB",
-            SettingsPage.DataBackup, "Backup", SettingEffect.Logic, listOf("picture"), get = { it.look.includeWallpaperInBackups }) { s, on ->
+        page("Backup", "Backup and restore", "Export or restore one file.", SettingsPage.DataBackup, "Backup",
+            SettingsPage.Backup, listOf("export", "import", "restore", "save", "weekly", "automatic", "folder"),
+            info = "Export or restore your layout and settings in one file."),
+        switch("WallpaperImageBackup", "Back up wallpaper", "Include your private picture, up to 2 MB.",
+            SettingsPage.DataBackup, "Backup", SettingEffect.Logic, listOf("picture", "Include wallpaper in backups"),
+            info = "Add the private picture to exported backups, maximum 2 MB.",
+            get = { it.look.includeWallpaperInBackups }) { s, on ->
             s.copy(look = s.look.copy(includeWallpaperInBackups = on))
         },
 
         // ---------------- Data & about > This build ----------------
         SettingDef("About", "This build", "Version, version code, build time and code commit", SettingsPage.DataBuild, "About",
-            SettingControl.Custom, SettingEffect.None, listOf("version", "build", "about", "stamp")),
+            SettingControl.Custom, SettingEffect.None, listOf("version", "build", "about", "stamp", "ko-fi", "kofi", "support", "tip", "donate")),
         page("WhatsNew", "What's new", "What changed in this version", SettingsPage.DataBuild, "About", SettingsPage.WhatsNew,
             listOf("changelog", "release notes")),
         page("VersionHistory", "Version history", "Every version and what it changed", SettingsPage.DataBuild, "About",
             SettingsPage.VersionHistory, listOf("changelog")),
+        page("ReportProblem", "Report a problem", "Open a bug report with versions filled in.",
+            SettingsPage.DataBuild, "About", SettingsPage.ReportProblem, listOf("bug", "report", "problem", "issue", "feedback"),
+            info = "Shows the text first and lets you change it. Only the Parc version, Android version and phone model are added. Parc sends nothing itself."),
 
         // ---------------- Data & about > Permissions ----------------
-        page("Permissions", "Permissions", "See which optional phone access is on and turn it on", SettingsPage.DataPermissions,
-            "Access", SettingsPage.Permissions, listOf("privacy", "usage", "contacts", "calendar")),
-        action("RerunOnboarding", "Show setup again", "Review home app, usage, contacts and notification access",
-            SettingsPage.DataPermissions, "Access", listOf("onboarding", "setup")),
+        page("Permissions", "Permissions", "Optional phone access and setup.", SettingsPage.DataPermissions,
+            "Access", SettingsPage.Permissions, listOf("privacy", "usage", "contacts", "calendar"),
+            info = "See which optional phone access is on and turn it on."),
+        action("RerunOnboarding", "Show setup again", "Review the first-run setup.",
+            SettingsPage.DataPermissions, "Access", listOf("onboarding", "setup"),
+            info = "Review home app, usage, contacts and notification access."),
         action("AndroidSettings", "Android settings", "Open the phone's own settings app", SettingsPage.DataPermissions, "Access"),
 
         // ---------------- Data & about > Help ----------------
-        page("Diagnostics", "Diagnostics", "Scene details and the latest error, for bug reports", SettingsPage.DataHelp, "Help",
-            SettingsPage.Diagnostics, listOf("error", "crash", "debug")),
-    )
+        page("Diagnostics", "Diagnostics", "Scene details for a bug report.", SettingsPage.DataHelp, "Help",
+            SettingsPage.Diagnostics, listOf("error", "crash", "debug"),
+            info = "Scene details and the latest error, for bug reports."),
+    // T396: the family build's update check (Data & help > This build > Updates). Empty in every other build.
+    ) + FamilyUpdate.settingRows
 
     val byId: Map<String, SettingDef> = all.associateBy { it.id }
 
@@ -547,7 +619,7 @@ internal object SettingsRegistry {
     val hiddenLockedRowIds: Set<String> = setOf("HiddenApps", "HiddenFolders", "LockedFolders")
 
     /** The two rows that are page entries: searchable and jumpable, hidden on their own page. */
-    val selfEntryIds: Set<String> = setOf("Comms", "Focus")
+    val selfEntryIds: Set<String> = setOf("Comms", "Focus", "HubPages", "Search")
 
     /** Rows on one group sub-page or editor, in registry order. */
     fun on(page: SettingsPage): List<SettingDef> = all.filter { it.page == page }
@@ -557,6 +629,8 @@ internal object SettingsRegistry {
         val ownEntry = when (page) {
             SettingsPage.Messages -> "Comms"
             SettingsPage.Focus -> "Focus"
+            SettingsPage.HubPages -> "HubPages"
+            SettingsPage.Search -> "Search"
             else -> null
         }
         return on(page).filter { it.id != ownEntry && it.shown(s) }
@@ -570,8 +644,8 @@ internal object SettingsRegistry {
         val words = query.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (words.isEmpty()) return emptyList()
         return all.filter { def ->
-            val text = (listOf(def.title, def.help, def.page.title, def.card, def.page.group?.title.orEmpty(),
-                def.page.parent?.title.orEmpty()) + def.page.aliases + def.words).joinToString(" ")
+            val text = (listOf(def.title, def.help, def.info, def.page.title, def.card, def.page.group?.title.orEmpty(),
+                def.page.parent?.title.orEmpty()) + def.page.group?.aliases.orEmpty() + def.page.aliases + def.words).joinToString(" ")
             words.all { text.contains(it, ignoreCase = true) }
         }
     }

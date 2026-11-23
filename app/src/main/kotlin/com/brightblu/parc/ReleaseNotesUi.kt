@@ -88,5 +88,7 @@ internal fun HomeUpdateNotes(skin: Skin) {
         if (store.lastSeen == null && info.lastUpdateTime > info.firstInstallTime) store.lastSeen = 0
         visible = claimUpdate(store, BuildConfig.VERSION_CODE)
     }
+    // T411: tips wait while this dialog is open.
+    SideEffect { TipSession.latch.setWhatsNewOpen(visible) }
     if (visible) WhatsNewSheet(skin, entries.first { it.versionCode == BuildConfig.VERSION_CODE }) { visible = false }
 }

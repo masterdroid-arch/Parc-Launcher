@@ -36,7 +36,10 @@ internal fun WallpaperChooser(def: SettingDef, s: SettingsSnapshot, skin: Skin, 
     // and its footer on one screen, so the note is never cut by the bottom edge, and both paths say
     // the same words in the same shape.
     Column(Modifier.fillMaxWidth().parcRowPadding()) {
-        BasicText(def.title, style = settingsText(skin))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+            BasicText(def.title, Modifier.weight(1f), style = settingsText(skin))
+            if (def.info.isNotBlank()) SettingsInfo(def.title, def.info, skin)
+        }
         if (def.help.isNotBlank()) BasicText(def.help, style = settingsText(skin, skin.colors.textSecondary, true),
             modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
         WallpaperChoiceCards(skin, look.wallpaper, picture, phoneColour,

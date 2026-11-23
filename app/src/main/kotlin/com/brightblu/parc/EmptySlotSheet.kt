@@ -75,7 +75,7 @@ internal fun EmptySlotSheet(title: String, apps: List<AppEntry>, skin: Skin, pic
 internal fun EditModeBar(skin: Skin, modifier: Modifier = Modifier, onUndo: (() -> Unit)? = null) {
     Box(modifier.fillMaxWidth().padding(bottom = rememberPageInsets().bottomDp.dp)
         .padding(horizontal = Metrics.screenGutterDp.dp, vertical = Metrics.lineGapDp.dp), contentAlignment = Alignment.Center) {
-        Row(Modifier.background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha),
+        Row(Modifier.background(skin.floatingSurface(),
             RoundedCornerShape(Metrics.snackbarCornerDp.dp))
             .padding(start = Metrics.cardInsetDp.dp, end = Metrics.itemGapDp.dp, top = Metrics.rowGapDp.dp,
                 bottom = Metrics.rowGapDp.dp),

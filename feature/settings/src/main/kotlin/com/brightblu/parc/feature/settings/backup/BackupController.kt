@@ -25,6 +25,7 @@ class BackupController(
     val state: StateFlow<BackupUiState> = stateFlow.asStateFlow()
 
     private var pendingUri: String? = null
+    private var afterEnable: (() -> Unit)? = null
 
     /** Writes the current layout to the document the user chose. */
     fun exportTo(uri: String) {
@@ -54,7 +55,20 @@ class BackupController(
         if (!stateFlow.value.busy) stateFlow.value = stateFlow.value.copy(passphrasePurpose = PassphrasePurpose.Enable, message = null)
     }
 
+    /**
+     * T402: runs [then] only once backups have a passphrase. With one already set it runs at once;
+     * otherwise the passphrase set-up opens, and cancelling it drops [then], so whatever needed the
+     * passphrase (the weekly switch) stays off.
+     */
+    fun requirePassphrase(then: () -> Unit) {
+        if (stateFlow.value.busy || stateFlow.value.passphrasePurpose != null) return
+        if (protection?.enabled == true) { then(); return }
+        afterEnable = then
+        stateFlow.value = stateFlow.value.copy(passphrasePurpose = PassphrasePurpose.Enable, message = null)
+    }
+
     fun cancelPassphrase() {
+        afterEnable = null
         pendingUri = null
         stateFlow.value = stateFlow.value.copy(passphrasePurpose = null, message = null)
     }
@@ -79,7 +93,11 @@ class BackupController(
                 when (purpose) {
                     PassphrasePurpose.Enable -> {
                         withContext(Dispatchers.IO) { protection?.enable(secret) }
-                        stateFlow.value = stateFlow.value.copy(busy = false, encrypted = protection?.enabled == true)
+                        val on = protection?.enabled == true
+                        stateFlow.value = stateFlow.value.copy(busy = false, encrypted = on)
+                        val next = afterEnable
+                        afterEnable = null
+                        if (on) next?.invoke()
                     }
                     PassphrasePurpose.Export -> {
                         val outcome = service.exportTo(requireNotNull(uri), secret)
@@ -93,6 +111,7 @@ class BackupController(
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
+                afterEnable = null
                 stateFlow.value = stateFlow.value.copy(busy = false, message = "Could not save the passphrase")
             } finally {
                 secret.fill('\u0000')

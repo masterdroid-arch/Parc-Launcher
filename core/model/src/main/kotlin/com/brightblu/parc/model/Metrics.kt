@@ -15,6 +15,9 @@ object Metrics {
     const val quoteDayCheckMs = 30_000L
 
     const val hubGlassTintAlpha = 179 // 70 percent; cached frost only.
+    /** T391: a flat panel that floats over other content and carries text or taps is fully solid (the card asks for at least 92 percent; at 96 a bright clock still ghosts through a near-black panel). */
+    const val floatingPanelMinAlpha = 1f
+    const val floatingPanelMinTintAlpha = 245 // 96 percent: the floor for the cached frost tint (the frost bitmap itself is opaque, so nothing behind shows)
     const val hubCardMinContrast = 4.5 // T171: ink on a hub card at the lowest opacity the user may pick
     // Settings gallery (all distances in dp).
     const val settingsCardWidthDp = 272f
@@ -54,6 +57,14 @@ object Metrics {
     const val notesMaxChars = 5_000_000
     const val noteHeadingScale = 1.35f
     const val noteToolbarGapDp = 4f
+    // T386: the writing surfaces. Notes gets one 52 dp formatting strip; each of its seven tools
+    // keeps a 48 dp square target and the strip scrolls sideways to reach the last one.
+    const val noteToolStripDp = 52f
+    const val noteToolTargetDp = 48f
+    const val noteToolGapDp = 8f
+    const val noteToolStripInsetDp = 16f
+    /** Space kept under the caret, so the last line never sits against the formatting strip. */
+    const val noteCaretGapDp = 8f
     /** T183: the bell drawn beside a note's reminder (size and line width). */
     const val noteBellDp = 18f
     const val noteBellStrokeDp = 1.5f
@@ -74,6 +85,12 @@ object Metrics {
     const val wallpaperTopScrim = 0.92f
     const val wallpaperArcScrim = 0.24f
     val panelOpacitySteps = (40..100 step 5).toList()
+    // T381: the People page's round avatars. The visible circle is 48 dp inside a 56 dp touch box.
+    const val peopleAvatarDp = 48f
+    const val peopleAvatarBoxDp = 56f
+    const val peopleAvatarColumnDp = 64f
+    const val peopleAvatarGapDp = 10f
+    const val peopleAvatarLabelDp = 16f
     const val focusSaveDebounceMs = 400L
     const val focusUndoMs = 8_000L
     const val focusControlDp = 48f
@@ -90,6 +107,12 @@ object Metrics {
     const val focusPauseSeconds = 5
     const val focusBreakMs = 5 * 60_000L
     const val focusRefreshMs = 30_000L
+    // T382: the personal "pause before opening" page. Five slow seconds, then the open button wakes.
+    const val pauseBreathMs = 5_000L
+    const val pauseBreathPeriodMs = 5_000
+    const val pauseCountdownTickMs = 50L
+    const val pauseCircleDp = 132f
+    const val pauseExtraMinutes = 5
     const val commsMaxLines = 3
     const val commsPromptLines = 1
     const val commsRecentMessages = 3
@@ -108,6 +131,11 @@ object Metrics {
     const val commsMessageLineDp = 18f
     const val commsCountLineDp = 16f
     const val commsActionDp = 48f // T166: raised from 40 to the minimum touch target
+    // T386: the reply composer above the keyboard. The draft row keeps 48 dp and may grow for a
+    // two-line reply at enlarged type; the sheet uses the kit's 20 dp menu corner and 16 dp inset.
+    const val commsReplyRowMinDp = 48f
+    const val commsReplySheetInsetDp = 16f
+    const val commsReplyNoticeGapDp = 4f
     const val commsNoticeMs = 2_000L
     const val commsImageDp = 64f
     // T77: the quick-reply chips row and the dimmed history view. Chip height reuses
@@ -143,9 +171,6 @@ object Metrics {
     const val hubNoteSp = 12f
     const val hubDotsHeightDp = 48f
     const val hubFadeHeightDp = 12f
-    /** 1.5.1: the drawn fade is taller, so the "More below" sign sits in the faded part and never over text. It shows only while content is below. */
-    const val hubFadeDrawDp = 44f
-    const val hubFadeClearFraction = 0.55f // the fade is fully clear this far down, so nothing shows behind the sign
     // 1.5.1 hub type scale: one figure (the skin's countDot numeral, 28 sp), one title (17 sp, used where a row has words
     // instead of a number), one body line (hubLineSp, 15 sp) and one caption (the skin's caption, 11 sp). Rows are 56 dp.
     const val hubTitleSp = 17f
@@ -166,9 +191,16 @@ object Metrics {
     const val hubSearchHeightDp = 36f
     const val hubIconButtonDp = 40f
     const val hubSortGlyphDp = 20f
-    /** T262: the quiet "More below" sign shown while a hub page still has content under the fade. */
-    const val hubScrollHintBottomDp = 3f
-    const val hubScrollHintCornerDp = 10f
+    /**
+     * T378: the slim overflow thumb at a hub page's trailing edge. It sits in its own gutter, so a
+     * right-aligned value is never covered; it fades once scrolling settles and hides at the end.
+     */
+    const val hubScrollThumbWidthDp = 3f
+    const val hubScrollThumbInsetDp = 1.5f
+    const val hubScrollThumbMinDp = 36f
+    const val hubScrollEdgeGutterDp = 6f
+    const val hubScrollThumbSettleMs = 650L
+    const val hubScrollThumbAlpha = 0.55f
     // T158 (DESIGN 3.4): the hub's tab strip. A pill is half the 48 dp touch row; its corner is half its height.
     const val hubTabPillHeightDp = 24f
     const val hubTabPillPadDp = 12f // text to the pill edge, left and right
@@ -456,11 +488,39 @@ object Metrics {
     const val itemGapDp = 8f // between neighbours in a row or a wrapped group (chips, buttons, icon and text)
     const val lineGapDp = 4f // between the lines of one item (title, value, description)
     const val nestedRowInsetDp = 40f // a nested row (a shortcut under its app) starts one more gutter in
-    const val settingsRowMinHeightDp = 56f
-    const val settingsRowInsetDp = screenGutterDp // Settings rows: left, right, and the trailing switch or value
+    const val settingsRowMinHeightDp = 52f
+    const val settingsHelperRowDp = 64f
+    const val settingsRowInsetDp = cardInsetDp // Settings rows: left, right, and the trailing switch or value
+    // T373: the Settings root. Six value tiles, three across (two at enlarged text), glass over the wallpaper.
+    const val settingsTileMinHeightDp = 104f
+    const val settingsTileGapDp = 8f
+    const val settingsTileCornerDp = 20f
+    const val settingsTilePaddingDp = 12f // inside a tile, so a word like Wallpaper fits three across
+    const val settingsTileColumns = 3
+    const val settingsFocusReturnDelayMs = 450L // Back waits for the page cross-fade before focus returns to the tile
+    const val settingsTileColumnsLarge = 2
+    const val settingsTileLargeFontScale = 1.3f // from this font scale the tiles go two across
+    const val settingsBackdropScrimAlpha = 0.5f // the dark veil over the wallpaper behind Settings, so text stays readable
+    // T374: the live Home sample (a whole-Home thumbnail beside one or two zoomed crops of the same Home) and the skin tiles.
+    const val settingsSampleHeightDp = 148f // inside the sample card with one crop
+    const val settingsSampleTwoCropHeightDp = 204f // with two crops (clock above arcs), so each crop can hold its lines
+    const val settingsSampleThumbWidthDp = 66f // the whole-Home thumbnail, beside the crops
+    const val settingsSampleGapDp = 8f // between the thumbnail and the crops, and between two crops
+    const val settingsSampleCornerDp = 12f // each pane of the sample
+    const val settingsSampleCropWidthDp = 290f // how much of Home's width a zoomed crop shows
+    const val settingsSampleArcsBottomInsetDp = 40f // the arcs crop ends this far above Home's bottom edge
+    const val settingsSampleClockTopDp = 62f // the clock crop starts this far below the stats card's top, under its tab strip
+    const val settingsSkinTileColumns = 3
+    const val settingsSkinTileImageHeightDp = 120f // the skin tile's picture; the name sits under it
+    const val settingsSkinTileCornerDp = 16f
+    const val settingsSelectedStrokeDp = 2f // the outline of the chosen skin tile
+    const val settingsApplyButtonMinDp = 56f
     const val menuRowHeightDp = 48f
     const val menuCornerDp = 20f
     const val menuMinWidthDp = 220f
+    // T372: a segment is a pill inside the segmented container, inset from its edge.
+    const val segmentInsetDp = 4f
+    const val segmentCornerDp = 16f
     const val menuGapDp = 8f
     // T324: the wallpaper picker sheet. It is a chooser sheet like the empty-spot and arc sheets, so it
     // keeps the menu corner; the body never grows past this share of the screen, then it scrolls.
@@ -551,6 +611,11 @@ object Metrics {
     const val hudCellGapDp = 12f // T158: 12 dp between the rows of a hub page (equals rowGapDp)
     const val hudCellHeightDp = 56f
     const val hudCollapsedGapDp = 10f
+    // T377: labelled bars and the battery ring. One label width is reserved so the bars on Controls,
+    // Device and Records align on a common edge, and one ring size for the battery percentage inside.
+    const val hudBarLabelDp = 64f
+    const val hudBatteryRingDp = 96f
+    const val hudBatteryRingStrokeDp = 6f
     // Cartographic ornaments. These never participate in layout/hit testing.
     const val atlasTickStepDegrees = 5
     const val atlasBearingStepDegrees = 30
@@ -788,5 +853,8 @@ object Metrics {
     const val readerSelectionHaloDp = 1.5f
     const val readerMarkRowSwipeDp = 72f
     const val readerMarkRowMaxLines = 2
+    // T395: the editable text on Report a problem; tall enough to read the template without scrolling inside the field.
+    const val reportFieldMinHeightDp = 240f
+    // T396: the thin download bar in the hub's update row.
+    const val updateProgressDp = 3f
 }
-

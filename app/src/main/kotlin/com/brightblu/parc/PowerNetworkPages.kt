@@ -14,9 +14,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.style.TextAlign
 import com.brightblu.parc.core.data.stats.StatsArchiveMetric
 import java.time.ZoneId
@@ -87,7 +85,16 @@ internal fun NetworkTileContent(tile: String, c: NetworkTileContext, presentatio
         "data totals" -> Column {
             PeriodLabel(summary?.networkLabel() ?: c.period.label, skin, c.cycle)
             val shown = summary != null && c.access != false && summary.networkDays > 0
-            Readout("Wi-Fi / mobile", "${PowerNetworkFormat.bytes(summary?.wifiBytes.takeIf { shown })} / ${PowerNetworkFormat.bytes(summary?.mobileBytes.takeIf { shown })}", skin)
+            val wifi = summary?.wifiBytes.takeIf { shown }
+            val mobile = summary?.mobileBytes.takeIf { shown }
+            // One scale per unit: both bars share the day total, so Wi-Fi and mobile are comparable at a glance.
+            val total = if (wifi != null && mobile != null) wifi + mobile else null
+            if (wifi != null || mobile != null) {
+                ValueBar("Wi-Fi", PowerNetworkFormat.bytes(wifi), sharedBarFraction(wifi, total), skin)
+                ValueBar("Mobile", PowerNetworkFormat.bytes(mobile), sharedBarFraction(mobile, total), skin)
+            } else {
+                Readout("Wi-Fi / mobile", "${PowerNetworkFormat.Missing} / ${PowerNetworkFormat.Missing}", skin)
+            }
             if (c.access == false) UsageAccessRow(skin)
         }
         "top apps" -> Column(verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
@@ -164,6 +171,24 @@ internal fun DataBar(fraction: Float, skin: Skin) {
     }
 }
 
+/** One scale per unit (T377): a reading's fraction of a shared [scale]. A missing or zero scale gives 0. */
+internal fun sharedBarFraction(value: Long?, scale: Long?): Float {
+    if (value == null || scale == null || scale <= 0L) return 0f
+    return (value.toDouble() / scale.toDouble()).toFloat().coerceIn(0f, 1f)
+}
+
+/** A labelled bar: the label left on a fixed edge, the bar filling the middle, the exact value right. */
+@Composable
+internal fun ValueBar(label: String, value: String, fraction: Float, skin: Skin) {
+    Row(Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp), verticalAlignment = Alignment.CenterVertically) {
+        BasicText(label, Modifier.width(Metrics.hudBarLabelDp.dp), style = hudValueStyle(skin), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.width(Metrics.itemGapDp.dp))
+        Box(Modifier.weight(1f)) { DataBar(fraction, skin) }
+        Spacer(Modifier.width(Metrics.itemGapDp.dp))
+        BasicText(value, style = hudLabelStyle(skin), maxLines = 1)
+    }
+}
+
 @Composable
 private fun TemperatureHistory(values: List<Float>, skin: Skin) {
     // Compute and unbox outside the draw callback. Flat and single-sample histories stay visible.
@@ -191,17 +216,17 @@ private fun TemperatureHistory(values: List<Float>, skin: Skin) {
 internal fun PowerOverview(percent: Int?, charging: Boolean, fullInMillis: Long?, screenOnMillis: Long?,
     bars: List<HourBar>, skin: Skin, chargingPower: com.brightblu.parc.core.data.power.ChargingPower? = null) {
     val size = LocalHubSize.current
-    val typography = skin.typography
-    val ink = Color(skin.colors.textPrimary.toInt())
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
-        // The battery number scales with the system font up to 130 %, like the other readable numerals (DESIGN 2.2).
-        val density = LocalDensity.current
-        val capped = remember(density) { Density(density.density, density.fontScale.coerceAtMost(PowerPage.MaxFontScale)) }
-        CompositionLocalProvider(LocalDensity provides capped) {
-            DotNumerals(if (percent == null) "--%" else "$percent%", DotRole.bigDot, typography, ink)
-        }
-        DotMeter(percent, skin)
+        // T377: the battery reads as a ring with the percentage inside, so the ring and the number always agree.
         val state = PowerPage.chargingState(charging) + if (charging && chargingPower != null) " · ${PowerNetworkFormat.watts(chargingPower)}" else ""
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
+            BatteryRing(percent, skin)
+            Column {
+                BasicText("Battery", style = hubTitleStyle(skin))
+                BasicText(state, style = hubCaptionStyle(skin), maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+        }
         if (size == HubSize.Compact) {
             // T270: Compact keeps the charging state, wattage and time to full on one line (T263 had dropped them).
             val full = PowerPage.fullIn(charging, fullInMillis)

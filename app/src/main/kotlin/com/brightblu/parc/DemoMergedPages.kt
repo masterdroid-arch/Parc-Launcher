@@ -22,7 +22,7 @@ internal fun DemoDevicePage(store: DemoStatsStore?, skin: Skin) {
         DemoNetworkPage(skin, scroll = false)
         BasicText("Storage", style = hudLabelStyle(skin).copy(color = Color(skin.colors.accent.toInt())))
         Column(verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
-            Readout("Storage used", "42 GB of 128 GB", skin)
+            ValueBar("Storage", "42 / 128 GB", sharedBarFraction(42, 128), skin)
             Readout("Memory used", "3.1 GB of 8 GB", skin)
             Readout("Uptime", "2 h 14 min", skin)
         }
@@ -41,12 +41,12 @@ internal fun DemoControlsPage(skin: Skin) {
     Column(Modifier.fillMaxWidth().hubPageScroll(), verticalArrangement = Arrangement.spacedBy(Metrics.hudCellGapDp.dp)) {
         BasicText("Volume", style = hudLabelStyle(skin).copy(color = Color(skin.colors.accent.toInt())))
         Column(verticalArrangement = Arrangement.spacedBy(Metrics.gridDp.dp)) {
-            Readout("Media", "10 / 15", skin)
-            Readout("Ring", "6 / 7", skin)
-            Readout("Alarm", "7 / 7", skin)
-            Readout("Call", "5 / 7", skin)
-            Readout("Output device", "Phone speaker", skin)
+            ValueBar("Media", "10 / 15", 10f / 15f, skin)
+            ValueBar("Ring", "6 / 7", 6f / 7f, skin)
+            ValueBar("Alarm", "7 / 7", 7f / 7f, skin)
+            ValueBar("Call", "5 / 7", 5f / 7f, skin)
         }
+        Readout("Output device", "Phone speaker", skin)
         BasicText("Quick toggles", style = hudLabelStyle(skin).copy(color = Color(skin.colors.accent.toInt())))
         QuickTogglesHubPage(QuickToggleCatalog.tiles, active = false, skin = skin, demo = true, scroll = false)
     }

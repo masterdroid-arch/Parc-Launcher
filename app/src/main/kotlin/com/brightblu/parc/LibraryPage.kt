@@ -47,7 +47,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -539,8 +538,8 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
     }
     val coverStyle = remember(context, skin) { bookCoverStyle(context, skin) }
     // T235: the shelf remembers its own place across a tab switch, the reader, and the hub closing.
-    val scrollMemory = LocalHubPageScrollMemory.current
-    val gridState = rememberLazyGridState()
+    val scrollMemory = LocalHubPageScrollMemory.current.takeUnless { LocalHubFullScreen.current }
+    val gridState = rememberHubGridState()
     RegisterHubScroll(gridState)
     val savedScroll = remember(scrollMemory) { scrollMemory?.get(LibraryPage.Id) }
     // T351: a grid created while the page lives (the book flow starts empty, then arrives) used to
@@ -552,10 +551,10 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
         if (ordered.isNotEmpty()) {
             if (!scrollRestored) {
                 // The memory is newer than the value captured when this page first appeared.
-                val target = LibraryScroll.restore(savedScroll, ordered.size + 1)
+                val target = LibraryScroll.restore(savedScroll, ordered.size + 2)
                 val remembered = scrollMemory?.get(LibraryPage.Id)
                 val place = if (remembered != null) {
-                    LibraryScroll.restore(remembered, ordered.size + 1)
+                    LibraryScroll.restore(remembered, ordered.size + 2)
                 } else target
                 val atTop = gridState.firstVisibleItemIndex == 0 &&
                     gridState.firstVisibleItemScrollOffset == 0
@@ -584,7 +583,7 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
     val lifecycleOwner = LocalLifecycleOwner.current
     var resumePlace by remember { mutableStateOf<HubScrollPosition?>(null) }
     var resumeTick by remember { mutableIntStateOf(0) }
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, gridState) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> if (scrollRestored) {
@@ -647,57 +646,54 @@ internal fun LibraryHubPage(skin: Skin, active: Boolean) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
-            // Compact has room for the shelf controls even when the empty message fills the body.
+        BoxWithConstraints(Modifier.fillMaxSize()) {
             val compact = LocalHubSize.current == HubSize.Compact
-            LibraryShelfBar(tabs, selectedShelf, sort, skin,
-                onSelect = { selectedShelf = it },
-                onSort = { sortName = it.name },
-                searchOpen = searchOpen,
-                onSearch = {
-                    searchOpen = !searchOpen
-                    if (!searchOpen) query = ""
+            val plan = LibraryLayout.plan(LocalHubSize.current, maxHeight.value - Metrics.menuRowHeightDp,
+                maxWidth.value, LocalDensity.current.fontScale)
+            LibraryShelfGrid(visible, plan, skin, continueId, missing, settleKey,
+                gridState = gridState,
+                header = {
+                    LibraryShelfBar(tabs, selectedShelf, sort, skin,
+                        onSelect = { selectedShelf = it },
+                        onSort = { sortName = it.name },
+                        searchOpen = searchOpen,
+                        onSearch = {
+                            searchOpen = !searchOpen
+                            if (!searchOpen) query = ""
+                        },
+                        onAdd = if (compact) ({ findOpen = true }) else null,
+                        onNewShelf = if (store != null) ({ newShelfOpen = true }) else null)
+                    if (searchOpen) {
+                        HubSearchField(query, "Search title, author or file", "Search the shelf", skin,
+                            Modifier.padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.lineGapDp.dp),
+                            onQuery = { query = it })
+                    }
+                    if (books.isEmpty()) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
+                            verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+                            BasicText("No books yet", style = hudValueStyle(skin))
+                            BasicText("Find PDF, EPUB, text or comic files on shared storage. The files stay where they are.",
+                                style = hudLabelStyle(skin))
+                        }
+                    } else if (ordered.isEmpty()) {
+                        BasicText(LibraryShelfRules.emptyMessage(selectedShelf),
+                            Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
+                            style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    } else if (query.isNotBlank()) {
+                        BasicText(
+                            if (visible.isEmpty()) "No books match “${query.trim()}”."
+                            else if (visible.size == 1) "1 book matches"
+                            else "${visible.size} books match",
+                            Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
+                            style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
                 },
-                onAdd = if (compact) ({ findOpen = true }) else null,
-                onNewShelf = if (store != null) ({ newShelfOpen = true }) else null)
-            if (searchOpen) {
-                HubSearchField(query, "Search title, author or file", "Search the shelf", skin,
-                    Modifier.padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.lineGapDp.dp),
-                    onQuery = { query = it })
-            }
-            if (books.isEmpty()) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
-                    verticalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
-                    BasicText("No books yet", style = hudValueStyle(skin))
-                    BasicText("Find PDF, EPUB, text or comic files on shared storage. The files stay where they are.",
-                        style = hudLabelStyle(skin))
-                }
-            } else if (ordered.isEmpty()) {
-                BasicText(LibraryShelfRules.emptyMessage(selectedShelf),
-                    Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
-                    style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            } else if (query.isNotBlank()) {
-                BasicText(
-                    if (visible.isEmpty()) "No books match “${query.trim()}”."
-                    else if (visible.size == 1) "1 book matches"
-                    else "${visible.size} books match",
-                    Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
-                    style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            if (books.isNotEmpty() && (query.isBlank() || visible.isNotEmpty())) {
-                BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-                    val plan = LibraryLayout.plan(LocalHubSize.current, maxHeight.value, maxWidth.value,
-                        LocalDensity.current.fontScale)
-                    LibraryShelfGrid(visible, plan, skin, continueId, missing, settleKey,
-                        gridState = gridState,
-                        onOpen = { book, cover -> ReaderContract.open(context, book, cover) },
-                        onLongPress = { actionsFor = it.id },
-                        onDetails = { detailsFor = it.id },
-                        onRemove = { book -> removeFor = book.id },
-                        onAdd = if (compact) null else ({ findOpen = true }),
-                        cover = { book, modifier -> RealBookCover(book, loader, coverStyle, skin, modifier) })
-                }
-            }
+                onOpen = { book, cover -> ReaderContract.open(context, book, cover) },
+                onLongPress = { actionsFor = it.id },
+                onDetails = { detailsFor = it.id },
+                onRemove = { book -> removeFor = book.id },
+                onAdd = if (compact || books.isEmpty() || (query.isNotBlank() && visible.isEmpty())) null else ({ findOpen = true }),
+                cover = { book, modifier -> RealBookCover(book, loader, coverStyle, skin, modifier) })
         }
         notice?.let { line ->
             Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -832,66 +828,63 @@ internal fun DemoLibraryPage(skin: Skin) {
     var query by rememberSaveable { mutableStateOf("") }
     val visible = remember(ordered, query) { LibraryShelfRules.search(ordered, query) }
     var findOpen by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp)
-            .padding(horizontal = Metrics.cardInsetDp.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            BasicText("Demo library", Modifier.weight(1f), style = hudLabelStyle(skin),
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            LibraryAction("Find books", skin) { findOpen = true }
-        }
-        LibraryShelfBar(tabs, selectedShelf, sort, skin,
-            onSelect = { selectedShelf = it },
-            onSort = { sortName = it.name },
-            searchOpen = searchOpen,
-            onSearch = {
-                searchOpen = !searchOpen
-                if (!searchOpen) query = ""
-            },
-            onNewShelf = null)
-        if (searchOpen) {
-            HubSearchField(query, "Search title, author or file", "Search the shelf", skin,
-                Modifier.padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.lineGapDp.dp),
-                onQuery = { query = it })
-        }
-        if (ordered.isEmpty()) {
-            BasicText(LibraryShelfRules.emptyMessage(selectedShelf),
-                Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
-                style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
-        } else if (query.isNotBlank()) {
-            BasicText(
-                if (visible.isEmpty()) "No books match “${query.trim()}”."
-                else if (visible.size == 1) "1 book matches"
-                else "${visible.size} books match",
-                Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
-                style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-        if (query.isBlank() || visible.isNotEmpty()) {
-            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-                val plan = LibraryLayout.plan(LocalHubSize.current, maxHeight.value, maxWidth.value, LocalDensity.current.fontScale)
-                val demoMemory = LocalHubPageScrollMemory.current
-                val demoState = rememberLazyGridState()
-                RegisterHubScroll(demoState)
-                LaunchedEffect(demoState, demoMemory, selectedShelf) {
-                    val saved = demoMemory?.get("demo:" + LibraryPage.Id)
-                    if (saved != null && selectedShelf == LibraryShelfIds.All) {
-                        val target = LibraryScroll.restore(saved, ordered.size)
-                        demoState.scrollToItem(target.index, target.offset)
-                    }
-                    snapshotFlow { demoState.firstVisibleItemIndex to demoState.firstVisibleItemScrollOffset }
-                        .collect { (index, offset) -> demoMemory?.put("demo:" + LibraryPage.Id, index, offset) }
-                }
-                LibraryShelfGrid(visible, plan, skin, continueId, emptySet(), 0,
-                    gridState = demoState,
-                    // T268: a demo book opens the same reader, which shows the built-in public-domain
-                    // sample (and one demo highlight) for demo:// locations. The first cell is Continue.
-                    onOpen = { book, cover -> ReaderContract.open(context, book, cover) },
-                    onLongPress = null,
-                    onDetails = null,
-                    onRemove = null,
-                    cover = { book, modifier -> TypographicBookCover(book, skin, modifier) })
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val plan = LibraryLayout.plan(LocalHubSize.current, maxHeight.value - 2 * Metrics.menuRowHeightDp,
+            maxWidth.value, LocalDensity.current.fontScale)
+        val demoMemory = LocalHubPageScrollMemory.current.takeUnless { LocalHubFullScreen.current }
+        val demoState = rememberHubGridState()
+        RegisterHubScroll(demoState)
+        LaunchedEffect(demoState, demoMemory, selectedShelf) {
+            val saved = demoMemory?.get("demo:" + LibraryPage.Id)
+            if (saved != null && selectedShelf == LibraryShelfIds.All) {
+                val target = LibraryScroll.restore(saved, ordered.size + 1)
+                demoState.scrollToItem(target.index, target.offset)
             }
+            snapshotFlow { demoState.firstVisibleItemIndex to demoState.firstVisibleItemScrollOffset }
+                .collect { (index, offset) -> demoMemory?.put("demo:" + LibraryPage.Id, index, offset) }
         }
+        LibraryShelfGrid(visible, plan, skin, continueId, emptySet(), 0,
+            gridState = demoState,
+            header = {
+                Row(Modifier.fillMaxWidth().heightIn(min = Metrics.menuRowHeightDp.dp)
+                    .padding(horizontal = Metrics.cardInsetDp.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    BasicText("Demo library", Modifier.weight(1f), style = hudLabelStyle(skin),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    LibraryAction("Find books", skin) { findOpen = true }
+                }
+                LibraryShelfBar(tabs, selectedShelf, sort, skin,
+                    onSelect = { selectedShelf = it },
+                    onSort = { sortName = it.name },
+                    searchOpen = searchOpen,
+                    onSearch = {
+                        searchOpen = !searchOpen
+                        if (!searchOpen) query = ""
+                    },
+                    onNewShelf = null)
+                if (searchOpen) {
+                    HubSearchField(query, "Search title, author or file", "Search the shelf", skin,
+                        Modifier.padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.lineGapDp.dp),
+                        onQuery = { query = it })
+                }
+                if (ordered.isEmpty()) {
+                    BasicText(LibraryShelfRules.emptyMessage(selectedShelf),
+                        Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
+                        style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                } else if (query.isNotBlank()) {
+                    BasicText(
+                        if (visible.isEmpty()) "No books match “${query.trim()}”."
+                        else if (visible.size == 1) "1 book matches"
+                        else "${visible.size} books match",
+                        Modifier.fillMaxWidth().padding(horizontal = Metrics.cardInsetDp.dp, vertical = Metrics.rowGapDp.dp),
+                        style = hudLabelStyle(skin), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            },
+            onOpen = { book, cover -> ReaderContract.open(context, book, cover) },
+            onLongPress = null,
+            onDetails = null,
+            onRemove = null,
+            cover = { book, modifier -> TypographicBookCover(book, skin, modifier) })
     }
     if (findOpen) DemoFindBooksDialog(skin) { findOpen = false }
 }
@@ -1023,6 +1016,7 @@ private fun LibraryShelfGrid(
     missing: Set<String>,
     settleKey: Int,
     gridState: LazyGridState,
+    header: @Composable () -> Unit,
     onOpen: ((Book, ReaderMotion.Rect?) -> Unit)?,
     onLongPress: ((Book) -> Unit)?,
     onDetails: ((Book) -> Unit)?,
@@ -1042,10 +1036,12 @@ private fun LibraryShelfGrid(
         columns = GridCells.Fixed(plan.columns),
         state = gridState,
         modifier = Modifier.fillMaxSize().semantics { contentDescription = "Library shelf, ${books.size} ${if (books.size == 1) "book" else "books"}" },
-        contentPadding = PaddingValues(bottom = Metrics.hubScrollEndGapDp.dp),
+        // T378: the last book title and its progress clear the drawn fade and the grip.
+        contentPadding = PaddingValues(bottom = HubPageScroll.endPaddingDp.dp),
         horizontalArrangement = Arrangement.spacedBy(Metrics.bookShelfGapDp.dp),
         verticalArrangement = Arrangement.spacedBy(Metrics.bookShelfGapDp.dp),
     ) {
+        item(key = "library-header", span = { GridItemSpan(maxLineSpan) }) { Column { header() } }
         items(count = books.size, key = { books[it].id }) { index ->
             val book = books[index]
             LibraryShelfCell(book, plan, skin, index, books.size, settleKey, book.id == continueId, book.id in missing,

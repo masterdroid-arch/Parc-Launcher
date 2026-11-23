@@ -24,7 +24,7 @@ import org.junit.Test
 class T30Test {
     @org.junit.Test fun hubPageOptionsCatalogIsCompleteForSettingsAndHome() {
         org.junit.Assert.assertEquals(HubCatalog.pages.toSet(), hubPageOptions.keys)
-        org.junit.Assert.assertTrue(SettingsRegistry.byId.getValue("HubPages").help.contains("options"))
+        org.junit.Assert.assertTrue(SettingsRegistry.byId.getValue("HubPages").info.contains("options"))
         assertTrue("time zone" in SettingsRegistry.byId.getValue("HubPages").words)
         assertTrue(hubPageOptions.getValue(TodayPage.Id).tap.contains("Long press"))
         hubPageOptions.values.forEach { org.junit.Assert.assertTrue(it.fullSettings in SettingsPage.entries) }
@@ -117,7 +117,7 @@ class T30Test {
         val menu = FolderMenuModel(social, "Social", SlotPosition("A3", 0), 0f, 0f,
             candidates = listOf(entryA, entryB))
         assertEquals(listOf("App A", "App B", "Done"), rows(folderMenuAddItems(menu)))
-        assertEquals(listOf("Delete Social?", "Its apps go to New.", "Delete", "Cancel"),
+        assertEquals(listOf("Remove Social?", "Its apps move to New.", "Remove", "Cancel"),
             rows(folderMenuConfirmItems(menu)))
     }
 

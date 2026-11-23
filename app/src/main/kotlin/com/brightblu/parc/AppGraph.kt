@@ -130,6 +130,8 @@ class LauncherServices internal constructor(context: Context, initialGeometry: R
             scope.launch { DemoFocusModes.install(true, RepositoryFocusSampleSink(focus)) }
         } else bindFocusDnd(context, focus, scope)
     }
+    /** T382: the personal-build pause before opening; null in family, play and the public snapshot. */
+    internal val appPause: AppPauseFeature? = PersonalExtras.appPause?.create(context, scope)
     /** Search sees the view-level focus filter; launching still goes through [appIndex]. */
     val focusIndex: AppIndex = FocusAppIndex(appIndex, focus.state, scope, layout.layout, lockedPackages)
     val prefs = ParcPrefs.create(context)

@@ -33,7 +33,7 @@ import com.brightblu.parc.model.*
 enum class SettingKind { Toggle, Choice, Page, Action, Value }
 
 fun settingsText(skin: Skin, tint: Long = skin.colors.textPrimary, caption: Boolean = false): TextStyle {
-    val token = if (caption) skin.typography.caption else skin.typography.menu
+    val token = if (caption) skin.typography.caption else skin.typography.body
     return TextStyle(color = Color(tint.toInt()), fontSize = token.sizeSp.sp,
         fontWeight = FontWeight(token.weight), letterSpacing = token.trackingSp.sp,
         fontFamily = skin.textFamily)
@@ -52,7 +52,8 @@ fun settingsText(skin: Skin, tint: Long = skin.colors.textPrimary, caption: Bool
  */
 @Composable
 fun SettingsSection(title: String, skin: Skin) {
-    ParcSectionHeader(title.uppercase(java.util.Locale.ROOT), settingsText(skin, skin.colors.textSecondary, true))
+    ParcSectionHeader(title, settingsText(skin).copy(fontSize = skin.typography.section.sizeSp.sp,
+        fontWeight = FontWeight(skin.typography.section.weight)))
 }
 
 /**
@@ -61,9 +62,9 @@ fun SettingsSection(title: String, skin: Skin) {
  */
 @Composable
 fun SettingsCard(skin: Skin, content: @Composable ColumnScope.() -> Unit) {
-    val shape = RoundedCornerShape(Metrics.menuCornerDp.dp)
-    Column(Modifier.fillMaxWidth().background(Color(skin.colors.surface.toInt()), shape)
-        .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), shape).clip(shape)) {
+    val shape = RoundedCornerShape(skin.shape.moduleCornerDp.dp)
+    Column(Modifier.fillMaxWidth().background(Color(skin.colors.moduleSurface.toInt()).copy(alpha = 1f), shape)
+        .border(androidx.compose.ui.unit.Dp.Hairline, Color(skin.colors.lineBase.toInt()), shape).clip(shape)) {
         Column(Modifier.padding(vertical = ParcSpacing.rowCardVerticalPaddingDp().dp).drawWithContent {
             val cut = skin.shape.surfaceBorderDp.dp.toPx().coerceAtLeast(1f)
             clipRect(bottom = size.height - cut) { this@drawWithContent.drawContent() }
@@ -74,9 +75,9 @@ fun SettingsCard(skin: Skin, content: @Composable ColumnScope.() -> Unit) {
 /** A card of plain content (text, a field, a preview): [ParcCardContent] gives it the card inset. */
 @Composable
 fun SettingsPanel(skin: Skin, content: @Composable ColumnScope.() -> Unit) {
-    val shape = RoundedCornerShape(Metrics.menuCornerDp.dp)
-    Column(Modifier.fillMaxWidth().background(Color(skin.colors.surface.toInt()), shape)
-        .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), shape).clip(shape)) {
+    val shape = RoundedCornerShape(skin.shape.moduleCornerDp.dp)
+    Column(Modifier.fillMaxWidth().background(Color(skin.colors.moduleSurface.toInt()).copy(alpha = 1f), shape)
+        .border(androidx.compose.ui.unit.Dp.Hairline, Color(skin.colors.lineBase.toInt()), shape).clip(shape)) {
         Column(Modifier.parcSettingsPadding(), content = content)
     }
 }
@@ -109,9 +110,11 @@ fun SettingsPreviewFrame(skin: Skin, caption: String = "Preview", heightDp: Floa
 fun SettingRow(
     title: String, skin: Skin, kind: SettingKind, description: String = "", value: String = "",
     checked: Boolean = false, enabled: Boolean = true, destructive: Boolean = false,
-    icon: String = "+", descriptionMaxLines: Int = 3, leading: (@Composable () -> Unit)? = null,
+    icon: String = "+", descriptionMaxLines: Int = Int.MAX_VALUE, leading: (@Composable () -> Unit)? = null,
     /** T325: rows that must stay aligned with each other may keep a longer value beside the title. */
     allowLongValueBeside: Boolean = false,
+    /** T379: the longer explanation behind this row's Info target. Empty means no Info target. */
+    info: String = "",
     divider: Boolean = true, onClick: () -> Unit,
 ) {
     var confirm by remember { mutableStateOf(false) }
@@ -122,27 +125,30 @@ fun SettingRow(
     val showValue = value.isNotBlank() && kind != SettingKind.Toggle && kind != SettingKind.Action
     // Short values sit on the right like a phone's settings; long ones go under the title so
     // neither the title nor the value is squeezed at large text sizes.
-    val valueBeside = showValue && SettingsLayoutRules.valueBeside(value, allowLongValueBeside)
+    val valueBeside = showValue && SettingsLayoutRules.valueBeside(value, allowLongValueBeside,
+        androidx.compose.ui.platform.LocalDensity.current.fontScale)
     // T166: one row block for every Settings row: 56 dp tall at least, 20 dp left and right, 12 dp above and
     // below, and the trailing switch, value or arrow 20 dp from the edge of the card.
     ParcSettingsRow(
-        modifier = when (kind) {
+        modifier = Modifier.heightIn(min = (if (description.isBlank()) Metrics.settingsRowMinHeightDp else Metrics.settingsHelperRowDp).dp).then(when (kind) {
             SettingKind.Toggle -> Modifier.toggleable(checked, enabled, Role.Switch) { act() }
             SettingKind.Value -> Modifier
             else -> Modifier.clickable(enabled = enabled, role = Role.Button, onClick = act)
-        },
+        }),
         leading = if (leading != null) {
-            { Box(Modifier.size(Metrics.settingsSampleDp.dp).clearAndSetSemantics {}, contentAlignment = Alignment.Center) { leading() } }
+            { Box(Modifier.size(Metrics.settingsIconDp.dp).clearAndSetSemantics {}, contentAlignment = Alignment.Center) { leading() } }
         } else if (kind == SettingKind.Action || (kind == SettingKind.Page && icon != "+")) {
-            { Box(Modifier.size(Metrics.settingsSampleDp.dp).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
+            { Box(Modifier.size(Metrics.settingsIconDp.dp).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
                 BasicText(icon, style = settingsText(skin, tint))
             } }
         } else null,
-        trailing = if (valueBeside || kind != SettingKind.Action) {
+        trailing = if (info.isNotBlank() || valueBeside || kind != SettingKind.Action) {
             {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+                    // T379: Info is its own 48 dp target, kept 8 dp clear of the switch or chevron.
+                    if (info.isNotBlank()) SettingsInfo(title, info, skin)
                     if (valueBeside) BasicText(value,
-                        style = settingsText(skin, accentText, kind != SettingKind.Value).copy(textAlign = androidx.compose.ui.text.style.TextAlign.End),
+                        style = settingsText(skin, accentText).copy(textAlign = androidx.compose.ui.text.style.TextAlign.End),
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.widthIn(max = Metrics.settingsValueMaxWidthDp.dp))
                     when (kind) {
@@ -157,18 +163,14 @@ fun SettingRow(
         } else null,
     ) {
         BasicText(title, style = settingsText(skin, tint))
-        if (showValue && !valueBeside) BasicText(value, style = settingsText(skin, accentText, kind != SettingKind.Value),
+        if (showValue && !valueBeside) BasicText(value, style = settingsText(skin, accentText),
             modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
         if (description.isNotBlank()) BasicText(description, style = settingsText(skin, skin.colors.textSecondary, true),
             maxLines = descriptionMaxLines, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
     }
     if (divider) SettingsDivider(skin)
-    if (confirm) AlertDialog(onDismissRequest = { confirm = false },
-        containerColor = Color(skin.colors.surface.toInt()),
-        title = { BasicText("$title?", style = settingsText(skin)) },
-        text = { BasicText("This changes saved data. Continue?", style = settingsText(skin, skin.colors.textSecondary)) },
-        confirmButton = { TextButton(onClick = { confirm = false; onClick() }) { BasicText("Continue", style = settingsText(skin, skin.colors.warn)) } },
-        dismissButton = { TextButton(onClick = { confirm = false }) { BasicText("Cancel", style = settingsText(skin, skin.colors.accent)) } })
+    if (confirm) SettingsConfirmation("$title?", description.ifBlank { "This changes saved data." }, "Continue", skin,
+        onCancel = { confirm = false }, onConfirm = { confirm = false; onClick() })
 }
 
 /** The hairline between two rows of a card, inset like the row text. */
@@ -181,13 +183,13 @@ fun SettingsDivider(skin: Skin) {
 /** A switch in the settings look, for rows that carry their own click area elsewhere (1.2.1: the Hub pages list). */
 @Composable
 fun SettingsSwitch(checked: Boolean, skin: Skin, label: String, onCheckedChange: (Boolean) -> Unit) {
-    Switch(checked, onCheckedChange, modifier = Modifier.semantics { contentDescription = label }, colors = settingsSwitchColors(skin))
+    Switch(checked, onCheckedChange, modifier = Modifier.parcMinTouch().semantics { contentDescription = label }, colors = settingsSwitchColors(skin))
 }
 
 @Composable
 private fun settingsSwitchColors(skin: Skin) = SwitchDefaults.colors(
-    checkedThumbColor = Color(skin.colors.bg.toInt()), checkedTrackColor = Color(skin.colors.accent.toInt()),
-    checkedBorderColor = Color(skin.colors.accent.toInt()), uncheckedThumbColor = Color(skin.colors.textSecondary.toInt()),
+    checkedThumbColor = Color(Skin.Midnight.colors.bg.toInt()), checkedTrackColor = Color(Skin.ParcOrange.toInt()),
+    checkedBorderColor = Color(Skin.ParcOrange.toInt()), uncheckedThumbColor = Color(skin.colors.textSecondary.toInt()),
     uncheckedTrackColor = Color(skin.colors.surface.toInt()), uncheckedBorderColor = Color(skin.colors.lineActive.toInt()),
     disabledCheckedThumbColor = Color(skin.colors.textSecondary.toInt()),
     disabledCheckedTrackColor = Color(skin.colors.lineActive.toInt()),
@@ -204,12 +206,15 @@ private fun settingsSwitchColors(skin: Skin) = SwitchDefaults.colors(
 @Composable
 fun SettingsOptionChips(
     title: String, skin: Skin, options: List<String>, selected: Int, description: String = "",
-    divider: Boolean = true, sample: (@Composable (index: Int, selected: Boolean) -> Unit)? = null,
+    info: String = "", divider: Boolean = true, sample: (@Composable (index: Int, selected: Boolean) -> Unit)? = null,
     onSelect: (Int) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().parcRowPadding()) {
         // The selected chip carries the value, so the title gets the whole width.
-        BasicText(title, style = settingsText(skin))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+            BasicText(title, Modifier.weight(1f), style = settingsText(skin))
+            if (info.isNotBlank()) SettingsInfo(title, info, skin)
+        }
         if (description.isNotBlank()) BasicText(description, style = settingsText(skin, skin.colors.textSecondary, true),
             modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
         FlowRow(Modifier.fillMaxWidth().padding(top = Metrics.rowGapDp.dp),
@@ -219,16 +224,16 @@ fun SettingsOptionChips(
                 val on = index == selected
                 val shape = RoundedCornerShape(skin.shape.surfaceCornerDp.dp)
                 Column(Modifier.widthIn(min = Metrics.settingsChipMinWidthDp.dp).heightIn(min = Metrics.touchTargetDp.dp)
-                    .clip(shape).background(Color((if (on) skin.colors.bg else skin.colors.surface).toInt()), shape)
+                    .clip(shape).background(Color((if (on) Skin.ParcOrange else skin.colors.surface).toInt()), shape)
                     .border(maxOf(skin.shape.surfaceBorderDp, 1f).dp * (if (on) 2 else 1),
-                        Color((if (on) skin.colors.accent else skin.colors.lineActive).toInt()), shape)
+                        Color((if (on) Skin.ParcOrange else skin.colors.lineActive).toInt()), shape)
                     .selectable(on, role = Role.RadioButton) { onSelect(index) }
                     .parcSettingsPadding(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(Metrics.lineGapDp.dp)) {
-                    if (sample != null) Box(Modifier.size(Metrics.settingsSampleDp.dp).clearAndSetSemantics {},
+                    if (sample != null) Box(Modifier.size(Metrics.settingsIconDp.dp).clearAndSetSemantics {},
                         contentAlignment = Alignment.Center) { sample(index, on) }
-                    BasicText(label, style = settingsText(skin, if (on) skin.colors.readableAccent else skin.colors.textPrimary, true)
+                    BasicText(label, style = settingsText(skin, if (on) Skin.Midnight.colors.bg else skin.colors.textPrimary, true)
                         .copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
                 }
             }
@@ -240,34 +245,61 @@ fun SettingsOptionChips(
 /**
  * T229: one compact segmented control for an exclusive choice. It is a single bordered row, so a page
  * cannot grow three separate switches for Compact / Standard / Tall. Every segment keeps a 56 dp
- * touch target; the selected one uses the skin's readable accent, never a bright fill.
+ * touch target; the selected one uses the Parc Orange fill with Midnight ink, so hue is not the only
+ * signal.
  */
 @Composable
 fun SettingsSegmented(
     title: String, skin: Skin, options: List<String>, selected: Int, description: String = "",
-    divider: Boolean = true, onSelect: (Int) -> Unit,
+    info: String = "", divider: Boolean = true, onSelect: (Int) -> Unit,
 ) {
     if (options.isEmpty()) return
     val current = selected.coerceIn(options.indices)
     val shape = RoundedCornerShape(Metrics.menuCornerDp.dp)
+    val pill = RoundedCornerShape(Metrics.segmentCornerDp.dp)
+    val stacked = SettingsLayoutRules.stackSegments(androidx.compose.ui.platform.LocalDensity.current.fontScale)
     Column(Modifier.fillMaxWidth().parcRowPadding()) {
-        BasicText(title, style = settingsText(skin))
+        if (title.isNotEmpty() || info.isNotBlank()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+                if (title.isNotEmpty()) BasicText(title, Modifier.weight(1f), style = settingsText(skin))
+                if (info.isNotBlank()) SettingsInfo(title.ifBlank { "Setting" }, info, skin)
+            }
+        }
         if (description.isNotBlank()) BasicText(description, style = settingsText(skin, skin.colors.textSecondary, true),
             modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
-        Row(Modifier.fillMaxWidth().padding(top = Metrics.rowGapDp.dp).clip(shape)
+        val frame = Modifier.fillMaxWidth().padding(top = Metrics.rowGapDp.dp).clip(shape)
+            .background(Color(skin.colors.surface.toInt()))
             .border(maxOf(skin.shape.surfaceBorderDp, 1f).dp, Color(skin.colors.lineActive.toInt()), shape)
-            .selectableGroup()) {
-            options.forEachIndexed { index, label ->
-                val on = index == current
-                Box(Modifier.weight(1f).heightIn(min = Metrics.touchTargetDp.dp)
-                    .background(Color((if (on) skin.colors.bg else skin.colors.surface).toInt()))
-                    .selectable(on, role = Role.RadioButton) { onSelect(index) }
-                    .semantics { stateDescription = label }
-                    .padding(horizontal = Metrics.itemGapDp.dp, vertical = Metrics.lineGapDp.dp),
-                    contentAlignment = Alignment.Center) {
-                    BasicText(label, maxLines = 2,
-                        style = settingsText(skin, if (on) skin.colors.readableAccent else skin.colors.textPrimary, true)
-                            .copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+            .padding(Metrics.segmentInsetDp.dp).selectableGroup()
+        if (stacked) {
+            // T372: at enlarged text the pills cannot hold a word; the same choice becomes one row each.
+            Column(frame) {
+                options.forEachIndexed { index, label ->
+                    val on = index == current
+                    Row(Modifier.fillMaxWidth().heightIn(min = Metrics.minTouchDp.dp)
+                        .selectable(on, role = Role.RadioButton) { onSelect(index) }
+                        .semantics { stateDescription = label }
+                        .padding(horizontal = Metrics.itemGapDp.dp, vertical = Metrics.lineGapDp.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        BasicText(label, Modifier.weight(1f), style = settingsText(skin))
+                        if (on) SettingsCheckMark(skin, Modifier.size(Metrics.settingsIconDp.dp))
+                    }
+                }
+            }
+        } else {
+            Row(frame) {
+                options.forEachIndexed { index, label ->
+                    val on = index == current
+                    Box(Modifier.weight(1f).heightIn(min = Metrics.touchTargetDp.dp).clip(pill)
+                        .background(if (on) Color(Skin.ParcOrange.toInt()) else Color.Transparent)
+                        .selectable(on, role = Role.RadioButton) { onSelect(index) }
+                        .semantics { stateDescription = label }
+                        .padding(horizontal = Metrics.lineGapDp.dp, vertical = Metrics.lineGapDp.dp),
+                        contentAlignment = Alignment.Center) {
+                        BasicText(label,
+                            style = settingsText(skin, if (on) Skin.Midnight.colors.bg else skin.colors.textPrimary)
+                                .copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+                    }
                 }
             }
         }
@@ -277,9 +309,9 @@ fun SettingsSegmented(
 
 @Composable
 fun SettingsChoice(title: String, value: String, options: List<String>, skin: Skin, description: String = "",
-    onSelect: (Int) -> Unit) {
+    info: String = "", onSelect: (Int) -> Unit) {
     var open by remember { mutableStateOf(false) }
-    SettingRow(title, skin, SettingKind.Choice, description, value = value) { open = true }
+    SettingRow(title, skin, SettingKind.Choice, description, value = value, info = info) { open = true }
     if (open) AlertDialog(onDismissRequest = { open = false }, containerColor = Color(skin.colors.surface.toInt()),
         title = { BasicText(title, style = settingsText(skin)) },
         text = {
@@ -318,7 +350,7 @@ fun SettingsTheme(skin: Skin, content: @Composable () -> Unit) {
         fun tint(value: Long) = Color(value.toInt())
         val c = skin.colors
         lightColorScheme(
-            primary = tint(c.accent), onPrimary = tint(c.bg), primaryContainer = tint(c.surface), onPrimaryContainer = tint(c.textPrimary),
+            primary = tint(Skin.ParcOrange), onPrimary = tint(Skin.Midnight.colors.bg), primaryContainer = tint(c.surface), onPrimaryContainer = tint(c.textPrimary),
             secondary = tint(c.accent2), onSecondary = tint(c.bg), secondaryContainer = tint(c.surface), onSecondaryContainer = tint(c.textPrimary),
             tertiary = tint(c.accent), onTertiary = tint(c.bg), tertiaryContainer = tint(c.surface), onTertiaryContainer = tint(c.textPrimary),
             background = tint(c.bg), onBackground = tint(c.textPrimary), surface = tint(c.surface), onSurface = tint(c.textPrimary),
@@ -336,17 +368,18 @@ fun SettingsTheme(skin: Skin, content: @Composable () -> Unit) {
 /** A visual choice stays beside its current value and preview, instead of opening a popup. */
 @Composable
 fun SettingsVisualChoice(title: String, value: Int, labels: List<String>, skin: Skin, description: String = "",
-    divider: Boolean = true, onSelect: (Int) -> Unit) {
+    divider: Boolean = true, name: String = title, info: String = "", onSelect: (Int) -> Unit) {
     Column(Modifier.fillMaxWidth().parcRowPadding()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
             BasicText(title, Modifier.weight(1f), style = settingsText(skin))
-            BasicText(labels[value.coerceIn(labels.indices)], style = settingsText(skin, skin.colors.readableAccent, true))
+            BasicText(labels[value.coerceIn(labels.indices)], style = settingsText(skin, skin.colors.readableAccent))
+            if (info.isNotBlank()) SettingsInfo(title, info, skin)
         }
         if (description.isNotBlank()) BasicText(description, style = settingsText(skin, skin.colors.textSecondary, true),
             modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
         Slider(value = value.toFloat(), onValueChange = { onSelect(kotlin.math.round(it).toInt().coerceIn(labels.indices)) },
             valueRange = 0f..labels.lastIndex.toFloat(), steps = (labels.size - 2).coerceAtLeast(0),
-            modifier = Modifier.semantics { stateDescription = labels[value.coerceIn(labels.indices)] })
+            modifier = Modifier.semantics { contentDescription = name; stateDescription = labels[value.coerceIn(labels.indices)] })
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             BasicText(labels.first(), style = settingsText(skin, skin.colors.textSecondary, true))
             BasicText(labels.last(), style = settingsText(skin, skin.colors.textSecondary, true))
@@ -363,11 +396,18 @@ object SettingsLayoutRules {
     /** T325: a row that asks for it keeps a full build stamp beside the title, even at 16 characters. */
     const val MaxLongBesideValueChars = 20
 
-    fun valueBeside(value: String, allowLong: Boolean = false): Boolean {
-        if (value.isBlank()) return false
+    fun valueBeside(value: String, allowLong: Boolean = false, fontScale: Float = 1f): Boolean {
+        if (value.isBlank() || fontScale >= 1.3f) return false
         val max = if (allowLong) MaxLongBesideValueChars else MaxBesideValueChars
         return value.length <= max
     }
+
+    /** T372: at enlarged text a segmented control becomes one full-width row per choice. */
+    fun stackSegments(fontScale: Float): Boolean = fontScale >= 1.3f
+
+    /** T373: the root's value tiles go three across, and two across once text is enlarged. */
+    fun tileColumns(fontScale: Float): Int =
+        if (fontScale >= Metrics.settingsTileLargeFontScale) Metrics.settingsTileColumnsLarge else Metrics.settingsTileColumns
 }
 
 /** Material text roles that carry the skin's font, so dialog and button text follows the theme too. */

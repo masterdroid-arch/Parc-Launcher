@@ -54,8 +54,8 @@ class T272Test {
         }
     }
 
-    @Test fun theMoreBelowSignSitsInsideTheClearPartOfTheFade() {
-        assertTrue(Metrics.hubFadeDrawDp * (1f - Metrics.hubFadeClearFraction) >= 18f)
+    @Test fun theBottomFadeLeavesTheLastRowClear() {
+        assertTrue(HubPageScroll.endPaddingDp >= Metrics.hubFadeHeightDp + Metrics.hubScrollEndGapDp)
     }
 
     @Test fun noDefaultClockZoneInThePublicSources() {

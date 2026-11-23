@@ -119,7 +119,7 @@ internal fun HubPagesMainList(skin: Skin, config: HubConfig, update: ((HubConfig
     if (undo.action != null) SettingsCard(skin) {
         SettingRow("Undo", skin, SettingKind.Action, description = "Undo the last change", divider = false) { undo.run() }
     }
-    BasicText("Tap a page for its options. Press and hold ≡, then drag, to move a page.",
+    BasicText("Use the switch to show a page, the gear for its options. Press and hold ≡, then drag, to move a page.",
         style = settingsText(skin, skin.colors.textSecondary, true),
         modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp))
     BasicText("On Home: " + config.pages.joinToString(" · "), style = settingsText(skin, skin.colors.accent, true),
@@ -139,22 +139,23 @@ internal fun HubPagesMainList(skin: Skin, config: HubConfig, update: ((HubConfig
                 Box(Modifier.graphicsLayer { translationY = if (held) dragOffset() else if (dragPage != null) shift.value else 0f }) {
                     SettingsCard(skin) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Row(Modifier.weight(1f).heightIn(min = Metrics.touchTargetDp.dp)
-                                .clickable(role = Role.Button, onClickLabel = "Open $name options") { onOpen(page) }
+                            Column(Modifier.weight(1f).heightIn(min = Metrics.touchTargetDp.dp)
                                 .padding(start = Metrics.settingsRowInsetDp.dp, top = Metrics.rowGapDp.dp, bottom = Metrics.rowGapDp.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    BasicText(name, style = settingsText(skin))
-                                    BasicText((if (shown) "Shown" else "Hidden") + " · options",
-                                        style = settingsText(skin, skin.colors.textSecondary, true),
-                                        modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
-                                }
-                                BasicText("›", style = settingsText(skin, skin.colors.accent),
-                                    modifier = Modifier.padding(horizontal = Metrics.rowGapDp.dp))
+                                verticalArrangement = Arrangement.Center) {
+                                BasicText(name, style = settingsText(skin))
+                                BasicText(if (shown) "Shown" else "Hidden",
+                                    style = settingsText(skin, skin.colors.textSecondary, true),
+                                    modifier = Modifier.padding(top = Metrics.lineGapDp.dp))
                             }
                             SettingsSwitch(shown, skin, "$name, shown on Home") { on ->
                                 update { it.showPage(page, on) }
                                 if (!on) undo.offer { update { it.showPage(page, true) } }
+                            }
+                            // T375: the page's own options have their own 48 dp target beside its switch.
+                            Box(Modifier.size(Metrics.touchTargetDp.dp)
+                                .clickable(role = Role.Button, onClickLabel = "Open $name options") { onOpen(page) }
+                                .semantics { contentDescription = "$name options" }, contentAlignment = Alignment.Center) {
+                                SettingsGroupGlyph(SettingsIcon.Gear, skin)
                             }
                             // The handle: only a press and hold here lifts the row. TalkBack gets the two step actions instead.
                             Box(Modifier.width(Metrics.settingsHandleWidthDp.dp).heightIn(min = Metrics.touchTargetDp.dp)

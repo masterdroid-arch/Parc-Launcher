@@ -17,12 +17,12 @@ object ParcSettingsRanking {
     const val DefaultLimit = 3
     private const val KeywordWeight = 0.9
 
-    fun rank(query: String, entries: List<ParcSettingEntry>, limit: Int = DefaultLimit): List<ParcSettingHit> {
+    fun rank(query: String, entries: List<ParcSettingEntry>, limit: Int = DefaultLimit, allowFuzzy: Boolean = true): List<ParcSettingHit> {
         val phrase = ExtraMatcher.phrase(query)
         if (phrase.isEmpty() || limit <= 0) return emptyList()
         val scored = ArrayList<ParcSettingHit>()
         for (entry in entries) {
-            var best = ExtraMatcher.score(phrase, entry.title)
+            var best = ExtraMatcher.score(phrase, entry.title, allowFuzzy)
             for (keyword in entry.keywords) {
                 // Descriptions are long: no typo allowance there, or every page would match.
                 val value = ExtraMatcher.score(phrase, keyword, allowFuzzy = false)?.times(KeywordWeight)

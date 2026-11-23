@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -22,6 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brightblu.parc.model.Metrics
+import com.brightblu.parc.model.ModuleStyle
+import com.brightblu.parc.ring.module.frostedBackground
 import com.brightblu.parc.model.ParcCardContent
 import com.brightblu.parc.model.Skin
 
@@ -40,6 +43,13 @@ internal val HintLines = listOf(
  */
 @Composable
 internal fun FirstRunHint(skin: Skin, onDismiss: () -> Unit) {
+    // T391: a sheet drawn over the screen (Page settings, Wallpaper) comes first; the tip must not cover its title.
+    if (SheetHost.content != null) return
+    // T411: the card is a tip, so the queue shows it on screen and the new-app bar and other tips wait.
+    DisposableEffect(Unit) {
+        TipSession.latch.setShowing(TipKind.GettingAround, true)
+        onDispose { TipSession.latch.setShowing(TipKind.GettingAround, false) }
+    }
     Box(
         Modifier
             .fillMaxWidth()
@@ -101,7 +111,12 @@ internal fun FirstRunHint(skin: Skin, onDismiss: () -> Unit) {
 
 private fun Modifier.cardSurface(skin: Skin): Modifier {
     val corner = RoundedCornerShape(Metrics.hintCornerDp.dp)
+    // T391: the tip floats over the clock and the hub, so it is solid: the cached frost on a glass skin, else the solid surface.
+    if (skin.shape.moduleStyle == ModuleStyle.frosted) {
+        return this.frostedBackground(skin, Metrics.hintCornerDp)
+            .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), corner)
+    }
     return this
-        .background(Color(skin.colors.surface.toInt()).copy(alpha = skin.shape.surfaceAlpha), corner)
+        .background(skin.floatingSurface(), corner)
         .border(skin.shape.surfaceBorderDp.dp, Color(skin.colors.lineBase.toInt()), corner)
 }

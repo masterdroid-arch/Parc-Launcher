@@ -7,7 +7,7 @@ import org.junit.Test
 class T92Test {
     @org.junit.Test fun hubPageOptionsCatalogIsCompleteForSettingsAndHome() {
         org.junit.Assert.assertEquals(HubCatalog.pages.toSet(), hubPageOptions.keys)
-        org.junit.Assert.assertTrue(SettingsRegistry.byId.getValue("HubPages").help.contains("options"))
+        org.junit.Assert.assertTrue(SettingsRegistry.byId.getValue("HubPages").info.contains("options"))
         assertTrue("time zone" in SettingsRegistry.byId.getValue("HubPages").words)
         assertTrue(hubPageOptions.getValue(TodayPage.Id).tap.contains("Long press"))
         hubPageOptions.values.forEach { org.junit.Assert.assertTrue(it.fullSettings in SettingsPage.entries) }

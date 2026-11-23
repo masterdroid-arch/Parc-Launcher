@@ -147,6 +147,8 @@ data class FrostKey(
     val userTint: Boolean = false,
     /** T173: width in px of the lens band along the edge (0: plain frost, no lens, no inner shadow). */
     val refractPx: Int = 0,
+    /** T391: the lowest tint alpha (0..255) a floating panel may end up with; 0 keeps the old rules. */
+    val minTintAlpha: Int = 0,
 )
 
 /** What to frost: a rectangle (px) of a screen-sized stage, and how to dress it. */
@@ -163,11 +165,13 @@ data class FrostRequest(
     val userTint: Boolean = false,
     /** T173: width in px of the lens band along the edge; 0 keeps the plain frost. Part of the cache key. */
     val refractPx: Int = 0,
+    /** T391: a panel that floats over other content (menu, tip, sheet): its tint never ends below this alpha (0..255); 0 for hub cards and full pages. */
+    val minTintAlpha: Int = 0,
 ) {
     /** The stage hash covers the stage picture (haze: screen size and colours; wallpaper: its identity) and which part of it sits behind the surface. */
     val stageHash: Int get() = (if (stageId != 0) (stageId * 31 + screenWidthPx) * 31 + screenHeightPx
         else HazeStage.hash(screenWidthPx, screenHeightPx, bg, haze)) * 31 + leftPx * 17 + topPx
-    val key: FrostKey get() = FrostKey(widthPx, heightPx, cornerPx, roundBottom, tint, bg, haze, stageHash, edgePx, if (stageId != 0) ink else 0, userTint, refractPx)
+    val key: FrostKey get() = FrostKey(widthPx, heightPx, cornerPx, roundBottom, tint, bg, haze, stageHash, edgePx, if (stageId != 0) ink else 0, userTint, refractPx, minTintAlpha)
 
     companion object {
         fun edgeFor(density: Float) = (Metrics.glassEdgeDp * density + 0.5f).toInt().coerceAtLeast(1)
@@ -176,9 +180,10 @@ data class FrostRequest(
 
         fun of(skin: Skin, screenWidthPx: Int, screenHeightPx: Int, left: Int, top: Int, width: Int, height: Int,
             cornerPx: Int, roundBottom: Boolean = true, stageId: Int = 0, edgePx: Int = 0, ink: Int = skin.colors.textPrimary.toInt(),
-            userTint: Boolean = false, refractPx: Int = 0) =
+            userTint: Boolean = false, refractPx: Int = 0, minTintAlpha: Int = 0) =
             FrostRequest(screenWidthPx, screenHeightPx, left, top, width, height, cornerPx, roundBottom,
-                skin.colors.moduleSurface.toInt(), skin.colors.bg.toInt(), skin.colors.lineActive.toInt(), stageId, edgePx, ink, userTint, refractPx)
+                skin.colors.moduleSurface.toInt(), skin.colors.bg.toInt(), skin.colors.lineActive.toInt(), stageId, edgePx, ink, userTint, refractPx,
+                minTintAlpha.coerceIn(0, 255))
     }
 }
 
@@ -302,9 +307,12 @@ object FrostRenderer {
                 if (luma < lowLuma) { lowLuma = luma; low = p }
                 if (luma > highLuma) { highLuma = luma; high = p }
             }
-            val alpha = GlassBackdrop.tintAlpha(req.tint or (0xFF shl 24), req.ink or (0xFF shl 24), low or (0xFF shl 24), high or (0xFF shl 24))
+            val alpha = GlassBackdrop.tintAlpha(req.tint or (0xFF shl 24), req.ink or (0xFF shl 24), low or (0xFF shl 24), high or (0xFF shl 24),
+                start = maxOf(Metrics.hubGlassTintAlpha, req.minTintAlpha))
             tint = (req.tint and 0xFFFFFF) or (alpha shl 24)
         }
+        // T391: a floating panel is never less solid than its floor, whichever rule set the tint above.
+        if (req.minTintAlpha > 0 && (tint ushr 24) < req.minTintAlpha) tint = (tint and 0xFFFFFF) or (req.minTintAlpha shl 24)
 
         val tBlur = SystemClock.elapsedRealtimeNanos()
         val out = Bitmap.createBitmap(req.widthPx, req.heightPx, Bitmap.Config.ARGB_8888)
@@ -361,15 +369,30 @@ object FrostRenderer {
     }
 }
 
+/** T372: a sharp crop is a fallback for the frost, so it carries most of the card tint. */
+private const val GlassFallbackTintAlpha = 0.70f
+
 /** Frosted bitmap for a request, or null while it renders (the caller shows the plain tint meanwhile). Swap only, no animation. */
 @Composable
-fun rememberFrosted(request: FrostRequest?, stage: Bitmap? = null): State<Bitmap?> {
+fun rememberFrosted(request: FrostRequest?, stage: Bitmap? = null, checkMemory: Boolean = false): State<Bitmap?> {
+    // The previous picture stays until the new one is ready (a swap, never a blank frame).
     val state = remember { mutableStateOf(request?.let { FrostRenderer.cached(it) }) }
-    val log = (LocalContext.current.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    val context = LocalContext.current
+    val log = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     LaunchedEffect(request) {
         if (request == null) { state.value = null; return@LaunchedEffect }
-        // The previous picture stays until the new one is ready (a swap, never a blank frame).
-        state.value = FrostRenderer.cached(request) ?: withContext(Dispatchers.Default) { FrostRenderer.render(request, stage, log) }
+        state.value = FrostRenderer.cached(request) ?: withContext(Dispatchers.Default) {
+            try {
+                if (checkMemory) {
+                    val info = android.app.ActivityManager.MemoryInfo()
+                    context.getSystemService(android.app.ActivityManager::class.java)?.getMemoryInfo(info)
+                    if (info.lowMemory) return@withContext null
+                }
+                FrostRenderer.render(request, stage, log)
+            } catch (_: OutOfMemoryError) {
+                null
+            }
+        }
     }
     return state
 }
@@ -390,31 +413,63 @@ object GlassWallpaperStage {
  * get the frost; for every other skin this returns the modifier unchanged. Drawing is one `drawImage`, or the plain tint rectangle while rendering.
  */
 fun Modifier.frostedBackground(skin: Skin, cornerDp: Float, roundBottom: Boolean = true, userTint: Boolean = false,
-    hubCard: Boolean = false): Modifier =
+    hubCard: Boolean = false, settingsGlass: Boolean = false, floating: Boolean = !hubCard): Modifier =
     if (!FrostPath.frosted(skin)) this else composed {
         val density = LocalDensity.current.density
         val config = LocalConfiguration.current
+        val window = androidx.compose.ui.platform.LocalView.current.rootView
         var bounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
         val wallpaper = GlassWallpaperStage.current
         val refract = hubCard && LocalGlassRefraction.current
         val request = bounds?.takeIf { it.width >= 1f && it.height >= 1f }?.let {
-            FrostRequest.of(skin, (config.screenWidthDp * density).toInt(), (config.screenHeightDp * density).toInt(),
+            FrostRequest.of(skin, if (settingsGlass) window.width.coerceAtLeast(1) else (config.screenWidthDp * density).toInt(),
+                if (settingsGlass) window.height.coerceAtLeast(1) else (config.screenHeightDp * density).toInt(),
                 it.left.toInt(), it.top.toInt(), it.width.toInt(), it.height.toInt(), (cornerDp * density).toInt(), roundBottom,
-                stageId = wallpaper?.id ?: 0, edgePx = FrostRequest.edgeFor(density),
+                stageId = wallpaper?.id ?: 0, edgePx = if (settingsGlass) 0 else FrostRequest.edgeFor(density),
                 ink = if (userTint) 0 else skin.colors.textPrimary.toInt(), userTint = userTint,
-                refractPx = FrostRequest.refractFor(density, refract))
+                refractPx = FrostRequest.refractFor(density, refract),
+                minTintAlpha = if (floating) Metrics.floatingPanelMinTintAlpha else 0)
         }
-        val frosted by rememberFrosted(request, wallpaper?.bitmap)
-        val flat = remember(skin.colors.moduleSurface) { androidx.compose.ui.graphics.Color(skin.colors.moduleSurface.toInt()) }
+        val frosted by rememberFrosted(request, wallpaper?.bitmap, checkMemory = settingsGlass)
+        if (settingsGlass) android.util.Log.d("ParcFrost",
+            "settings compose request=${request != null} wallpaper=${wallpaper != null} frosted=${frosted != null} bounds=$bounds root=${window.width}x${window.height}")
+        // T391: while the frost renders (or when it cannot), a floating panel still hides what lies behind it.
+        val flat = remember(skin.colors.moduleSurface, floating) {
+            val colour = androidx.compose.ui.graphics.Color(skin.colors.moduleSurface.toInt())
+            if (floating) colour.copy(alpha = GlassBackdrop.floatingAlpha(colour.alpha)) else colour
+        }
+        val fallbackAlpha = if (floating) GlassBackdrop.floatingAlpha(GlassFallbackTintAlpha) else GlassFallbackTintAlpha
         val image = remember(frosted) { frosted?.asImageBitmap() }
+        val sharp = remember(wallpaper) { wallpaper?.bitmap?.asImageBitmap() }
+        val sharpCrop = remember(request, sharp) {
+            if (request == null || sharp == null) null else {
+                val sx = sharp.width.toFloat() / request.screenWidthPx
+                val sy = sharp.height.toFloat() / request.screenHeightPx
+                val x = (request.leftPx * sx).toInt().coerceIn(0, sharp.width - 1)
+                val y = (request.topPx * sy).toInt().coerceIn(0, sharp.height - 1)
+                androidx.compose.ui.unit.IntOffset(x, y) to androidx.compose.ui.unit.IntSize(
+                    (request.widthPx * sx).toInt().coerceIn(1, sharp.width - x),
+                    (request.heightPx * sy).toInt().coerceIn(1, sharp.height - y))
+            }
+        }
         this.onGloballyPositioned {
             // Lean and spring offsets move the surface a few dp; only a real move or resize asks for a new frost.
             val next = it.boundsInWindow()
             val old = bounds
-            if (old == null || kotlin.math.abs(next.width - old.width) >= 1f || kotlin.math.abs(next.height - old.height) >= 1f ||
+            if (old == null || (settingsGlass && old != next) ||
+                kotlin.math.abs(next.width - old.width) >= 1f || kotlin.math.abs(next.height - old.height) >= 1f ||
                 kotlin.math.abs(next.left - old.left) > MovedPx || kotlin.math.abs(next.top - old.top) > MovedPx) bounds = next
         }.drawBehind {
-            if (image != null) drawImage(image, dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt())) else drawRoundRect(flat, cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerDp * density))
+            val output = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt())
+            when {
+                image != null -> drawImage(image, dstSize = output)
+                // Settings clips the surface (including the sharp fallback) to its outer shape.
+                settingsGlass && sharp != null && sharpCrop != null -> {
+                    drawImage(sharp, srcOffset = sharpCrop.first, srcSize = sharpCrop.second, dstSize = output)
+                    drawRect(flat.copy(alpha = fallbackAlpha))
+                }
+                else -> drawRoundRect(flat, cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerDp * density))
+            }
         }
     }
 

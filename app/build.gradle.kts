@@ -10,6 +10,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    // T382: the personal pause settings travel as one JSON document through the backup.
+    alias(libs.plugins.kotlin.serialization)
 }
 val parcVersionName = providers.gradleProperty("PARC_VERSION_NAME").get()
 val parcVersionCode = providers.gradleProperty("PARC_VERSION_CODE").get().toInt()
@@ -126,10 +128,12 @@ android {
     listOf("personal", "play").forEach { sourceSets.getByName(it).java.srcDir("src/noWeather/kotlin") }
     listOf("testPersonal", "testPlay").forEach { sourceSets.getByName(it).java.srcDir("src/testNoWeather/kotlin") }
     // T239: family compiles the real weather/translate code from src/personalWeather and its manifest and tests.
+    // T396: only family has the public update check. The other flavours compile its empty twin.
+    listOf("personal", "personalWeather", "play").forEach { sourceSets.getByName(it).java.srcDir("src/noFamilyUpdate/kotlin") }
     sourceSets.getByName("family").apply {
         java.srcDir("src/personalWeather/kotlin")
         // T293: family has its own manifest. It shares the weather/translate code but never the
-        // personal auto update, the pack downloader or REQUEST_INSTALL_PACKAGES.
+        // personal private-repo update or the pack downloader. T396: it adds its own public update check.
         manifest.srcFile("src/family/AndroidManifest.xml")
     }
     sourceSets.getByName("testFamily").apply {
@@ -146,6 +150,9 @@ android {
     sourceSets.getByName("family").java.srcDir("src/noExtras/kotlin")
     listOf("personal", "personalWeather").forEach { flavour ->
         sourceSets.getByName(flavour).java.srcDir(if (extrasReal) "src/personalExtras/kotlin" else "src/noExtras/kotlin")
+        if (extrasReal) listOf("Debug", "Release").forEach { buildType ->
+            sourceSets.maybeCreate(flavour + buildType).manifest.srcFile("src/personalExtras/AndroidManifest.xml")
+        }
         if (extrasReal) sourceSets.getByName(flavour).assets.srcDir("src/personalExtras/assets")
     }
     if (extrasReal) listOf("testPersonal", "testPersonalWeather").forEach { flavour ->
@@ -233,11 +240,16 @@ androidComponents.onVariants { variant ->
                 // T293: the personal and weather builds also add INTERNET and REQUEST_INSTALL_PACKAGES for the
                 // private-repo auto update and the data-pack downloader; family and play never do.
                 val updatePerms = setOf("android.permission.INTERNET", "android.permission.REQUEST_INSTALL_PACKAGES", "android.permission.ACCESS_NETWORK_STATE")
-                val expected = if (variant.flavorName == "family") base + "android.permission.INTERNET" else base + updatePerms
+                val alarmPermission = if (file("src/personalExtras/AndroidManifest.xml").isFile)
+                    setOf("com.android.alarm.permission.SET_ALARM") else emptySet()
+                // T396: family has INTERNET and REQUEST_INSTALL_PACKAGES (its public update check) and nothing else extra.
+                val expected = if (variant.flavorName == "family") base + "android.permission.INTERNET" + "android.permission.REQUEST_INSTALL_PACKAGES"
+                    else base + updatePerms + alarmPermission
                 check(permissions == expected) { "${variant.flavorName} permissions changed: $permissions" }
             } else {
                 val forbidden = setOf("INTERNET", "USE_EXACT_ALARM", "SCHEDULE_EXACT_ALARM", "DUMP", "REQUEST_DELETE_PACKAGES", "REQUEST_INSTALL_PACKAGES", "QUERY_ALL_PACKAGES", "MANAGE_EXTERNAL_STORAGE")
                     .map { "android.permission.$it" }.toSet()
+                check("com.android.alarm.permission.SET_ALARM" !in permissions)
                 check(permissions.intersect(forbidden).isEmpty()) { "Forbidden Play permissions: ${permissions.intersect(forbidden)}" }
                 listOf("fileSearchEnabled" to listOf("READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO", "READ_MEDIA_AUDIO"),
                     "contactSearchEnabled" to listOf("READ_CONTACTS")).forEach { (flag, names) ->
@@ -258,6 +270,13 @@ androidComponents.onVariants { variant ->
         // The public copy has no personalExtras folder, so there the personal variant has no updater and must stay network-free.
         val hasPersonalExtras = file("src/personalExtras").isDirectory
         weatherVariant.set((variant.flavorName == "personal" && hasPersonalExtras) || variant.flavorName == "personalWeather" || variant.flavorName == "family")
+        // T396: in the family build network code may sit only in the weather and translate files and in the update
+        // checker's own package; any other class that touches the network fails the build.
+        if (variant.flavorName == "family") {
+            allowedHitPrefixes.set(listOf("com/brightblu/parc/DeepL", "com/brightblu/parc/WeatherHttp", "com/brightblu/parc/OpenMeteo",
+                "com/brightblu/parc/Translate", "com/brightblu/parc/familyupdate/"))
+            requiredHitPrefix.set("com/brightblu/parc/familyupdate/")
+        }
         report.set(layout.buildDirectory.file("reports/noNetwork/${variant.name}.txt"))
     }
     variant.artifacts.forScope(com.android.build.api.variant.ScopedArtifacts.Scope.ALL).use(scan)
@@ -275,6 +294,10 @@ abstract class NoNetworkClassesTask : DefaultTask() {
     @get:InputFiles abstract val allJars: ListProperty<RegularFile>
     @get:InputFiles abstract val allDirectories: ListProperty<Directory>
     @get:Input abstract val weatherVariant: Property<Boolean>
+    /** T396: when not empty, every class with a network hit must start with one of these. */
+    @get:Input abstract val allowedHitPrefixes: ListProperty<String>
+    /** T396: the scan must see at least one hit under this prefix, which proves it can see the updater. */
+    @get:Optional @get:Input abstract val requiredHitPrefix: Property<String>
     @get:OutputFile abstract val report: RegularFileProperty
 
     @TaskAction fun scan() {
@@ -301,6 +324,12 @@ abstract class NoNetworkClassesTask : DefaultTask() {
         }
         report.get().asFile.apply { parentFile.mkdirs(); writeText("scanned $scanned Parc classes\n" + hits.joinToString("\n")) }
         check(scanned > 0) { "No Parc classes were scanned" }
+        val prefixes = allowedHitPrefixes.get()
+        if (prefixes.isNotEmpty()) {
+            val stray = hits.filter { hit -> prefixes.none { hit.startsWith(it) } }
+            check(stray.isEmpty()) { "Network code outside the allowed files: $stray" }
+        }
+        if (requiredHitPrefix.isPresent) check(hits.any { it.startsWith(requiredHitPrefix.get()) }) { "The scan should see the update checker's network code" }
         if (weatherVariant.get()) check(hits.isNotEmpty()) { "The weather variant should contain its network code" }
         else check(hits.isEmpty()) { "Network code in a normal build: $hits" }
     }

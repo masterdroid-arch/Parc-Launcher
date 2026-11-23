@@ -1,10 +1,26 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!--
       T239: the family build reuses the weather and translate code, so it needs INTERNET, and it
-      offers Find books, so MANAGE_EXTERNAL_STORAGE. It does NOT get the personal auto update, the
-      pack downloader or their REQUEST_INSTALL_PACKAGES permission (that is personal builds only).
+      offers Find books, so MANAGE_EXTERNAL_STORAGE. It does NOT get the personal private-repo update
+      or the pack downloader (personal builds only).
+      T396: it has its own public update check (one request to GitHub, default on, can be turned off).
+      REQUEST_INSTALL_PACKAGES lets Parc hand a downloaded, checksum-verified APK to Android's installer;
+      Android asks the person to allow that once and refuses an APK signed with another key.
     -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- T205: offered only by Find books. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <application>
+        <!-- T396: shares the one downloaded update file with the installer. Never exported; the grant is per file. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.update"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
 </manifest>

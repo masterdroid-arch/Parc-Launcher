@@ -20,15 +20,17 @@ internal object SettingsSearchEntries {
             add(ParcSettingEntry(RootKey, HomeMenuRow.Settings.label,
                 listOf("Settings", "Parc", "Launcher settings", "Home settings", "Preferences", "Options")))
             SettingsGroup.entries.forEach {
-                add(ParcSettingEntry(GroupPrefix + it.name, it.title, listOf(it.summary, it.intro)))
+                add(ParcSettingEntry(GroupPrefix + it.name, it.title, listOf(it.summary, it.intro) + it.aliases))
             }
             SettingsPage.entries.filter { it != SettingsPage.Root }.forEach {
+                // T382: never offer a personal-only page in family, play or the public snapshot.
+                if (it == SettingsPage.LaunchPause && PersonalExtras.appPause == null) return@forEach
                 add(ParcSettingEntry(PagePrefix + it.name, it.title,
                     listOf(it.summary, it.intro, it.breadcrumb) + it.aliases))
             }
             SettingsRegistry.all.forEach { def ->
                 add(ParcSettingEntry(SettingPrefix + def.id, def.fullTitle,
-                    listOf(def.help, def.page.title, def.page.group?.title.orEmpty(), def.card, def.page.breadcrumb) +
+                    listOf(def.help, def.info, def.page.title, def.page.group?.title.orEmpty(), def.card, def.page.breadcrumb) +
                         def.page.aliases + def.words))
             }
         }

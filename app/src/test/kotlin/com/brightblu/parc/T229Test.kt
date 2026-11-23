@@ -41,6 +41,22 @@ class T229Test {
         assertEquals(listOf(HubOptionSection.ThisPage, HubOptionSection.More), records.sections)
     }
 
+    /** T393: Device and Controls draw nothing of their own under a section label, so they get no label. */
+    @Test fun aPageWithNoOptionsOfItsOwnHasNoSectionLabel() {
+        listOf(DevicePage.Id, ControlsPage.Id).forEach { page ->
+            val layout = hubPageOptionLayout(page, tileCount = 0, showEditPages = true)
+            assertNull(page, layout.ownSection)
+            assertEquals(page, listOf(HubOptionSection.ThisPage, HubOptionSection.More), layout.sections)
+        }
+    }
+
+    /** T393: the sheet's cards are inset like its header; the inset is the Metrics row inset, not a literal. */
+    @Test fun theSheetInsetsItsCardsFromTheScreenEdge() {
+        val options = File("src/main/kotlin/com/brightblu/parc/HubPageOptions.kt").readText()
+        assertTrue(options.contains("CardInset(sheet)"))
+        assertTrue(options.contains("Metrics.settingsRowInsetDp.dp) else Modifier"))
+    }
+
     @Test fun thePersonalPagesUseTheSharedPageSettingsSection() {
         val extra = hubPageOptionLayout("extra-page", tileCount = 0, showEditPages = true, extraPage = true)
         assertEquals(listOf(HubOptionSection.ThisPage, HubOptionSection.Extra, HubOptionSection.More), extra.sections)

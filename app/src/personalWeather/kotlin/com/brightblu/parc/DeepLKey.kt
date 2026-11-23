@@ -99,7 +99,7 @@ internal class DeepLKeyStore(private val cipher: KeyCipher, private val storage:
 
     companion object {
         private const val KeyField = "key"
-        val BackupSpec = BackupStoreSpec("deepl", listOf(BackupKey(KeyField, BackupValueType.Text, 100)))
+        val BackupSpec = BackupStoreSpec("deepl", listOf(BackupKey(KeyField, BackupValueType.Text, 100)), secret = true)
         fun of(context: Context) = DeepLKeyStore(AndroidKeystoreCipher(), PrefsKeyBlobStorage(context))
     }
 }

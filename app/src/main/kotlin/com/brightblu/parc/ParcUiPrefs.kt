@@ -128,7 +128,7 @@ internal class ParcUiPrefs(context: Context) {
 
     /** Settings > Gestures > Show hints again. */
     fun resetGestureHints() {
-        GestureHintSession.shown = false
+        TipSession.latch.reset()
         prefs.edit().remove("gesture_hints_seen").apply()
     }
 

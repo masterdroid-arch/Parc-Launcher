@@ -16,7 +16,7 @@ class T239FamilyBuildTest {
     }
 
     @Test fun carriesTheReleaseVersion() {
-        assertEquals("1.5.11", BuildConfig.VERSION_NAME)
-        assertEquals(10511, BuildConfig.VERSION_CODE)
+        assertEquals("1.6.0", BuildConfig.VERSION_NAME)
+        assertEquals(10600, BuildConfig.VERSION_CODE)
     }
 }

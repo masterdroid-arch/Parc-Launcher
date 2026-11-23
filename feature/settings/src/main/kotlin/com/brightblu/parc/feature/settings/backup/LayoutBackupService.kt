@@ -67,7 +67,8 @@ class LayoutBackupService(
     /** Writes the current layout to [uri]. */
     suspend fun exportTo(uri: String, passphrase: CharArray? = null): BackupOutcome {
         return try {
-            val plain = full().export()
+            // T402: a plain-text export never carries a credential; only an encrypted one does.
+            val plain = full().export(includeSecrets = passphrase != null)
             val text = if (passphrase == null) plain else withContext(Dispatchers.IO) { BackupEncryption.encrypt(plain, passphrase) }
             files.write(uri, text)
             BackupOutcome.Exported(text.toByteArray(Charsets.UTF_8).size)

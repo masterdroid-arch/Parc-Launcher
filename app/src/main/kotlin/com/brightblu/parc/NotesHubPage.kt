@@ -75,7 +75,7 @@ internal fun NotesHubPage(skin: Skin) {
         if (previous != null && list.size > previous) listScroll.scrollTo(0)
         previousCount = list.size
     }
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().hubPageScroll(listScroll)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             BasicText("Quick jottings", Modifier.weight(1f), style = hubTitleStyle(skin))
             NoteAction("+", skin, "Add Note", enabled = notes != null && !loadError) {
@@ -89,7 +89,7 @@ internal fun NotesHubPage(skin: Skin) {
             NoteAction("Undo", skin, action = store::undoDelete)
         }
         if (loadError || writeError) NoteText("Couldn’t save or read notes. Reopen the Note to retry.", skin)
-        Column(Modifier.weight(1f).hubPageScroll(listScroll), verticalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(Metrics.itemGapDp.dp)) {
             val shown = remember(notes, query) { notes?.let { NoteSearch.results(it, query) }.orEmpty() }
             if (notes == null && !loadError) NoteText("Loading notes…", skin)
             else if (notes?.isEmpty() == true) NoteText(hubTemplates.getValue("notes").empty, skin)

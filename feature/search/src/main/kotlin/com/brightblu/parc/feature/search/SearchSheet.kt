@@ -200,6 +200,7 @@ fun SearchSheet(
     progress: () -> Float = { 1f },
     /** T157: the state has closed but the sheet is still springing away; it keeps the last open content and takes no touches. */
     closing: Boolean = false,
+    extension: AppsSearchExtension? = null,
 ) {
     val live = state.state.collectAsState().value
     val lastOpen = remember { arrayOfNulls<SearchUiState>(1) }
@@ -292,8 +293,8 @@ fun SearchSheet(
             com.brightblu.parc.core.data.lock.LockedApps.queryRevealsLockedApp(it, hiddenLabels)
         }
     } else emptyList()
-    val parcHits = remember(ui.query, parcSettings) {
-        com.brightblu.parc.feature.search.extras.ParcSettingsRanking.rank(ui.query, parcSettings)
+    val parcHits = remember(ui.query, parcSettings, extension == null) {
+        com.brightblu.parc.feature.search.extras.ParcSettingsRanking.rank(ui.query, parcSettings, allowFuzzy = extension == null)
     }
     val hasResults = ui.rows.isNotEmpty() || contacts.isNotEmpty() || ui.calculation != null || !extraResults.isEmpty ||
         parcHits.isNotEmpty() || notes.isNotEmpty()
@@ -365,9 +366,13 @@ fun SearchSheet(
                     }
                 }
                 LinkRow("All apps", skin, state::openAbcList)
-                val items = remember(ui.query, earlierQueries, ui.calculation, ui.rows, contacts, extraResults, parcHits, notes) {
+                val normal = remember(ui.query, earlierQueries, ui.calculation, ui.rows, contacts, extraResults, parcHits, notes) {
                     SearchSheetItems.build(ui.query, earlierQueries, ui.calculation, ui.rows, contacts, extraResults, parcHits, notes)
                 }
+                val extra = if (inApps && live.isOpen && ui.query.isNotBlank())
+                    extension?.results(ui.query, normal, contactsSource.takeIf { contactsEnabled && contactsGranted }).orEmpty()
+                else emptyList()
+                val items = SearchSheetItems.withExtras(normal, extra)
                 val listState = rememberLazyListState()
                 // OPUS3: back to the first (best) item whenever the query or the best item changes. The
                 // request is applied in the same frame's layout, so stale rows never flash.
@@ -400,6 +405,7 @@ fun SearchSheet(
                 ) {
                     items(items, key = { it.key }) { item ->
                         when (item) {
+                            is SheetItem.Extra -> TwoLineRow(item.title, item.detail, skin, item.onTap)
                             SheetItem.RecentHeader -> Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(Modifier.weight(1f)) { SheetCaption("Recent searches", skin) }
                                 Box(Modifier.weight(1f)) {
@@ -472,7 +478,7 @@ fun SearchSheet(
                         }
                     }
                 }
-                if (ui.query.isNotBlank() && !hasResults) {
+                if (ui.query.isNotBlank() && !hasResults && extra.isEmpty()) {
                     SheetMessage("No matches", skin)
                 }
                 }

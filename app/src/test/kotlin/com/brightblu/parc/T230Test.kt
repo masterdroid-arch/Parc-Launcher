@@ -36,13 +36,13 @@ class T230Test {
         assertTrue(ParcSpacing.pageBottomDp(48f, 48f) >= 48f + Metrics.sectionGapDp)
     }
 
-    @Test fun theSidesKeepTheRightBackStripClear() {
+    @Test fun theSidesAreEqual() { // T392: the right keep-out used to make the right margin 48 dp against 20
         assertEquals(20f, ParcSpacing.pageStartDp(0f), 0f)
-        assertEquals(48f, ParcSpacing.pageEndDp(0f), 0f)
-        assertTrue(ParcSpacing.pageEndDp(0f) >= 40f) // PROJECT.md right safe zone
+        assertEquals(20f, ParcSpacing.pageEndDp(0f), 0f)
         assertEquals(80f, ParcSpacing.pageEndDp(60f), 0f)
+        for (cutout in listOf(0f, 12f, 60f)) assertEquals(ParcSpacing.pageStartDp(cutout), ParcSpacing.pageEndDp(cutout), 0f)
         val page = ParcSpacing.page(statusTopDp = 46.9f, navBottomDp = 48f)
-        assertEquals(48f, page.endDp, 0f)
+        assertEquals(page.startDp, page.endDp, 0f)
         assertEquals(72f, page.bottomDp, 0f)
     }
 
@@ -96,10 +96,16 @@ class T230Test {
 
     @Test fun pageOptionsAndLibrarySheetsUseTheSafeDialogArea() {
         val options = text("app/src/main/kotlin/com/brightblu/parc/HubPageOptions.kt")
-        assertTrue(options.contains("ParcDialogArea"))
-        assertTrue(options.contains("decorFitsSystemWindows = false"))
+        // T376: the page sheet now lives on the shared SettingsSheet (which pads above the gesture bar
+        // with rememberPageInsets), and its Settings-page body still scrolls with parcBottomInset. No
+        // surface pads with the system bars directly.
+        assertTrue(options.contains("SettingsSheet("))
         assertFalse(options.contains(".systemBarsPadding()"))
         assertTrue(options.contains("verticalScroll(rememberScrollState()).parcBottomInset()"))
+
+        val sheet = text("app/src/main/kotlin/com/brightblu/parc/SettingsSheet.kt")
+        assertTrue(sheet.contains("rememberPageInsets()"))
+        assertTrue(sheet.contains("bottomDp.dp"))
 
         val library = text("app/src/main/kotlin/com/brightblu/parc/LibraryPage.kt")
         assertTrue(library.contains("ParcDialogArea"))

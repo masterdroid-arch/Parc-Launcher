@@ -22,8 +22,11 @@ data class BackupKey(
 /**
  * The allow-list of keys one store contributes. Only keys named here are ever written to a backup or
  * read back from one; history, diagnostics and learned state are simply not listed (T87). Immutable.
+ *
+ * T402: a [secret] store holds a credential (the DeepL key). It is written only into an encrypted
+ * backup and is left out of every plain-text one.
  */
-data class BackupStoreSpec(val id: String, val keys: List<BackupKey>) {
+data class BackupStoreSpec(val id: String, val keys: List<BackupKey>, val secret: Boolean = false) {
     private val byName: Map<String, BackupKey> = keys.associateBy { it.name }
     fun key(name: String): BackupKey? = byName[name]
 }

@@ -25,8 +25,8 @@ class T110Test {
         assertFalse(claimUpdate(store, 10100)); assertTrue(claimUpdate(store, 10200))
     }
     @Test fun currentReleaseHasTheCurrentVersionAndPlainWords() {
-        assertEquals("1.5.11", BuildConfig.VERSION_NAME)
-        assertEquals(10511, BuildConfig.VERSION_CODE)
+        assertEquals("1.6.0", BuildConfig.VERSION_NAME)
+        assertEquals(10600, BuildConfig.VERSION_CODE)
         val entries = javaClass.classLoader!!.getResourceAsStream("changelog.json")!!
             .bufferedReader().use { parseChangelog(it.readText()) }
         val current = entries.last()

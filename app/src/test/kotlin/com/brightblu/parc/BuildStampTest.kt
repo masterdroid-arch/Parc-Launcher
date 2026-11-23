@@ -15,10 +15,10 @@ class BuildStampTest {
     }
 
     @Test fun linesAndShortForm() {
-        val lines = BuildStamp.lines("1.5.11", 10511, "2026-11-01 20:15", "abc1234")
+        val lines = BuildStamp.lines("1.6.0", 10600, "2026-11-01 20:15", "abc1234")
         assertEquals(listOf("Version", "Version code", "Built on", "Code commit"), lines.map { it.first })
-        assertEquals(listOf("1.5.11", "10511", "2026-11-01 20:15", "abc1234"), lines.map { it.second })
-        assertEquals("1.5.11 (10511) · 2026-11-01 20:15", BuildStamp.short("1.5.11", 10511, "2026-11-01 20:15"))
+        assertEquals(listOf("1.6.0", "10600", "2026-11-01 20:15", "abc1234"), lines.map { it.second })
+        assertEquals("1.6.0 (10600) · 2026-11-01 20:15", BuildStamp.short("1.6.0", 10600, "2026-11-01 20:15"))
         assertTrue(BuildStamp.CommitFormat.matches("abc1234+changes"))
     }
 

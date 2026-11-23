@@ -255,4 +255,17 @@ class T312Test {
         assertEquals("All arcs are full. Remove an app or raise a maximum in Settings.", ArcChooser.AllFullMessage)
         assertEquals("Added to Inner arc", ArcChooser.addedMessage("Inner arc"))
     }
+
+    @Test fun theSheetSubtitleKeepsTheFullArcCountVisible() {
+        fun choice(name: String, occupied: Int, capacity: Int) = ArcChoice(name, 0, name, occupied, capacity)
+        // No full arc: no subtitle, the rows already carry their counts.
+        assertEquals("", ArcChooser.fullSubtitle(listOf(choice("A1", 2, 4), choice("A2", 3, 5))))
+        // One full of four: the count is visible, including the arc with two free slots (5 of 7).
+        assertEquals("1 of 4 arcs full", ArcChooser.fullSubtitle(listOf(
+            choice("A1", 4, 4), choice("A2", 3, 5), choice("A3", 5, 7), choice("A4", 1, 7))))
+        // All full: the all-full message leads instead, so no subtitle.
+        assertEquals("", ArcChooser.fullSubtitle(listOf(choice("A1", 4, 4), choice("A2", 5, 5))))
+        // Empty list.
+        assertEquals("", ArcChooser.fullSubtitle(emptyList()))
+    }
 }

@@ -1,32 +1,22 @@
 package com.brightblu.parc
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.brightblu.parc.feature.settings.ui.SettingsSegmented
 import com.brightblu.parc.feature.settings.ui.SettingsTheme
 import com.brightblu.parc.feature.settings.ui.SettingsVisualChoice
 import com.brightblu.parc.feature.settings.ui.settingsText
@@ -35,10 +25,7 @@ import com.brightblu.parc.model.LookSettings
 import com.brightblu.parc.model.Metrics
 import com.brightblu.parc.model.Skin
 import com.brightblu.parc.model.WallpaperStyle
-import com.brightblu.parc.model.rememberPageInsets
-import com.brightblu.parc.model.textFamily
 import com.brightblu.parc.model.readableAccent
-import com.brightblu.parc.ring.module.frostedBackground
 
 /**
  * T324: Home menu > "Wallpaper and look" opens this sheet over Home instead of switching to the
@@ -56,75 +43,32 @@ internal fun WallpaperSheet(
     onChange: ((LookSettings) -> LookSettings) -> Unit,
     onClose: () -> Unit,
 ) {
-    BackHandler(onBack = onClose)
-    val picture = rememberWallpaperThumbnail(look.wallpaperImageRevision)
-    val phoneColour = rememberPhoneWallpaperColour()
+    val sources = remember { listOf("Phone", "Picture", "Skin colour") }
     var chooseRequest by remember { mutableIntStateOf(0) }
-    val screenHeightDp = LocalConfiguration.current.screenHeightDp
-    val bodyMaxDp = (screenHeightDp * Metrics.wallpaperSheetMaxHeightFraction).dp
     SettingsTheme(skin) {
-        Box(Modifier.fillMaxSize().background(Color(skin.colors.scrim.toInt()))
-            .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClose)) {
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .padding(top = Metrics.keepOutTopDp.dp)
-                .then(
-                    if (skin.shape.moduleStyle == com.brightblu.parc.model.ModuleStyle.frosted)
-                        Modifier.frostedBackground(skin, Metrics.menuCornerDp, roundBottom = false)
-                    else Modifier.background(
-                        Color(skin.colors.surface.toInt()),
-                        RoundedCornerShape(topStart = Metrics.menuCornerDp.dp, topEnd = Metrics.menuCornerDp.dp),
-                    )
-                )
-                // Taps inside the sheet never reach the scrim.
-                .clickable(remember { MutableInteractionSource() }, indication = null) {}
-                .padding(bottom = rememberPageInsets().bottomDp.dp)) {
-                Row(Modifier.fillMaxWidth().heightIn(min = Metrics.touchTargetDp.dp)
-                    .padding(start = Metrics.screenGutterDp.dp, end = Metrics.actionEdgeGapDp.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    BasicText(
-                        WallpaperSheetRules.Title,
-                        Modifier.weight(1f).semantics { heading() },
-                        style = TextStyle(
-                            fontFamily = skin.textFamily,
-                            color = Color(skin.colors.textPrimary.toInt()),
-                            fontSize = skin.typography.menu.sizeSp.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        ),
-                    )
-                    Box(Modifier.clickable(onClick = onClose)
-                        .heightIn(min = Metrics.touchTargetDp.dp)
-                        .padding(horizontal = Metrics.itemGapDp.dp),
-                        contentAlignment = Alignment.Center) {
-                        BasicText("Close", style = settingsText(skin, skin.colors.accent))
-                    }
+        SettingsSheet("Wallpaper", skin, onClose) {
+            SettingsSegmented("", skin, sources, wallpaperChoiceIndex(look.wallpaper), divider = false) { index ->
+                if (WallpaperChoices[index] == WallpaperStyle.Image) chooseRequest++
+                else onChange { it.copy(wallpaper = WallpaperChoices[index]) }
+            }
+            if (WallpaperSheetRules.showsDim(look.wallpaper)) {
+                val steps = LookRules.DimSteps
+                // The stored value is always a step; the rounding also covers a value written
+                // by a future range so the slider still opens on the nearest step.
+                val index = LookRules.stepIndex(look.wallpaperDimPercent / 100f, steps)
+                SettingsVisualChoice("Wallpaper dim", index, steps.map { "$it %" }, skin,
+                    divider = false) { picked ->
+                    onChange { it.copy(wallpaperDimPercent = steps[picked.coerceIn(steps.indices)]) }
                 }
-                Column(Modifier.fillMaxWidth().heightIn(max = bodyMaxDp).verticalScroll(rememberScrollState())) {
-                    WallpaperChoiceCards(skin, look.wallpaper, picture, phoneColour,
-                        modifier = Modifier.padding(horizontal = Metrics.screenGutterDp.dp, vertical = Metrics.rowGapDp.dp)) { index ->
-                        if (WallpaperChoices[index] == WallpaperStyle.Image) chooseRequest++
-                        else onChange { it.copy(wallpaper = WallpaperChoices[index]) }
-                    }
-                    if (WallpaperSheetRules.showsDim(look.wallpaper)) {
-                        val steps = LookRules.DimSteps
-                        // The stored value is always a step; the rounding also covers a value written
-                        // by a future range so the slider still opens on the nearest step.
-                        val index = LookRules.stepIndex(look.wallpaperDimPercent / 100f, steps)
-                        SettingsVisualChoice(WallpaperSheetRules.Dim, index, steps.map { "$it %" }, skin,
-                            WallpaperSheetRules.DimHelp, divider = false) { picked ->
-                            onChange { it.copy(wallpaperDimPercent = steps[picked.coerceIn(steps.indices)]) }
-                        }
-                    }
-                    WallpaperImageControls(skin, look, onChange, chooseRequest = chooseRequest,
-                        showOptions = look.wallpaper == WallpaperStyle.Image)
-                    val note = WallpaperSheetRules.note(look.wallpaper)
-                    if (note.isNotEmpty()) {
-                        BasicText(note,
-                            style = settingsText(skin, skin.colors.textSecondary, true),
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = Metrics.screenGutterDp.dp,
-                                vertical = Metrics.sectionHeaderGapDp.dp))
-                    }
-                    Spacer(Modifier.height(Metrics.rowGapDp.dp))
-                }
+            }
+            WallpaperImageControls(skin, look, onChange, chooseRequest = chooseRequest,
+                showOptions = look.wallpaper == WallpaperStyle.Image)
+            val note = WallpaperSheetRules.note(look.wallpaper)
+            if (note.isNotEmpty()) {
+                BasicText(note,
+                    style = settingsText(skin, skin.colors.textSecondary, true),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = Metrics.screenGutterDp.dp,
+                        vertical = Metrics.sectionHeaderGapDp.dp))
             }
         }
     }

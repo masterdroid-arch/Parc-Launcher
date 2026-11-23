@@ -161,8 +161,9 @@ private fun ColumnScope.SlotList(ui: FolderEditorUi, skin: Skin, onEvent: (Folde
         item(key = "hide") {
             ListRow(
                 label = if (ui.folderHidden) "Unhide folder" else "Hide folder",
-                detail = if (ui.folderHidden) "Show the folder and its apps on Home again"
-                else "Hide the folder and its apps from Home. Lock is separate.",
+                detail = if (ui.folderHidden) "Show the folder and its apps again"
+                else "Folder and apps leave Home.",
+                info = "Hide is permanent until you unhide. Lock is separate.",
                 skin = skin,
                 accent = false,
                 onClick = { onEvent(FolderEditorEvent.ToggleFolderHidden) },
@@ -280,11 +281,12 @@ private fun ListRow(
     detail: String,
     skin: Skin,
     accent: Boolean,
+    info: String = "",
     onClick: () -> Unit,
 ) {
     SettingsCard(skin) {
         SettingRow(label, skin, if (accent) SettingKind.Action else SettingKind.Page,
-            description = detail, icon = "+", divider = false, onClick = onClick)
+            description = detail, icon = "+", info = info, divider = false, onClick = onClick)
     }
 }
 

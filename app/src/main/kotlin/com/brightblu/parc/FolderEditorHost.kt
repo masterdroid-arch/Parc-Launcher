@@ -1,5 +1,6 @@
 package com.brightblu.parc
 
+import com.brightblu.parc.feature.settings.ui.SettingsConfirmation
 import com.brightblu.parc.model.textFamily
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -147,16 +148,14 @@ internal fun FolderEditorHost(services: LauncherServices, skin: Skin, create: Bo
         // the same bottom safe area as the page or the last row would fall behind the navigation bar.
         Column(Modifier.fillMaxWidth().padding(bottom = rememberPageInsets().bottomDp.dp)) {
             if (confirmDelete) {
-                EditorAction("Remove ${state.openFolder?.name}? Its apps go to New.", skin) {}
-                Row {
-                    EditorAction("Cancel", skin) { confirmDelete = false }
-                    EditorAction("Remove", skin) {
-                        val folder = state.openFolder ?: return@EditorAction
+                SettingsConfirmation(FolderRemovalCopy.title(state.openFolder?.name.orEmpty()),
+                    FolderRemovalCopy.Consequence, FolderRemovalCopy.Confirm, skin,
+                    onCancel = { confirmDelete = false }) {
+                        val folder = state.openFolder ?: return@SettingsConfirmation
                         confirmDelete = false
                         commit(state.copy(document = state.document.copy(folders = state.document.folders.filterNot { it.id == folder.id }),
                             page = EditorPage.Folders, openFolderId = null, prompt = null, notice = "Folder deleted",
                             undo = emptyList()))
-                    }
                 }
             } else if (state.openFolder != null && state.openFolderId != FolderId(NewFolderKey) && state.prompt == null) {
                 EditorAction("Remove folder", skin) { if (!busy) confirmDelete = true }

@@ -1,12 +1,18 @@
 package com.brightblu.parc.feature.settings.hidden
 
+import com.brightblu.parc.feature.settings.ui.SettingsEmptyState
+import com.brightblu.parc.feature.settings.ui.SettingsInfo
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -138,14 +144,15 @@ fun HiddenFoldersScreen(
         safeTop = false, scroll = true) {
         BasicText("Hidden folders",
             style = settingsText(skin).copy(fontSize = skin.typography.title.sizeSp.sp))
-        BasicText(VisibilityCopy.Scope,
-            style = settingsText(skin, skin.colors.textSecondary, true),
-            modifier = Modifier.padding(top = Metrics.rowGapDp.dp, bottom = Metrics.sectionHeaderGapDp.dp))
+        Row(Modifier.fillMaxWidth().padding(top = Metrics.rowGapDp.dp, bottom = Metrics.sectionHeaderGapDp.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Metrics.rowGapDp.dp)) {
+            BasicText("Apps leave Home too.", Modifier.weight(1f),
+                style = settingsText(skin, skin.colors.textSecondary, true))
+            SettingsInfo("Hidden folders", VisibilityCopy.Scope, skin)
+        }
         SettingsSection(HiddenFoldersText.sectionTitle(state.rows.size), skin)
         if (state.rows.isEmpty()) {
-            BasicText("No hidden folders.",
-                style = settingsText(skin, skin.colors.textSecondary, true),
-                modifier = Modifier.padding(horizontal = Metrics.settingsRowInsetDp.dp))
+            SettingsEmptyState("No hidden folders", skin, helper = "Hide a folder in its editor.")
         } else {
             SettingsCard(skin) {
                 state.rows.forEachIndexed { index, row ->

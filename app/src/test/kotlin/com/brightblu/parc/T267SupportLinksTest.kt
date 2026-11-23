@@ -23,10 +23,14 @@ class T267SupportLinksTest {
         assertTrue(SupportLinks.donate.startsWith("https://"))
     }
 
-    @Test fun donateNoteIsThePlainHonestWording() {
-        assertEquals(
-            "Parc is free and always will be. If it helps you, you can leave a tip on Ko-fi. Nothing is locked behind it.",
-            SupportLinks.donateNote
-        )
+    @Test fun rowWordingIsThePlainHonestWording() {
+        assertEquals("Support Parc on Ko-fi", SupportLinks.rowTitle)
+        assertEquals("Optional. Nothing is locked behind it.", SupportLinks.rowNote)
+    }
+
+    @Test fun searchFindsTheSupportRowForKoFiTipAndDonate() {
+        listOf("ko-fi", "kofi", "support", "tip", "donate").forEach { q ->
+            assertTrue(q, SettingsRegistry.search(q).any { it.id == "About" })
+        }
     }
 }
